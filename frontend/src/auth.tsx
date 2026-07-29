@@ -1,0 +1,79 @@
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { storage } from "@/src/utils/storage";
+import { api, TOKEN_KEY, User } from "@/src/api";
+
+type AuthState = {
+  user: User | null;
+  token: string | null;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<User>;
+  signUp: (payload: { email: string; password: string; name: string; role: "client" | "prestataire"; phone?: string; city?: string }) => Promise<User>;
+  signOut: () => Promise<void>;
+  refresh: () => Promise<void>;
+};
+
+const Ctx = createContext<AuthState | null>(null);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    const t = await storage.secureGet<string>(TOKEN_KEY, "");
+    if (t) {
+      setToken(t);
+      try {
+        const me = await api.get<User>("/auth/me");
+        setUser(me);
+      } catch {
+        await storage.secureRemove(TOKEN_KEY);
+        setToken(null);
+      }
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const signIn = async (email: string, password: string) => {
+    const r = await api.post<{ token: string; user: User }>("/auth/login", { email, password }, false);
+    await storage.secureSet(TOKEN_KEY, r.token);
+    setToken(r.token);
+    setUser(r.user);
+    return r.user;
+  };
+
+  const signUp = async (payload: any) => {
+    const r = await api.post<{ token: string; user: User }>("/auth/register", payload, false);
+    await storage.secureSet(TOKEN_KEY, r.token);
+    setToken(r.token);
+    setUser(r.user);
+    return r.user;
+  };
+
+  const signOut = async () => {
+    await storage.secureRemove(TOKEN_KEY);
+    setToken(null);
+    setUser(null);
+  };
+
+  const refresh = async () => {
+    try {
+      const me = await api.get<User>("/auth/me");
+      setUser(me);
+    } catch {}
+  };
+
+  return (
+    <Ctx.Provider value={{ user, token, loading, signIn, signUp, signOut, refresh }}>
+      {children}
+    </Ctx.Provider>
+  );
+}
+
+export function useAuth() {
+  const c = useContext(Ctx);
+  if (!c) throw new Error("useAuth must be used inside AuthProvider");
+  return c;
+}

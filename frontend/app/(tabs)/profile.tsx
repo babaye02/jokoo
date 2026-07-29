@@ -1,0 +1,156 @@
+import { useCallback, useEffect, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@/src/auth";
+import { api, Booking } from "@/src/api";
+import { Avatar, Card, Txt } from "@/src/components/ui";
+import { colors, radius, shadow, spacing } from "@/src/theme";
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "En attente",
+  accepted: "Acceptée",
+  rejected: "Refusée",
+  completed: "Terminée",
+  cancelled: "Annulée",
+};
+const STATUS_COLOR: Record<string, string> = {
+  pending: colors.warning,
+  accepted: colors.turquoise,
+  rejected: colors.danger,
+  completed: colors.success,
+  cancelled: colors.textMuted,
+};
+
+export default function Profile() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { user, signOut } = useAuth();
+  const [bookings, setBookings] = useState<Booking[]>([]);
+
+  const load = useCallback(async () => {
+    try {
+      const list = await api.get<Booking[]>("/bookings");
+      setBookings(list.slice(0, 5));
+    } catch {}
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const logout = async () => { await signOut(); router.replace("/login"); };
+
+  if (!user) return null;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}>
+        {/* Header */}
+        <SafeAreaView edges={["top"]} style={styles.header}>
+          <View style={{ alignItems: "center" }}>
+            <Avatar uri={user.avatar} name={user.name} size={92} />
+            <Txt size="xl" weight="700" style={{ marginTop: spacing.md }}>{user.name}</Txt>
+            <Txt size="sm" color={colors.textMuted}>{user.email}</Txt>
+            <View style={styles.roleBadge}>
+              <Ionicons name={user.role === "prestataire" ? "briefcase" : "person"} size={12} color={colors.white} />
+              <Txt size="xxs" color={colors.white} weight="700" style={{ marginLeft: 4 }}>
+                {user.role === "prestataire" ? "PRESTATAIRE" : "CLIENT"}
+              </Txt>
+            </View>
+          </View>
+        </SafeAreaView>
+
+        {/* Dashboard shortcut for prestataire */}
+        {user.role === "prestataire" ? (
+          <View style={{ padding: spacing.xl }}>
+            <Pressable onPress={() => router.push("/dashboard")} style={styles.dashCta} testID="open-dashboard">
+              <View>
+                <Txt size="lg" weight="700" color={colors.white}>Tableau de bord</Txt>
+                <Txt size="sm" color="rgba(255,255,255,0.8)" style={{ marginTop: 2 }}>Revenus, calendrier, demandes</Txt>
+              </View>
+              <Ionicons name="arrow-forward-circle" size={32} color={colors.white} />
+            </Pressable>
+          </View>
+        ) : (
+          <View style={{ height: spacing.xl }} />
+        )}
+
+        {/* Recent bookings */}
+        <View style={{ paddingHorizontal: spacing.xl }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.md }}>
+            <Txt size="lg" weight="700">{user.role === "prestataire" ? "Demandes récentes" : "Vos réservations"}</Txt>
+          </View>
+          {bookings.length === 0 ? (
+            <Card><Txt color={colors.textMuted}>Aucune réservation pour le moment.</Txt></Card>
+          ) : (
+            <View style={{ gap: spacing.sm }}>
+              {bookings.map((b) => (
+                <Card key={b.id} style={{ padding: spacing.md }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <View style={{ flex: 1 }}>
+                      <Txt weight="700">{user.role === "prestataire" ? b.client_name : b.provider_name}</Txt>
+                      <Txt size="xs" color={colors.textMuted}>{b.provider_service} · {b.date} {b.time}</Txt>
+                    </View>
+                    <View style={[styles.pill, { backgroundColor: `${STATUS_COLOR[b.status]}22` }]}>
+                      <Txt size="xxs" weight="700" color={STATUS_COLOR[b.status]}>{STATUS_LABEL[b.status]}</Txt>
+                    </View>
+                  </View>
+                </Card>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Menu */}
+        <View style={{ padding: spacing.xl, gap: spacing.sm }}>
+          <MenuRow icon="heart-outline" title="Favoris" onPress={() => router.push("/favorites")} testID="menu-favorites" />
+          {user.role === "prestataire" ? (
+            <MenuRow icon="person-circle-outline" title="Profil prestataire" onPress={() => router.push("/provider-profile")} testID="menu-provider-profile" />
+          ) : null}
+          <MenuRow icon="card-outline" title="Paiements" onPress={() => {}} />
+          <MenuRow icon="settings-outline" title="Paramètres" onPress={() => {}} />
+          <MenuRow icon="shield-checkmark-outline" title="Sécurité & confidentialité" onPress={() => {}} />
+          <MenuRow icon="help-circle-outline" title="Aide" onPress={() => {}} />
+          <Pressable onPress={logout} style={[styles.row, { marginTop: spacing.md }]} testID="menu-logout">
+            <View style={[styles.iconWrap, { backgroundColor: "#FEE2E2" }]}>
+              <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+            </View>
+            <Txt weight="600" color={colors.danger} style={{ flex: 1, marginLeft: 12 }}>Se déconnecter</Txt>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function MenuRow({ icon, title, onPress, testID }: { icon: any; title: string; onPress: () => void; testID?: string }) {
+  return (
+    <Pressable style={styles.row} onPress={onPress} testID={testID}>
+      <View style={styles.iconWrap}>
+        <Ionicons name={icon} size={20} color={colors.midnight} />
+      </View>
+      <Txt weight="600" style={{ flex: 1, marginLeft: 12 }}>{title}</Txt>
+      <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: { backgroundColor: colors.surface, paddingTop: spacing.lg, paddingBottom: spacing.xl, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, ...shadow.soft },
+  roleBadge: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: colors.midnight, paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: radius.pill, marginTop: spacing.sm,
+  },
+  dashCta: {
+    backgroundColor: colors.midnight, borderRadius: radius.lg, padding: spacing.lg,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    ...shadow.card,
+  },
+  row: {
+    backgroundColor: colors.surface, borderRadius: radius.lg, padding: 14,
+    flexDirection: "row", alignItems: "center", ...shadow.soft,
+  },
+  iconWrap: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
+  pill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill },
+});

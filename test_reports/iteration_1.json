@@ -1,0 +1,64 @@
+{
+  "summary": "Jokoo MVP end-to-end test (backend + frontend). Backend: 40/42 tests PASS (95%). Frontend: full user flow validated (splash \u2192 onboarding \u2192 login \u2192 home \u2192 service chip \u2192 search \u2192 provider detail \u2192 booking form \u2192 favorite toggle \u2192 chat conversation \u2192 dashboard \u2192 provider-profile). Both client and prestataire logins work. Notifications, messages tabs, dashboard stats, provider-profile screen all render correctly with real seeded data. CRITICAL BUG: Stripe checkout is BROKEN \u2014 the backend uses raw `stripe` SDK with `STRIPE_API_KEY=sk_test_emergent` which Stripe rejects with `Invalid API Key`, so BOTH `/api/payments/checkout/booking` and `/api/payments/checkout/subscription` return HTTP 500. The `emergentintegrations` library is declared in requirements.txt but is NOT used by server.py \u2014 main agent must migrate Stripe calls to `emergentintegrations` (Emergent-managed key) or wire a real `sk_test_...` key. All other 12 endpoint groups work as specified.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/payments/checkout/booking",
+        "issue": "Returns HTTP 500 'Invalid API Key provided: sk_test_****gent'. The backend calls stripe.checkout.Session.create() directly with STRIPE_API_KEY=sk_test_emergent from .env, but that placeholder is only usable via the emergentintegrations library. Booking payment (card) is completely unusable.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/payments/checkout/subscription",
+        "issue": "Same Stripe API key issue \u2014 500 'Invalid API Key'. Prestataire cannot subscribe to Jokoo Pro (15 000 FCFA/mois). Frontend `subscribe-btn` on dashboard silently fails.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Payments (card checkout on booking success screen; subscribe on dashboard)",
+        "issue": "Both card payment and Pro subscription open a URL that resolves to a 500 backend error. UI does not show a user-friendly error toast when the Stripe call fails \u2014 the button appears to do nothing.",
+        "affected_testIDs": ["pay-submit", "subscribe-btn"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Splash/Onboarding",
+        "issues": [
+          "Console warning: `props.pointerEvents is deprecated. Use style.pointerEvents` (react-native-web deprecation, minor)",
+          "Console warning: `\"shadow*\" style props are deprecated. Use \"boxShadow\"` (minor)"
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "URGENT: Fix Stripe integration. Either (a) migrate `/api/payments/checkout/booking` and `/api/payments/checkout/subscription` to use the already-installed `emergentintegrations` library (which handles the sk_test_emergent placeholder server-side), or (b) replace STRIPE_API_KEY in /app/backend/.env with a real `sk_test_...` key from Stripe dashboard. Currently 500 errors.",
+    "Add user-facing error handling on booking success screen and dashboard subscribe button so that when the checkout call fails the UI shows an Alert/Toast instead of silently doing nothing.",
+    "(Nice-to-have) Fix react-native-web deprecation warnings: replace `pointerEvents` prop with `style.pointerEvents`, and `shadow*` style props with `boxShadow`."
+  ],
+  "critical_code_review_comments": [
+    "server.py properly uses async motor, excludes `_id` in all queries, uses env vars for MONGO_URL/DB_NAME/JWT_SECRET/STRIPE_API_KEY \u2014 clean.",
+    "Auth uses bcrypt + JWT with 30-day expiry \u2014 fine for MVP.",
+    "Bookings/reviews/favorites/chat/notifications endpoints all have proper role-based access control (403 on client trying to accept bookings, on client hitting /dashboard, on client hitting /providers/me).",
+    "Rating is recomputed on every review insert \u2014 correct.",
+    "Only real defect: Stripe calls bypass emergentintegrations. The library is in requirements.txt but never imported in server.py.",
+    "Frontend: testIDs are comprehensive and kebab-case as documented. SafeAreaView uses `react-native-safe-area-context` (correct). No deprecated expo-av / expo-barcode-scanner / expo-background-fetch. No raw HTML tags used."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (created \u2014 42 pytest cases covering all 13 endpoint groups)"
+  ],
+  "success_rate": {"backend": "95% (40/42)", "frontend": "100% of user-facing flows tested (payments blocked by backend bug)"},
+  "seed_data_creation": "Called POST /api/seed which re-inserted 16 providers with 3-5 reviews each. Test users client@jokoo.sn / pro@jokoo.sn (Passw0rd!) verified to exist and login. During testing created 2 bookings, 1 review, 1 chat conversation, 1 favorite toggle \u2014 all persisted.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend suite at /app/backend/tests/backend_test.py. Run with `pytest backend/tests/backend_test.py -n 0` (the shared _state dict requires sequential execution; the repo pytest.ini forces -n 2 --dist loadscope). After fixing Stripe, re-run TestPayments class specifically. Frontend flow works end-to-end \u2014 focus retest on payment UI (Alert on failure, and success flow with a real Stripe key or emergentintegrations).",
+  "rca_of_issue": "STRIPE ROOT CAUSE: /app/backend/server.py:44 sets `stripe.api_key = os.environ.get('STRIPE_API_KEY', 'sk_test_emergent')` and then calls `stripe.checkout.Session.create(...)` directly at server.py:570 and server.py:597. The placeholder value `sk_test_emergent` is intended to be consumed by Emergent's `emergentintegrations` library (declared in /app/backend/requirements.txt), which proxies to a managed Stripe test account. Calling Stripe's SDK directly with this placeholder produces `stripe.error.AuthenticationError: Invalid API Key provided: sk_test_****gent`. REPRODUCTION: `curl -X POST $BASE/api/payments/checkout/subscription -H 'Authorization: Bearer <pro_jwt>' -H 'Content-Type: application/json' -d '{\"plan\":\"monthly\"}'` \u2192 500 with message `Paiement indisponible: Invalid API Key provided: sk_test_****gent`. FIX: import and use emergentintegrations.stripe (or equivalent) instead of the raw stripe SDK, OR set STRIPE_API_KEY to a genuine Stripe test key."
+}
