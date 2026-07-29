@@ -1,5 +1,4 @@
-// Hub espace administrateur — statistiques et raccourcis vers gestion des publicités
-// et sponsorisations.
+// Hub espace administrateur — statistiques + raccourcis filtrés par permission.
 import { useCallback, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,15 +6,21 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
+import { hasPerm, isStaff, isSuperAdmin, ROLE_LABEL } from "@/src/perms";
 import { Card, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
-type AdStats = {
-  total_ads: number;
-  active_ads: number;
-  total_impressions: number;
-  total_clicks: number;
-};
+type AdStats = { total_ads: number; active_ads: number; total_impressions: number; total_clicks: number };
+
+const NAV_ITEMS: {
+  key: string; title: string; sub: string; icon: any; route: string; perm?: string; superOnly?: boolean;
+}[] = [
+  { key: "staff",    title: "Équipe & rôles",          sub: "Gérer les employés et permissions",          icon: "people-outline",         route: "/admin/staff",              superOnly: true },
+  { key: "ads",      title: "Publicités",              sub: "Créer, programmer, suivre",                  icon: "megaphone-outline",      route: "/admin/ads",                perm: "ads:read" },
+  { key: "sponsors", title: "Sponsorisations",         sub: "Valider les campagnes payantes",             icon: "rocket-outline",         route: "/admin/sponsorships",       superOnly: true },
+  { key: "assist",   title: "Inscription assistée",    sub: "Créer un compte client/prestataire",         icon: "person-add-outline",     route: "/admin/assisted-register", perm: "operator:create_account" },
+  { key: "reports",  title: "Signalements",            sub: "Réclamations et modération",                 icon: "flag-outline",           route: "/admin/reports",            perm: "reports:handle" },
+];
 
 export default function AdminHub() {
   const router = useRouter();
@@ -25,18 +30,19 @@ export default function AdminHub() {
   const [pendingSponsor, setPendingSponsor] = useState(0);
 
   const load = useCallback(async () => {
-    try {
-      const [s, sp] = await Promise.all([
-        api.get<AdStats>("/admin/ads/stats"),
-        api.get<any[]>("/admin/sponsorships"),
-      ]);
-      setStats(s);
-      setPendingSponsor(sp.filter((x) => x.status === "pending").length);
-    } catch {}
-  }, []);
+    if (hasPerm(user, "ads:read") || isSuperAdmin(user)) {
+      try { setStats(await api.get<AdStats>("/admin/ads/stats")); } catch {}
+    }
+    if (isSuperAdmin(user)) {
+      try {
+        const sp = await api.get<any[]>("/admin/sponsorships");
+        setPendingSponsor(sp.filter((x) => x.status === "pending").length);
+      } catch {}
+    }
+  }, [user]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  if (!user?.is_admin) {
+  if (!isStaff(user)) {
     return (
       <SafeAreaView style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface }}>
         <Ionicons name="lock-closed" size={48} color={colors.textSubtle} />
@@ -44,6 +50,13 @@ export default function AdminHub() {
       </SafeAreaView>
     );
   }
+
+  const role = user?.staff_role || "super_admin";
+  const items = NAV_ITEMS.filter((it) => {
+    if (it.superOnly) return isSuperAdmin(user);
+    if (it.perm) return hasPerm(user, it.perm);
+    return true;
+  });
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
@@ -58,50 +71,40 @@ export default function AdminHub() {
       <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 40 + insets.bottom, gap: spacing.md }}>
         <View style={styles.hero}>
           <Ionicons name="shield-checkmark" size={26} color={colors.white} />
-          <Txt size="xl" weight="700" color={colors.white} style={{ marginTop: 8 }}>Panneau administrateur</Txt>
-          <Txt size="sm" color="rgba(255,255,255,0.85)" style={{ marginTop: 4 }}>
-            Gérez les publicités et les campagnes sponsorisées.
-          </Txt>
+          <Txt size="xl" weight="700" color={colors.white} style={{ marginTop: 8 }}>Bonjour, {user?.name?.split(" ")[0] || "Admin"}</Txt>
+          <View style={styles.roleTag}>
+            <Txt size="xxs" weight="700" color={colors.midnight}>{ROLE_LABEL[role as keyof typeof ROLE_LABEL] || "Staff"}</Txt>
+          </View>
         </View>
 
-        {/* Ad stats */}
-        <View style={styles.grid}>
-          <StatBox icon="megaphone" label="Publicités" value={String(stats?.total_ads ?? 0)} color={colors.turquoise} />
-          <StatBox icon="eye" label="Vues" value={String(stats?.total_impressions ?? 0)} color={colors.midnight} />
-          <StatBox icon="hand-left" label="Clics" value={String(stats?.total_clicks ?? 0)} color={colors.info} />
-          <StatBox icon="checkmark-done" label="Actives" value={String(stats?.active_ads ?? 0)} color={colors.success} />
-        </View>
+        {stats ? (
+          <View style={styles.grid}>
+            <StatBox icon="megaphone" label="Publicités" value={String(stats.total_ads)} color={colors.turquoise} />
+            <StatBox icon="eye"        label="Vues"       value={String(stats.total_impressions)} color={colors.midnight} />
+            <StatBox icon="hand-left"  label="Clics"      value={String(stats.total_clicks)} color={colors.info} />
+            <StatBox icon="checkmark-done" label="Actives" value={String(stats.active_ads)} color={colors.success} />
+          </View>
+        ) : null}
 
-        <Pressable onPress={() => router.push("/admin/ads")} style={styles.nav} testID="admin-ads">
-          <View style={styles.navIcon}>
-            <Ionicons name="megaphone-outline" size={22} color={colors.turquoise} />
-          </View>
-          <View style={{ flex: 1, marginLeft: 12 }}>
-            <Txt weight="700">Gérer les publicités</Txt>
-            <Txt size="xs" color={colors.textMuted}>Créer, programmer et suivre les campagnes</Txt>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={colors.textSubtle} />
-        </Pressable>
+        {items.map((it) => (
+          <Pressable key={it.key} onPress={() => router.push(it.route as any)} style={styles.nav} testID={`admin-nav-${it.key}`}>
+            <View style={styles.navIcon}>
+              <Ionicons name={it.icon} size={22} color={colors.turquoise} />
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Txt weight="700">{it.title}</Txt>
+              <Txt size="xs" color={colors.textMuted}>{it.sub}</Txt>
+            </View>
+            {it.key === "sponsors" && pendingSponsor > 0 ? (
+              <View style={styles.badge}><Txt size="xxs" weight="700" color={colors.white}>{pendingSponsor}</Txt></View>
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color={colors.textSubtle} />
+            )}
+          </Pressable>
+        ))}
 
-        <Pressable onPress={() => router.push("/admin/sponsorships")} style={styles.nav} testID="admin-sponsors">
-          <View style={styles.navIcon}>
-            <Ionicons name="rocket-outline" size={22} color={colors.turquoise} />
-          </View>
-          <View style={{ flex: 1, marginLeft: 12 }}>
-            <Txt weight="700">Sponsorisations</Txt>
-            <Txt size="xs" color={colors.textMuted}>
-              {pendingSponsor > 0 ? `${pendingSponsor} en attente de validation` : "Historique et validation"}
-            </Txt>
-          </View>
-          {pendingSponsor > 0 ? (
-            <View style={styles.badge}><Txt size="xxs" weight="700" color={colors.white}>{pendingSponsor}</Txt></View>
-          ) : (
-            <Ionicons name="chevron-forward" size={20} color={colors.textSubtle} />
-          )}
-        </Pressable>
-
-        {stats && stats.total_ads === 0 ? (
-          <Card><Txt color={colors.textMuted}>{"Aucune publicité pour l'instant."}</Txt></Card>
+        {items.length === 0 ? (
+          <Card><Txt color={colors.textMuted}>{"Vous n'avez accès à aucune section avec votre rôle actuel."}</Txt></Card>
         ) : null}
       </ScrollView>
     </View>
@@ -124,6 +127,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.xl, paddingBottom: spacing.md, backgroundColor: colors.surface, ...shadow.soft },
   back: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
   hero: { padding: spacing.xl, borderRadius: radius.lg, backgroundColor: colors.midnight, ...shadow.card },
+  roleTag: { marginTop: 10, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: colors.white },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
   statBox: { width: "48%", backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, ...shadow.soft },
   statIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },

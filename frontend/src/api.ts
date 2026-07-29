@@ -42,12 +42,17 @@ export const api = {
 };
 
 // Types
+export type StaffRole = "super_admin" | "admin" | "marketing" | "support" | "operator" | "tech";
+
 export type User = {
   id: string;
   email: string;
   name: string;
   role: "client" | "prestataire";
   is_admin?: boolean;
+  staff_role?: StaffRole | null;
+  permissions?: string[];
+  active?: boolean;
   phone?: string | null;
   city?: string | null;
   avatar?: string | null;

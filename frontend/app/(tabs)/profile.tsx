@@ -111,7 +111,7 @@ export default function Profile() {
               <MenuRow icon="person-circle-outline" title="Profil prestataire" onPress={() => router.push("/provider-profile")} testID="menu-provider-profile" />
             </>
           ) : null}
-          {user.is_admin ? (
+          {user.is_admin || user.staff_role ? (
             <MenuRow icon="shield-outline" title="Espace administrateur" onPress={() => router.push("/admin")} testID="menu-admin" />
           ) : null}
           <MenuRow icon="card-outline" title="Paiements" onPress={() => {}} />

@@ -1,31 +1,54 @@
 import { useState } from "react";
-import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Pressable } from "react-native";
+import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Pressable, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
 import { Btn, ErrorBox, Input, Txt } from "@/src/components/ui";
-import { colors, spacing } from "@/src/theme";
+import { colors, radius, spacing } from "@/src/theme";
+
+type Mode = "email" | "phone";
 
 export default function Login() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signIn, signInWithOtp, requestOtp } = useAuth();
+  const [mode, setMode] = useState<Mode>("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("+221");
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const submit = async () => {
-    setErr(null);
-    setLoading(true);
+  const submitEmail = async () => {
+    setErr(null); setLoading(true);
     try {
-      const u = await signIn(email.trim().toLowerCase(), password);
-      router.replace(u.role === "prestataire" ? "/(tabs)" : "/(tabs)");
-    } catch (e: any) {
-      setErr(e.message || "Connexion impossible");
-    } finally {
-      setLoading(false);
-    }
+      await signIn(email.trim().toLowerCase(), password);
+      router.replace("/(tabs)");
+    } catch (e: any) { setErr(e.message || "Connexion impossible"); }
+    finally { setLoading(false); }
+  };
+
+  const askOtp = async () => {
+    setErr(null); setLoading(true);
+    try {
+      const r = await requestOtp(phone.trim());
+      setOtpSent(true);
+      if (r.otp_dev_only) {
+        Alert.alert("Code envoyé (dev)", `Votre code : ${r.otp_dev_only}\n\nEn production ce code est envoyé par SMS.`);
+      }
+    } catch (e: any) { setErr(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const submitOtp = async () => {
+    setErr(null); setLoading(true);
+    try {
+      await signInWithOtp(phone.trim(), otp.trim());
+      router.replace("/(tabs)");
+    } catch (e: any) { setErr(e.message); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -47,46 +70,49 @@ export default function Login() {
             Connectez-vous pour continuer.
           </Txt>
 
-          <ErrorBox text={err} />
-
-          <Input
-            label="Adresse email"
-            icon="mail-outline"
-            placeholder="votre@email.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            value={email}
-            onChangeText={setEmail}
-            testID="login-email"
-          />
-          <Input
-            label="Mot de passe"
-            icon="lock-closed-outline"
-            placeholder="••••••••"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            testID="login-password"
-          />
-
-          <Pressable style={{ alignSelf: "flex-end", marginBottom: spacing.lg }}>
-            <Txt size="sm" weight="600" color={colors.turquoise}>Mot de passe oublié ?</Txt>
-          </Pressable>
-
-          <Btn title="Se connecter" onPress={submit} loading={loading} fullWidth size="lg" testID="login-submit" />
-
-          <View style={styles.divider}>
-            <View style={styles.line} /><Txt size="sm" color={colors.textSubtle} style={{ marginHorizontal: 12 }}>ou</Txt><View style={styles.line} />
+          <View style={styles.tabs}>
+            {(["email", "phone"] as const).map((m) => (
+              <Pressable
+                key={m}
+                onPress={() => { setMode(m); setErr(null); setOtpSent(false); }}
+                style={[styles.tab, mode === m && styles.tabActive]}
+                testID={`login-tab-${m}`}
+              >
+                <Ionicons name={m === "email" ? "mail-outline" : "call-outline"} size={16} color={mode === m ? colors.white : colors.midnight} />
+                <Txt weight="700" color={mode === m ? colors.white : colors.midnight} style={{ marginLeft: 6 }}>
+                  {m === "email" ? "Email" : "Téléphone"}
+                </Txt>
+              </Pressable>
+            ))}
           </View>
 
-          <Pressable style={styles.socialBtn}>
-            <Ionicons name="logo-google" size={18} color={colors.midnight} />
-            <Txt weight="600" style={{ marginLeft: 10 }}>Continuer avec Google</Txt>
-          </Pressable>
-          <Pressable style={styles.socialBtn}>
-            <Ionicons name="logo-apple" size={20} color={colors.midnight} />
-            <Txt weight="600" style={{ marginLeft: 10 }}>Continuer avec Apple</Txt>
-          </Pressable>
+          <ErrorBox text={err} />
+
+          {mode === "email" ? (
+            <>
+              <Input label="Adresse email" icon="mail-outline" placeholder="votre@email.com" keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail} testID="login-email" />
+              <Input label="Mot de passe" icon="lock-closed-outline" placeholder="••••••••" secureTextEntry value={password} onChangeText={setPassword} testID="login-password" />
+              <Pressable style={{ alignSelf: "flex-end", marginBottom: spacing.lg }}>
+                <Txt size="sm" weight="600" color={colors.turquoise}>Mot de passe oublié ?</Txt>
+              </Pressable>
+              <Btn title="Se connecter" onPress={submitEmail} loading={loading} fullWidth size="lg" testID="login-submit" />
+            </>
+          ) : (
+            <>
+              <Input label="Numéro de téléphone" icon="call-outline" placeholder="+221 77 000 00 00" keyboardType="phone-pad" value={phone} onChangeText={setPhone} testID="login-phone" />
+              {!otpSent ? (
+                <Btn title="Recevoir le code" onPress={askOtp} loading={loading} fullWidth size="lg" icon="paper-plane-outline" testID="otp-request" />
+              ) : (
+                <>
+                  <Input label="Code OTP à 6 chiffres" icon="keypad-outline" placeholder="000000" keyboardType="number-pad" value={otp} onChangeText={setOtp} testID="otp-code" />
+                  <Btn title="Vérifier et se connecter" onPress={submitOtp} loading={loading} fullWidth size="lg" icon="checkmark-circle-outline" testID="otp-submit" />
+                  <Pressable onPress={askOtp} style={{ marginTop: 12, alignSelf: "center" }}>
+                    <Txt size="sm" weight="600" color={colors.turquoise}>Renvoyer le code</Txt>
+                  </Pressable>
+                </>
+              )}
+            </>
+          )}
 
           <View style={styles.footer}>
             <Txt color={colors.textMuted}>Nouveau sur Jokoo ? </Txt>
@@ -105,8 +131,8 @@ const styles = StyleSheet.create({
   back: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center", marginBottom: spacing.lg },
   logoRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   logoDot: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.midnight, alignItems: "center", justifyContent: "center", marginRight: 10 },
-  divider: { flexDirection: "row", alignItems: "center", marginVertical: spacing.xl },
-  line: { flex: 1, height: 1, backgroundColor: colors.border },
-  socialBtn: { height: 52, borderRadius: 999, borderWidth: 1, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center", flexDirection: "row", marginBottom: spacing.md, backgroundColor: colors.surface },
+  tabs: { flexDirection: "row", backgroundColor: colors.surface2, borderRadius: radius.pill, padding: 4, marginBottom: spacing.lg },
+  tab: { flex: 1, height: 44, borderRadius: 999, flexDirection: "row", alignItems: "center", justifyContent: "center" },
+  tabActive: { backgroundColor: colors.midnight },
   footer: { flexDirection: "row", justifyContent: "center", marginTop: spacing.xl },
 });

@@ -115,8 +115,73 @@ async def admin_user(user=Depends(lambda authorization=Header(None): current_use
 
 
 def require_admin(user: dict) -> None:
-    if not user.get("is_admin"):
+    if not user.get("is_admin") and not user.get("staff_role"):
         raise HTTPException(403, "Accès administrateur requis")
+
+
+# ---------- rôles & permissions ----------
+STAFF_ROLES = ("super_admin", "admin", "marketing", "support", "operator", "tech")
+
+ROLE_PERMS: dict = {
+    "super_admin": ["*"],  # tout
+    "admin": [
+        "users:read", "users:write",
+        "bookings:read", "bookings:write",
+        "categories:write",
+        "providers:read", "providers:write", "providers:validate",
+        "ads:read", "stats:read",
+    ],
+    "marketing": [
+        "ads:read", "ads:write",
+        "notifications:send",
+        "stats:marketing",
+    ],
+    "support": [
+        "users:read",
+        "bookings:read",
+        "reports:handle",
+        "passwords:reset",
+    ],
+    "operator": [
+        "operator:create_account",
+        "users:read", "users:write",
+        "providers:write", "providers:validate",
+        "docs:upload",
+    ],
+    "tech": [
+        "tech:logs", "stats:tech",
+    ],
+}
+
+
+def user_perms(user: dict) -> set:
+    """Permissions effectives = rôle + overrides individuels."""
+    role = user.get("staff_role")
+    perms = set(ROLE_PERMS.get(role, [])) if role else set()
+    perms.update(user.get("permissions") or [])
+    if user.get("is_admin") and role != "super_admin":
+        # ancien is_admin=true → mappé sur super_admin par défaut
+        perms.add("*")
+    return perms
+
+
+def has_perm(user: dict, key: str) -> bool:
+    p = user_perms(user)
+    return "*" in p or key in p
+
+
+def require_perm(key: str):
+    async def dep(user=Depends(current_user)) -> dict:
+        if not has_perm(user, key):
+            raise HTTPException(403, f"Permission requise : {key}")
+        return user
+    return dep
+
+
+def require_super_admin(user=Depends(current_user)) -> dict:
+    if user.get("staff_role") != "super_admin" and not (user.get("is_admin") and not user.get("staff_role")):
+        raise HTTPException(403, "Super administrateur uniquement")
+    return user
 
 
 # ---------- models ----------
@@ -196,6 +261,48 @@ class AdIn(BaseModel):
 
 class SponsorshipIn(BaseModel):
     duration_days: Literal[7, 15, 30] = 7
+
+
+StaffRole = Literal["super_admin", "admin", "marketing", "support", "operator", "tech"]
+
+
+class StaffIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    name: str
+    staff_role: StaffRole
+    permissions: List[str] = []
+    phone: Optional[str] = None
+
+
+class StaffUpdate(BaseModel):
+    name: Optional[str] = None
+    staff_role: Optional[StaffRole] = None
+    permissions: Optional[List[str]] = None
+    active: Optional[bool] = None
+
+
+class AssistedRegisterIn(BaseModel):
+    """Un opérateur crée un compte client/prestataire depuis l'agence."""
+    name: str
+    phone: str  # ex "+2217712345678"
+    role: Role
+    email: Optional[EmailStr] = None
+    city: Optional[str] = "Dakar"
+    temp_password: Optional[str] = None  # facultatif — sinon OTP généré
+
+
+class OtpRequestIn(BaseModel):
+    phone: str
+
+
+class OtpVerifyIn(BaseModel):
+    phone: str
+    code: str
+
+
+class PasswordResetIn(BaseModel):
+    new_password: Optional[str] = None  # sinon généré
 
 
 class BookingUpdate(BaseModel):
@@ -1176,6 +1283,198 @@ async def admin_update_sponsorship(
 
 
 
+# ---------- staff (super_admin) ----------
+def _safe_user(u: dict) -> dict:
+    return {k: v for k, v in u.items() if k not in ("_id", "password_hash")}
+
+
+@api.get("/admin/roles")
+async def list_roles(user=Depends(current_user)):
+    require_admin(user)
+    return {
+        "roles": [{"key": k, "permissions": v} for k, v in ROLE_PERMS.items()],
+    }
+
+
+@api.get("/admin/staff")
+async def list_staff(user=Depends(require_super_admin)):
+    cur = db.users.find(
+        {"$or": [{"staff_role": {"$ne": None}}, {"is_admin": True}]},
+        {"_id": 0, "password_hash": 0},
+    ).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.post("/admin/staff")
+async def create_staff(body: StaffIn, user=Depends(require_super_admin)):
+    if await db.users.find_one({"email": body.email.lower()}):
+        raise HTTPException(400, "Email déjà utilisé")
+    uid = str(uuid.uuid4())
+    doc = {
+        "id": uid,
+        "email": body.email.lower(),
+        "password_hash": hash_password(body.password),
+        "name": body.name,
+        "role": "client",  # staff = compte technique côté app
+        "is_admin": body.staff_role == "super_admin",
+        "staff_role": body.staff_role,
+        "permissions": body.permissions or [],
+        "active": True,
+        "phone": body.phone,
+        "city": "Dakar",
+        "avatar": None,
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(doc)
+    return _safe_user(doc)
+
+
+@api.patch("/admin/staff/{sid}")
+async def update_staff(sid: str, body: StaffUpdate, user=Depends(require_super_admin)):
+    u = await db.users.find_one({"id": sid})
+    if not u or not (u.get("staff_role") or u.get("is_admin")):
+        raise HTTPException(404, "Membre introuvable")
+    updates: dict = {"updated_at": now_iso()}
+    if body.name is not None: updates["name"] = body.name
+    if body.staff_role is not None:
+        updates["staff_role"] = body.staff_role
+        updates["is_admin"] = body.staff_role == "super_admin"
+    if body.permissions is not None: updates["permissions"] = body.permissions
+    if body.active is not None: updates["active"] = body.active
+    await db.users.update_one({"id": sid}, {"$set": updates})
+    return {"ok": True}
+
+
+@api.delete("/admin/staff/{sid}")
+async def delete_staff(sid: str, user=Depends(require_super_admin)):
+    if sid == user["id"]:
+        raise HTTPException(400, "Impossible de se supprimer soi-même")
+    await db.users.delete_one({"id": sid})
+    return {"ok": True}
+
+
+# ---------- inscription assistée (opérateur) ----------
+def _gen_otp() -> str:
+    import random
+    return f"{random.randint(0, 999999):06d}"
+
+
+@api.post("/admin/assisted-register")
+async def assisted_register(body: AssistedRegisterIn, user=Depends(require_perm("operator:create_account"))):
+    existing = None
+    if body.email:
+        existing = await db.users.find_one({"email": body.email.lower()})
+    if not existing:
+        existing = await db.users.find_one({"phone": body.phone})
+    if existing:
+        raise HTTPException(400, "Un compte existe déjà avec ce téléphone ou cet email")
+    uid = str(uuid.uuid4())
+    temp_pwd = body.temp_password or _gen_otp()
+    doc = {
+        "id": uid,
+        "email": (body.email or f"{body.phone.replace('+', '')}@jokoo.sn").lower(),
+        "password_hash": hash_password(temp_pwd),
+        "name": body.name,
+        "role": body.role,
+        "phone": body.phone,
+        "city": body.city or "Dakar",
+        "avatar": None,
+        "is_admin": False,
+        "staff_role": None,
+        "permissions": [],
+        "created_by_operator": user["id"],
+        "assisted": True,
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(doc)
+    return {
+        "user": _safe_user(doc),
+        # En prod: envoyé par SMS via Twilio/Orange SMS API. Ici on retourne pour test.
+        "temp_password_or_otp": temp_pwd,
+    }
+
+
+@api.post("/auth/otp/request")
+async def otp_request(body: OtpRequestIn):
+    user = await db.users.find_one({"phone": body.phone})
+    if not user:
+        raise HTTPException(404, "Aucun compte pour ce numéro")
+    code = _gen_otp()
+    await db.otps.update_one(
+        {"phone": body.phone},
+        {"$set": {
+            "phone": body.phone,
+            "code": code,
+            "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            "user_id": user["id"],
+            "created_at": now_iso(),
+        }},
+        upsert=True,
+    )
+    # Prod: envoyer via SMS. En dev on retourne le code pour test.
+    return {"ok": True, "otp_dev_only": code}
+
+
+@api.post("/auth/otp/verify", response_model=AuthOut)
+async def otp_verify(body: OtpVerifyIn):
+    rec = await db.otps.find_one({"phone": body.phone}, {"_id": 0})
+    if not rec or rec["code"] != body.code:
+        raise HTTPException(401, "Code OTP invalide")
+    if rec.get("expires_at") and rec["expires_at"] < now_iso():
+        raise HTTPException(401, "Code OTP expiré")
+    user = await db.users.find_one({"id": rec["user_id"]}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(404, "Utilisateur introuvable")
+    await db.otps.delete_one({"phone": body.phone})
+    token = make_token(user["id"])
+    return {"token": token, "user": user}
+
+
+# ---------- support: password reset ----------
+@api.post("/admin/users/{uid}/reset-password")
+async def reset_user_password(uid: str, body: PasswordResetIn, user=Depends(require_perm("passwords:reset"))):
+    u = await db.users.find_one({"id": uid})
+    if not u:
+        raise HTTPException(404, "Utilisateur introuvable")
+    new_pwd = body.new_password or _gen_otp()
+    await db.users.update_one({"id": uid}, {"$set": {"password_hash": hash_password(new_pwd)}})
+    return {"ok": True, "new_password": new_pwd}
+
+
+# ---------- signalements / réclamations (support) ----------
+@api.get("/admin/reports")
+async def list_reports(user=Depends(require_perm("reports:handle"))):
+    cur = db.reports.find({}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.post("/reports")
+async def create_report(body: dict, user=Depends(current_user)):
+    doc = {
+        "id": str(uuid.uuid4()),
+        "author_id": user["id"],
+        "author_name": user["name"],
+        "target_id": body.get("target_id"),
+        "target_type": body.get("target_type", "provider"),
+        "reason": body.get("reason", ""),
+        "status": "open",
+        "created_at": now_iso(),
+    }
+    await db.reports.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.patch("/admin/reports/{rid}")
+async def update_report(rid: str, body: dict, user=Depends(require_perm("reports:handle"))):
+    await db.reports.update_one(
+        {"id": rid},
+        {"$set": {"status": body.get("status", "resolved"), "resolved_by": user["id"], "resolved_at": now_iso()}},
+    )
+    return {"ok": True}
+
+
+
+
 # ---------- seed ----------
 # Chaque prestataire a un mode de tarification distinct :
 # "fixed" = prix ferme par prestation, "from" = prix de départ, "quote" = sur devis.
@@ -1215,7 +1514,40 @@ async def seed():
     await db.services.delete_many({"seeded": True})
     await db.ads.delete_many({"seeded": True})
 
-    # Seed admin user (idempotent)
+    # Seed super_admin + un membre par rôle (idempotent)
+    seed_staff = [
+        ("superadmin@jokoo.sn", "super_admin", "Awa Super Admin"),
+        ("admin2@jokoo.sn",    "admin",       "Ibrahim Admin"),
+        ("marketing@jokoo.sn", "marketing",   "Ndeye Marketing"),
+        ("support@jokoo.sn",   "support",     "Ousmane Support"),
+        ("operator@jokoo.sn",  "operator",    "Fatou Opératrice"),
+        ("tech@jokoo.sn",      "tech",        "Cheikh Tech"),
+    ]
+    for email, sr, nm in seed_staff:
+        exists = await db.users.find_one({"email": email})
+        payload = {
+            "staff_role": sr,
+            "permissions": [],
+            "active": True,
+            "is_admin": sr == "super_admin",
+        }
+        if not exists:
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": email,
+                "password_hash": hash_password("Staff1234!"),
+                "name": nm,
+                "role": "client",
+                "phone": None,
+                "city": "Dakar",
+                "avatar": None,
+                "created_at": now_iso(),
+                **payload,
+            })
+        else:
+            await db.users.update_one({"email": email}, {"$set": payload})
+
+    # Legacy admin@jokoo.sn devient super_admin
     admin_email = "admin@jokoo.sn"
     existing_admin = await db.users.find_one({"email": admin_email})
     if not existing_admin:
@@ -1226,13 +1558,19 @@ async def seed():
             "name": "Admin Jokoo",
             "role": "client",
             "is_admin": True,
+            "staff_role": "super_admin",
+            "permissions": [],
+            "active": True,
             "phone": None,
             "city": "Dakar",
             "avatar": None,
             "created_at": now_iso(),
         })
     else:
-        await db.users.update_one({"email": admin_email}, {"$set": {"is_admin": True}})
+        await db.users.update_one(
+            {"email": admin_email},
+            {"$set": {"is_admin": True, "staff_role": "super_admin"}},
+        )
 
     inserted = 0
     dakar_zones = ["Almadies", "Plateau", "Yoff", "Ouakam", "Point E", "Sacré-Cœur", "Mermoz"]

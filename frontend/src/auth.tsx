@@ -7,6 +7,8 @@ type AuthState = {
   token: string | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<User>;
+  signInWithOtp: (phone: string, code: string) => Promise<User>;
+  requestOtp: (phone: string) => Promise<{ ok: boolean; otp_dev_only?: string }>;
   signUp: (payload: { email: string; password: string; name: string; role: "client" | "prestataire"; phone?: string; city?: string }) => Promise<User>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -44,6 +46,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return r.user;
   };
 
+  const signInWithOtp = async (phone: string, code: string) => {
+    const r = await api.post<{ token: string; user: User }>("/auth/otp/verify", { phone, code }, false);
+    await storage.secureSet(TOKEN_KEY, r.token);
+    setToken(r.token);
+    setUser(r.user);
+    return r.user;
+  };
+
+  const requestOtp = async (phone: string) => {
+    return api.post<{ ok: boolean; otp_dev_only?: string }>("/auth/otp/request", { phone }, false);
+  };
+
   const signUp = async (payload: any) => {
     const r = await api.post<{ token: string; user: User }>("/auth/register", payload, false);
     await storage.secureSet(TOKEN_KEY, r.token);
@@ -66,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ user, token, loading, signIn, signUp, signOut, refresh }}>
+    <Ctx.Provider value={{ user, token, loading, signIn, signInWithOtp, requestOtp, signUp, signOut, refresh }}>
       {children}
     </Ctx.Provider>
   );
