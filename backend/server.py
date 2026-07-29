@@ -245,18 +245,41 @@ class ServiceIn(BaseModel):
     active: bool = True
 
 
+AdType = Literal["image", "banner", "video", "carousel"]
+AdAudience = Literal["all", "client", "prestataire"]
+AdDisplayMode = Literal["single", "carousel_queue"]
+
+
+class AdMedia(BaseModel):
+    kind: Literal["image", "video"] = "image"
+    url: str
+    thumb: Optional[str] = None
+
+
 class AdIn(BaseModel):
-    format: Literal["banner", "image", "carousel"] = "banner"
+    type: AdType = "banner"
     title: str
     description: Optional[str] = ""
     button_label: Optional[str] = "Voir"
-    link: Optional[str] = None  # URL ou lien app (provider:<id>, category:<key>)
-    images: List[str] = []
-    placements: List[Literal["home", "between_lists", "category"]] = ["home"]
-    category_key: Optional[str] = None  # si placement inclut "category"
-    start_at: Optional[str] = None
+    link: Optional[str] = None
+    media: List[AdMedia] = []
+    placements: List[Literal["home", "between_lists", "category", "search", "profile"]] = ["home"]
+    category_key: Optional[str] = None
+    target_audience: AdAudience = "all"
+    display_mode: AdDisplayMode = "single"
+    start_at: Optional[str] = None  # ISO 8601 with time
     end_at: Optional[str] = None
     active: bool = True
+    suspended: bool = False
+
+
+class AdCampaignIn(BaseModel):
+    """Un annonceur soumet une campagne payante — approuvée par l'admin."""
+    advertiser_name: str
+    advertiser_email: Optional[EmailStr] = None
+    advertiser_phone: Optional[str] = None
+    ad: AdIn
+    duration_days: Literal[7, 15, 30] = 7
 
 
 class SponsorshipIn(BaseModel):
@@ -330,6 +353,62 @@ class CheckoutBookingIn(BaseModel):
 
 class CheckoutSubIn(BaseModel):
     plan: Literal["monthly"] = "monthly"
+
+
+# ---------- Mobility (Covoiturage) ----------
+RideStopModel = dict  # {"city": str, "address": str}
+DistanceType = Literal["short", "long"]
+Recurrence = Literal["none", "weekly"]
+RideStatus = Literal["active", "cancelled", "completed"]
+
+
+class RideStop(BaseModel):
+    city: str
+    address: Optional[str] = ""
+
+
+class RideIn(BaseModel):
+    from_city: str
+    from_address: Optional[str] = ""
+    to_city: str
+    to_address: Optional[str] = ""
+    stops: List[RideStop] = []
+    date: str  # ISO date "2026-06-25"
+    time: str  # "07:30"
+    seats_total: int = Field(ge=1, le=8)
+    price_xof: int = Field(ge=0)
+    distance_type: DistanceType = "short"
+    recurrence: Recurrence = "none"
+    recurrence_days: List[Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]] = []
+    vehicle_model: Optional[str] = ""
+    vehicle_plate: Optional[str] = ""
+    vehicle_color: Optional[str] = ""
+    notes: Optional[str] = ""
+
+
+class RideUpdate(BaseModel):
+    from_city: Optional[str] = None
+    from_address: Optional[str] = None
+    to_city: Optional[str] = None
+    to_address: Optional[str] = None
+    stops: Optional[List[RideStop]] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+    seats_total: Optional[int] = None
+    price_xof: Optional[int] = None
+    distance_type: Optional[DistanceType] = None
+    recurrence: Optional[Recurrence] = None
+    recurrence_days: Optional[List[str]] = None
+    vehicle_model: Optional[str] = None
+    vehicle_plate: Optional[str] = None
+    vehicle_color: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[RideStatus] = None
+
+
+class RideBookingIn(BaseModel):
+    seats: int = Field(ge=1, le=8)
+    note: Optional[str] = ""
 
 
 # ---------- services catalog ----------
@@ -1126,22 +1205,48 @@ async def delete_my_service(sid: str, user=Depends(current_user)):
 
 
 # ---------- publicités (admin) ----------
+CAMPAIGN_PRICES_XOF = {7: 25000, 15: 45000, 30: 80000}
+
+
+def _with_ctr(ad: dict) -> dict:
+    imps = ad.get("impressions", 0) or 0
+    clicks = ad.get("clicks", 0) or 0
+    ad["ctr"] = round((clicks / imps) * 100, 2) if imps else 0
+    return ad
+
+
+def _is_ad_visible(ad: dict, now_str: str) -> bool:
+    if not ad.get("active") or ad.get("suspended"):
+        return False
+    if ad.get("start_at") and now_str < ad["start_at"]:
+        return False
+    if ad.get("end_at") and now_str > ad["end_at"]:
+        return False
+    return True
+
+
 @api.get("/ads")
-async def list_public_ads(placement: str = "home", category: Optional[str] = None):
-    """Liste publique — filtre par placement, dates, actif. Incrémente le compteur d'affichages."""
+async def list_public_ads(
+    placement: str = "home",
+    category: Optional[str] = None,
+    audience: Optional[str] = None,  # "client" | "prestataire" — filtre par cible
+):
+    """Liste publique — placement, dates, cible, actif. Incrémente les impressions."""
     now = now_iso()
-    query: dict = {"active": True, "placements": placement}
+    query: dict = {"placements": placement}
     if placement == "category" and category:
         query["category_key"] = category
     cur = db.ads.find(query, {"_id": 0}).sort("created_at", -1)
-    items = await cur.to_list(50)
+    items = await cur.to_list(100)
     valid = []
     for a in items:
-        if a.get("start_at") and now < a["start_at"]:
+        if not _is_ad_visible(a, now):
             continue
-        if a.get("end_at") and now > a["end_at"]:
+        # Ciblage : "all" ou correspond au rôle transmis
+        aud = a.get("target_audience") or "all"
+        if audience and aud != "all" and aud != audience:
             continue
-        valid.append(a)
+        valid.append(_with_ctr(a))
     if valid:
         ids = [a["id"] for a in valid]
         await db.ads.update_many({"id": {"$in": ids}}, {"$inc": {"impressions": 1}})
@@ -1155,15 +1260,14 @@ async def ad_click(ad_id: str):
 
 
 @api.get("/admin/ads")
-async def admin_list_ads(user=Depends(current_user)):
-    require_admin(user)
+async def admin_list_ads(user=Depends(require_perm("ads:read"))):
     cur = db.ads.find({}, {"_id": 0}).sort("created_at", -1)
-    return await cur.to_list(500)
+    items = await cur.to_list(500)
+    return [_with_ctr(a) for a in items]
 
 
 @api.post("/admin/ads")
-async def admin_create_ad(body: AdIn, user=Depends(current_user)):
-    require_admin(user)
+async def admin_create_ad(body: AdIn, user=Depends(require_perm("ads:write"))):
     aid = str(uuid.uuid4())
     doc = {
         "id": aid,
@@ -1174,12 +1278,11 @@ async def admin_create_ad(body: AdIn, user=Depends(current_user)):
         "updated_at": now_iso(),
     }
     await db.ads.insert_one(doc)
-    return _clean_service(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
 
 
 @api.patch("/admin/ads/{ad_id}")
-async def admin_update_ad(ad_id: str, body: AdIn, user=Depends(current_user)):
-    require_admin(user)
+async def admin_update_ad(ad_id: str, body: AdIn, user=Depends(require_perm("ads:write"))):
     await db.ads.update_one(
         {"id": ad_id},
         {"$set": {**body.model_dump(), "updated_at": now_iso()}},
@@ -1187,28 +1290,96 @@ async def admin_update_ad(ad_id: str, body: AdIn, user=Depends(current_user)):
     return {"ok": True}
 
 
+@api.patch("/admin/ads/{ad_id}/suspend")
+async def admin_suspend_ad(ad_id: str, user=Depends(require_perm("ads:write"))):
+    await db.ads.update_one({"id": ad_id}, {"$set": {"suspended": True, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
+@api.patch("/admin/ads/{ad_id}/resume")
+async def admin_resume_ad(ad_id: str, user=Depends(require_perm("ads:write"))):
+    await db.ads.update_one({"id": ad_id}, {"$set": {"suspended": False, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
 @api.delete("/admin/ads/{ad_id}")
-async def admin_delete_ad(ad_id: str, user=Depends(current_user)):
-    require_admin(user)
+async def admin_delete_ad(ad_id: str, user=Depends(require_perm("ads:write"))):
     await db.ads.delete_one({"id": ad_id})
     return {"ok": True}
 
 
 @api.get("/admin/ads/stats")
-async def admin_ads_stats(user=Depends(current_user)):
-    require_admin(user)
+async def admin_ads_stats(user=Depends(require_perm("ads:read"))):
     ads = await db.ads.find({}, {"_id": 0}).to_list(1000)
     return {
         "total_ads": len(ads),
-        "active_ads": sum(1 for a in ads if a.get("active")),
+        "active_ads": sum(1 for a in ads if a.get("active") and not a.get("suspended")),
         "total_impressions": sum(a.get("impressions", 0) for a in ads),
         "total_clicks": sum(a.get("clicks", 0) for a in ads),
-        "top": sorted(
-            ads,
-            key=lambda a: a.get("impressions", 0),
-            reverse=True,
-        )[:10],
+        "top": sorted([_with_ctr(a) for a in ads], key=lambda a: a.get("impressions", 0), reverse=True)[:10],
     }
+
+
+# ---------- campagnes payantes (espaces publicitaires vendus) ----------
+@api.post("/ad-campaigns")
+async def submit_campaign(body: AdCampaignIn, user=Depends(current_user)):
+    cid = str(uuid.uuid4())
+    price = CAMPAIGN_PRICES_XOF[body.duration_days]
+    doc = {
+        "id": cid,
+        "author_id": user["id"],
+        "advertiser_name": body.advertiser_name,
+        "advertiser_email": body.advertiser_email,
+        "advertiser_phone": body.advertiser_phone,
+        "ad": body.ad.model_dump(),
+        "duration_days": body.duration_days,
+        "amount_xof": price,
+        "status": "pending",
+        "paid": False,
+        "created_at": now_iso(),
+    }
+    await db.ad_campaigns.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/admin/ad-campaigns")
+async def admin_list_campaigns(user=Depends(require_perm("ads:read"))):
+    cur = db.ad_campaigns.find({}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.patch("/admin/ad-campaigns/{cid}")
+async def admin_update_campaign(cid: str, body: dict, user=Depends(require_perm("ads:write"))):
+    c = await db.ad_campaigns.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(404, "Campagne introuvable")
+    status_ = body.get("status")
+    updates = {"updated_at": now_iso()}
+    if status_ == "approved":
+        # Provisionne une publicité active pour la durée de la campagne
+        starts = datetime.now(timezone.utc)
+        ends = starts + timedelta(days=c["duration_days"])
+        ad_doc = {
+            "id": str(uuid.uuid4()),
+            **c["ad"],
+            "start_at": starts.isoformat(),
+            "end_at": ends.isoformat(),
+            "active": True,
+            "suspended": False,
+            "impressions": 0,
+            "clicks": 0,
+            "campaign_id": cid,
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        await db.ads.insert_one(ad_doc)
+        updates.update({"status": "active", "paid": True, "ad_id": ad_doc["id"], "starts_at": starts.isoformat(), "ends_at": ends.isoformat()})
+    elif status_ in ("rejected", "expired"):
+        updates["status"] = status_
+    else:
+        raise HTTPException(400, "status invalide")
+    await db.ad_campaigns.update_one({"id": cid}, {"$set": updates})
+    return {"ok": True}
 
 
 # ---------- sponsorisation prestataires ----------
@@ -1475,6 +1646,241 @@ async def update_report(rid: str, body: dict, user=Depends(require_perm("reports
 
 
 
+# ---------- Mobility · Covoiturage (rides) ----------
+def _clean(doc: dict) -> dict:
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+async def _driver_info(uid: str) -> dict:
+    u = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0}) or {}
+    prov = await db.providers.find_one({"id": uid}, {"_id": 0}) or {}
+    return {
+        "driver_id": uid,
+        "driver_name": u.get("name") or "Conducteur",
+        "driver_avatar": u.get("avatar") or prov.get("photo"),
+        "driver_phone": u.get("phone"),
+        "driver_city": u.get("city"),
+        "driver_rating": prov.get("rating", 0) or 0,
+        "driver_reviews_count": prov.get("reviews_count", 0) or 0,
+        "driver_verified": bool(prov.get("verified")),
+    }
+
+
+@api.post("/rides")
+async def create_ride(body: RideIn, user=Depends(current_user)):
+    rid = str(uuid.uuid4())
+    info = await _driver_info(user["id"])
+    doc = {
+        "id": rid,
+        **info,
+        "from_city": body.from_city.strip(),
+        "from_address": (body.from_address or "").strip(),
+        "to_city": body.to_city.strip(),
+        "to_address": (body.to_address or "").strip(),
+        "stops": [s.model_dump() for s in body.stops],
+        "date": body.date,
+        "time": body.time,
+        "seats_total": body.seats_total,
+        "seats_available": body.seats_total,
+        "price_xof": body.price_xof,
+        "distance_type": body.distance_type,
+        "recurrence": body.recurrence,
+        "recurrence_days": body.recurrence_days if body.recurrence == "weekly" else [],
+        "vehicle_model": body.vehicle_model or "",
+        "vehicle_plate": body.vehicle_plate or "",
+        "vehicle_color": body.vehicle_color or "",
+        "notes": body.notes or "",
+        "status": "active",
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.rides.insert_one(doc)
+    return _clean(doc)
+
+
+@api.get("/rides")
+async def search_rides(
+    from_city: Optional[str] = None,
+    to_city: Optional[str] = None,
+    date: Optional[str] = None,
+    distance_type: Optional[str] = None,
+    limit: int = 50,
+):
+    q: dict = {"status": "active"}
+    if from_city:
+        q["from_city"] = {"$regex": from_city, "$options": "i"}
+    if to_city:
+        q["to_city"] = {"$regex": to_city, "$options": "i"}
+    if date:
+        # Match ISO date prefix (YYYY-MM-DD) OR weekly recurrence
+        weekday_map = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        try:
+            dt = datetime.fromisoformat(date[:10])
+            wd = weekday_map[dt.weekday()]
+        except Exception:
+            wd = None
+        or_clauses = [{"date": date[:10]}, {"date": {"$regex": f"^{date[:10]}"}}]
+        if wd:
+            or_clauses.append({"recurrence": "weekly", "recurrence_days": wd})
+        q["$or"] = or_clauses
+    if distance_type in ("short", "long"):
+        q["distance_type"] = distance_type
+    cur = db.rides.find(q, {"_id": 0}).sort([("date", 1), ("time", 1)]).limit(limit)
+    return await cur.to_list(limit)
+
+
+@api.get("/rides/mine")
+async def my_rides(user=Depends(current_user)):
+    cur = db.rides.find({"driver_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(200)
+
+
+@api.get("/rides/bookings/mine")
+async def my_ride_bookings(user=Depends(current_user)):
+    cur = db.ride_bookings.find({"passenger_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    items = await cur.to_list(200)
+    # Attach light ride info
+    ride_ids = list({b["ride_id"] for b in items})
+    rides = await db.rides.find({"id": {"$in": ride_ids}}, {"_id": 0}).to_list(200)
+    rmap = {r["id"]: r for r in rides}
+    for b in items:
+        r = rmap.get(b["ride_id"])
+        if r:
+            b["ride"] = {
+                "id": r["id"],
+                "from_city": r["from_city"],
+                "to_city": r["to_city"],
+                "date": r["date"],
+                "time": r["time"],
+                "driver_name": r.get("driver_name"),
+                "driver_avatar": r.get("driver_avatar"),
+                "status": r.get("status"),
+            }
+    return items
+
+
+@api.get("/rides/bookings/received")
+async def received_ride_bookings(user=Depends(current_user)):
+    """Bookings for rides published by the current user (driver view)."""
+    my = await db.rides.find({"driver_id": user["id"]}, {"_id": 0, "id": 1}).to_list(500)
+    ids = [r["id"] for r in my]
+    cur = db.ride_bookings.find({"ride_id": {"$in": ids}}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.get("/rides/{rid}")
+async def get_ride(rid: str):
+    r = await db.rides.find_one({"id": rid}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Trajet introuvable")
+    return r
+
+
+@api.patch("/rides/{rid}")
+async def update_ride(rid: str, body: RideUpdate, user=Depends(current_user)):
+    r = await db.rides.find_one({"id": rid}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Trajet introuvable")
+    if r["driver_id"] != user["id"]:
+        raise HTTPException(403, "Interdit")
+    updates: dict = {"updated_at": now_iso()}
+    data = body.model_dump(exclude_unset=True)
+    if "stops" in data and data["stops"] is not None:
+        data["stops"] = [s if isinstance(s, dict) else s.model_dump() for s in data["stops"]]
+    if "seats_total" in data and data["seats_total"] is not None:
+        # adjust seats_available proportionnally
+        booked = r["seats_total"] - r.get("seats_available", r["seats_total"])
+        data["seats_available"] = max(0, data["seats_total"] - booked)
+    updates.update(data)
+    await db.rides.update_one({"id": rid}, {"$set": updates})
+    # cancel notifications to passengers
+    if data.get("status") == "cancelled":
+        bookings = await db.ride_bookings.find({"ride_id": rid}, {"_id": 0}).to_list(500)
+        for b in bookings:
+            await db.notifications.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": b["passenger_id"],
+                "type": "ride_cancelled",
+                "title": "Trajet annulé",
+                "body": f"{r.get('from_city')} → {r.get('to_city')} le {r.get('date')}",
+                "peer_id": r["driver_id"],
+                "read": False,
+                "created_at": now_iso(),
+            })
+    return {"ok": True}
+
+
+@api.delete("/rides/{rid}")
+async def delete_ride(rid: str, user=Depends(current_user)):
+    r = await db.rides.find_one({"id": rid}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Trajet introuvable")
+    if r["driver_id"] != user["id"]:
+        raise HTTPException(403, "Interdit")
+    await db.rides.update_one({"id": rid}, {"$set": {"status": "cancelled", "updated_at": now_iso()}})
+    return {"ok": True}
+
+
+@api.post("/rides/{rid}/book")
+async def book_ride(rid: str, body: RideBookingIn, user=Depends(current_user)):
+    r = await db.rides.find_one({"id": rid}, {"_id": 0})
+    if not r or r.get("status") != "active":
+        raise HTTPException(404, "Trajet indisponible")
+    if r["driver_id"] == user["id"]:
+        raise HTTPException(400, "Vous ne pouvez pas réserver votre propre trajet")
+    if body.seats > (r.get("seats_available") or 0):
+        raise HTTPException(400, "Places insuffisantes")
+    bid = str(uuid.uuid4())
+    total = body.seats * int(r.get("price_xof") or 0)
+    doc = {
+        "id": bid,
+        "ride_id": rid,
+        "passenger_id": user["id"],
+        "passenger_name": user.get("name") or "Passager",
+        "passenger_phone": user.get("phone"),
+        "seats": body.seats,
+        "price_xof": total,
+        "status": "confirmed",  # instant confirm (MVP)
+        "paid": False,
+        "note": body.note or "",
+        "created_at": now_iso(),
+    }
+    await db.ride_bookings.insert_one(doc)
+    await db.rides.update_one({"id": rid}, {"$inc": {"seats_available": -body.seats}})
+    # Notify driver
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": r["driver_id"],
+        "type": "ride_booking",
+        "title": "Nouvelle réservation",
+        "body": f"{user.get('name')} a réservé {body.seats} place(s) — {r.get('from_city')} → {r.get('to_city')}",
+        "peer_id": user["id"],
+        "read": False,
+        "created_at": now_iso(),
+    })
+    return _clean(doc)
+
+
+@api.patch("/rides/bookings/{bid}")
+async def update_ride_booking(bid: str, body: dict, user=Depends(current_user)):
+    b = await db.ride_bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    new_status = body.get("status")
+    if new_status not in ("cancelled", "confirmed"):
+        raise HTTPException(400, "Statut invalide")
+    r = await db.rides.find_one({"id": b["ride_id"]}, {"_id": 0})
+    # passenger can cancel; driver can also cancel/confirm
+    if user["id"] not in (b["passenger_id"], (r or {}).get("driver_id")):
+        raise HTTPException(403, "Interdit")
+    if b["status"] == new_status:
+        return {"ok": True}
+    await db.ride_bookings.update_one({"id": bid}, {"$set": {"status": new_status, "updated_at": now_iso()}})
+    if new_status == "cancelled" and b["status"] != "cancelled":
+        await db.rides.update_one({"id": b["ride_id"]}, {"$inc": {"seats_available": b["seats"]}})
+    return {"ok": True}
+
+
 # ---------- seed ----------
 # Chaque prestataire a un mode de tarification distinct :
 # "fixed" = prix ferme par prestation, "from" = prix de départ, "quote" = sur devis.
@@ -1663,34 +2069,55 @@ async def seed():
     # Seed a few ads
     ads_seed = [
         {
-            "format": "banner",
+            "type": "banner",
             "title": "Trouvez votre pro en 2 min",
             "description": "Des milliers de professionnels vérifiés à Dakar & Thiès",
             "button_label": "Découvrir",
             "link": "app:home",
-            "images": ["https://images.unsplash.com/photo-1657302699239-c350f0372260"],
+            "media": [{"kind": "image", "url": "https://images.unsplash.com/photo-1657302699239-c350f0372260"}],
             "placements": ["home"],
             "category_key": None,
+            "target_audience": "all",
+            "display_mode": "single",
         },
         {
-            "format": "image",
+            "type": "image",
             "title": "-20% sur votre 1ère réservation",
             "description": "Utilisez le code JOKOO20",
             "button_label": "Profiter",
             "link": "app:home",
-            "images": ["https://images.pexels.com/photos/8005368/pexels-photo-8005368.jpeg"],
+            "media": [{"kind": "image", "url": "https://images.pexels.com/photos/8005368/pexels-photo-8005368.jpeg"}],
             "placements": ["between_lists"],
             "category_key": None,
+            "target_audience": "client",
+            "display_mode": "single",
         },
         {
-            "format": "banner",
+            "type": "banner",
+            "title": "Devenez prestataire vérifié",
+            "description": "Recevez plus de demandes avec Jokoo Pro",
+            "button_label": "S'inscrire",
+            "link": "app:home",
+            "media": [{"kind": "image", "url": "https://images.pexels.com/photos/8961251/pexels-photo-8961251.jpeg"}],
+            "placements": ["home"],
+            "category_key": None,
+            "target_audience": "prestataire",
+            "display_mode": "single",
+        },
+        {
+            "type": "carousel",
             "title": "Nos meilleurs plombiers",
             "description": "Interventions en moins de 2h",
             "button_label": "Voir",
             "link": "category:plombier",
-            "images": ["https://images.pexels.com/photos/8961251/pexels-photo-8961251.jpeg"],
+            "media": [
+                {"kind": "image", "url": "https://images.pexels.com/photos/8961251/pexels-photo-8961251.jpeg"},
+                {"kind": "image", "url": "https://images.pexels.com/photos/8005368/pexels-photo-8005368.jpeg"},
+            ],
             "placements": ["category"],
             "category_key": "plombier",
+            "target_audience": "all",
+            "display_mode": "carousel_queue",
         },
     ]
     for a in ads_seed:
@@ -1701,8 +2128,94 @@ async def seed():
             "start_at": None,
             "end_at": None,
             "active": True,
+            "suspended": False,
             "impressions": 0,
             "clicks": 0,
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        })
+
+    # Seed rides (Mobility · Covoiturage)
+    await db.rides.delete_many({"seeded": True})
+    demo_driver_email = "chauffeur@jokoo.sn"
+    demo_driver = await db.users.find_one({"email": demo_driver_email})
+    if not demo_driver:
+        did = str(uuid.uuid4())
+        demo_driver = {
+            "id": did,
+            "email": demo_driver_email,
+            "password_hash": hash_password("Driver1234!"),
+            "name": "Ismaïla Ndao",
+            "role": "prestataire",
+            "phone": "+221771234567",
+            "city": "Dakar",
+            "avatar": "https://images.pexels.com/photos/3771120/pexels-photo-3771120.jpeg",
+            "is_admin": False,
+            "staff_role": None,
+            "permissions": [],
+            "created_at": now_iso(),
+        }
+        await db.users.insert_one(demo_driver)
+    else:
+        did = demo_driver["id"]
+
+    today = datetime.now(timezone.utc)
+    demo_rides = [
+        {
+            "from_city": "Dakar", "from_address": "Plateau",
+            "to_city": "Thiès", "to_address": "Centre-ville",
+            "stops": [{"city": "Rufisque", "address": "Gare routière"}],
+            "date": (today + timedelta(days=1)).date().isoformat(),
+            "time": "07:30",
+            "seats_total": 4, "price_xof": 3000, "distance_type": "long",
+            "recurrence": "none", "recurrence_days": [],
+            "vehicle_model": "Toyota Yaris", "vehicle_plate": "DK 4521 A", "vehicle_color": "Blanc",
+            "notes": "Départ ponctuel — merci de prévoir de la monnaie.",
+        },
+        {
+            "from_city": "Dakar", "from_address": "Yoff Aéroport",
+            "to_city": "Saly", "to_address": "Résidence les Manguiers",
+            "stops": [],
+            "date": (today + timedelta(days=2)).date().isoformat(),
+            "time": "10:00",
+            "seats_total": 3, "price_xof": 7500, "distance_type": "long",
+            "recurrence": "none", "recurrence_days": [],
+            "vehicle_model": "Hyundai Tucson", "vehicle_plate": "DK 8891 C", "vehicle_color": "Gris",
+            "notes": "Climatisation, wifi.",
+        },
+        {
+            "from_city": "Dakar", "from_address": "Almadies",
+            "to_city": "Dakar", "to_address": "Sacré-Cœur",
+            "stops": [{"city": "Dakar", "address": "Point E"}],
+            "date": (today + timedelta(days=1)).date().isoformat(),
+            "time": "17:45",
+            "seats_total": 2, "price_xof": 1500, "distance_type": "short",
+            "recurrence": "weekly", "recurrence_days": ["mon", "tue", "wed", "thu", "fri"],
+            "vehicle_model": "Renault Clio", "vehicle_plate": "DK 1023 B", "vehicle_color": "Rouge",
+            "notes": "Trajet après le bureau — récurrent lundi au vendredi.",
+        },
+        {
+            "from_city": "Thiès", "from_address": "Randoulène",
+            "to_city": "Dakar", "to_address": "Plateau",
+            "stops": [],
+            "date": (today + timedelta(days=3)).date().isoformat(),
+            "time": "06:15",
+            "seats_total": 4, "price_xof": 2500, "distance_type": "long",
+            "recurrence": "none", "recurrence_days": [],
+            "vehicle_model": "Peugeot 208", "vehicle_plate": "TH 3345 D", "vehicle_color": "Bleu",
+            "notes": "Idéal pour rejoindre le bureau tôt.",
+        },
+    ]
+    for r in demo_rides:
+        rid = str(uuid.uuid4())
+        info = await _driver_info(did)
+        await db.rides.insert_one({
+            "id": rid,
+            "seeded": True,
+            **info,
+            **r,
+            "seats_available": r["seats_total"],
+            "status": "active",
             "created_at": now_iso(),
             "updated_at": now_iso(),
         })

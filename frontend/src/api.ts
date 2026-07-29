@@ -104,21 +104,27 @@ export type PrestationSvc = {
   created_at?: string;
 };
 
+export type AdMedia = { kind: "image" | "video"; url: string; thumb?: string };
+
 export type Ad = {
   id: string;
-  format: "banner" | "image" | "carousel";
+  type: "image" | "banner" | "video" | "carousel";
   title: string;
   description?: string;
   button_label?: string;
   link?: string | null;
-  images: string[];
+  media: AdMedia[];
   placements: string[];
   category_key?: string | null;
+  target_audience?: "all" | "client" | "prestataire";
+  display_mode?: "single" | "carousel_queue";
   start_at?: string | null;
   end_at?: string | null;
   active: boolean;
+  suspended?: boolean;
   impressions?: number;
   clicks?: number;
+  ctr?: number;
 };
 
 export type Sponsorship = {
@@ -197,4 +203,52 @@ export type Notif = {
   peer_id?: string;
   read: boolean;
   created_at: string;
+};
+
+// -------- Mobility · Covoiturage --------
+export type RideStop = { city: string; address?: string };
+export type Ride = {
+  id: string;
+  driver_id: string;
+  driver_name: string;
+  driver_avatar?: string | null;
+  driver_phone?: string | null;
+  driver_city?: string | null;
+  driver_rating?: number;
+  driver_reviews_count?: number;
+  driver_verified?: boolean;
+  from_city: string;
+  from_address?: string;
+  to_city: string;
+  to_address?: string;
+  stops: RideStop[];
+  date: string;
+  time: string;
+  seats_total: number;
+  seats_available: number;
+  price_xof: number;
+  distance_type: "short" | "long";
+  recurrence: "none" | "weekly";
+  recurrence_days: string[];
+  vehicle_model?: string;
+  vehicle_plate?: string;
+  vehicle_color?: string;
+  notes?: string;
+  status: "active" | "cancelled" | "completed";
+  created_at: string;
+};
+
+export type RideBooking = {
+  id: string;
+  ride_id: string;
+  passenger_id: string;
+  passenger_name: string;
+  passenger_phone?: string | null;
+  seats: number;
+  price_xof: number;
+  status: "pending" | "confirmed" | "cancelled";
+  paid?: boolean;
+  note?: string;
+  created_at: string;
+  ride?: Partial<Ride>;
 };

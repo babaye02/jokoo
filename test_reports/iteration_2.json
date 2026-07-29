@@ -1,0 +1,44 @@
+{
+  "summary": "Backend-only testing for Mobility · Covoiturage (rides) module. 32/32 pytest tests passed (100%) covering ride CRUD, search filters (from_city case-insensitive, date prefix, distance_type, weekly recurrence on next Monday + not returned on non-Monday), authorization (403 for non-driver PATCH/DELETE), bookings (success, driver-can't-book-own, exceeds-seats 400, cancelled/unknown ride 404), .ride subdocument attached in /bookings/mine, /bookings/received scoping, booking cancellation restoring seats_available, driver-and-passenger cancel authority, third-party cancel denied 403, ride_cancelled notifications generated for passengers, and seed idempotency preserving demo driver credentials. NOTE: tests must be run with `-n 0` (no xdist workers) because they rely on session-scoped state (ids of created rides) which cannot be shared across xdist worker processes. Deprecated packages detected: none in backend. No React Native issues inspected (frontend testing skipped as instructed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/rides/bookings/{bid}", "issue": "Route uses untyped `dict` body and only accepts status in ('cancelled','confirmed'); confirming an already-cancelled booking (which had decremented seats then restored them) would decrement seats again since status change from cancelled→confirmed is allowed but seats are only restored on the reverse. Consider tracking seat delta symmetrically or blocking re-confirm."},
+      {"endpoint": "POST /api/rides/{rid}/book", "issue": "Booking is instantly `status='confirmed'` and `paid=false` — no payment integration hook; acceptable for MVP but worth wiring into existing /payments flow to match provider bookings."},
+      {"endpoint": "GET /api/rides", "issue": "`date` filter builds an `$or` with both `{date: prefix}` and `{date: {$regex: ^prefix}}` — the first clause is redundant since prefix regex covers it; harmless but slightly wasteful."},
+      {"endpoint": "PATCH /api/rides/{rid}", "issue": "When `seats_total` is decreased below already-booked seats, `seats_available` is clamped to 0 but existing over-booked passengers are silently kept. Consider validation or auto-cancelling excess bookings."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_rides.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Consider making the pytest suite parallel-safe: either drop the shared `created_rides` fixture (each test creates its own ride) or force `-p no:xdist`/`-n 0` in the default invocation. Currently the file passes 32/32 with `pytest -n 0` but fails 4 tests under the default xdist LoadScope split because created ride ids can't cross worker processes.",
+    "Fix minor semantic in `PATCH /api/rides/bookings/{bid}`: block re-confirm (`cancelled → confirmed`) or reserve seats again on re-confirmation.",
+    "Add booking payment flow hook (currently `paid=false, status='confirmed'`)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 2247 lines — exceeds the 700-line guideline. Split by domain (auth, providers, bookings, payments, chat, ads, sponsorships, mobility, admin, seed).",
+    "Mobility endpoints correctly exclude `_id` via `_clean()` and use `{'_id': 0}` projections. Good.",
+    "`_driver_info()` runs on every ride creation; snapshot is copied into the ride doc — good for read denormalization but note that driver profile updates (name, avatar, verified) won't propagate to previously-created rides.",
+    "`GET /api/rides` weekly-recurrence match uses `recurrence_days: wd` (string) against an array — MongoDB allows this as element match, and it works, but explicit `$in` would be clearer.",
+    "`PATCH /api/rides/{rid}` returns `{ok: true}` instead of the updated doc — clients must do a follow-up GET. Consider returning the updated document."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_rides.py (new file)",
+    "/app/test_reports/pytest/pytest_results.xml (regenerated)"
+  ],
+  "success_rate": {"backend": "100% (32/32)", "frontend": "not tested (skipped per request)"},
+  "seed_data_creation": "Reused POST /api/seed (idempotent). Also created ~10 test rides + several bookings across tests. No cleanup was performed; test data prefixed by unique from_city/to_city combos and can be identified via driver_id=chauffeur@jokoo.sn's user id.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "To re-run the ride tests: `python -m pytest /app/backend/tests/test_rides.py -v -n 0`. IMPORTANT: `-n 0` is required because the `created_rides` fixture is session-scoped and won't propagate across xdist worker processes; running with the default `-n auto` produces 4 IndexError failures purely due to worker isolation, not real bugs. Existing test_credentials in /app/memory/test_credentials.md are correct (admin@jokoo.sn / Admin1234! and chauffeur@jokoo.sn / Driver1234!). Auth is Bearer-token via /api/auth/login.",
+  "rca_of_issue": "N/A — no functional bug identified in the mobility module. The only 'issue' encountered was during test execution: pytest-xdist LoadScope split ride-creation and ride-consumption tests across separate worker processes so session-scoped in-memory ids weren't shared. Mitigated by running with `-n 0`."
+}

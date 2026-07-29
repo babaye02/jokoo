@@ -104,6 +104,8 @@ export default function Profile() {
         {/* Menu */}
         <View style={{ padding: spacing.xl, gap: spacing.sm }}>
           <MenuRow icon="heart-outline" title="Favoris" onPress={() => router.push("/favorites")} testID="menu-favorites" />
+          <MenuRow icon="car-sport-outline" title="Mobilité · Covoiturage" onPress={() => router.push("/mobility")} testID="menu-mobility" />
+          <MenuRow icon="ticket-outline" title="Mes trajets" onPress={() => router.push("/mobility/rides/mine")} testID="menu-rides" />
           {user.role === "prestataire" ? (
             <>
               <MenuRow icon="pricetags-outline" title="Mes prestations" onPress={() => router.push("/my-services")} testID="menu-my-services" />

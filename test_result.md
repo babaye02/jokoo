@@ -101,3 +101,61 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Add a Mobility module to Jokoo with two services: Covoiturage (Carpooling) and Livraison (Delivery).
+  Phase 1+2 focus: Backend foundations + Covoiturage complete (drivers publish rides, passengers search & book, my rides & bookings screens, home hub, cancel flows, messaging integration).
+
+backend:
+  - task: "Rides CRUD + booking"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added endpoints POST/GET /api/rides, GET /api/rides/mine, GET /api/rides/{id}, PATCH /api/rides/{id}, DELETE /api/rides/{id}, POST /api/rides/{id}/book, GET /api/rides/bookings/mine, GET /api/rides/bookings/received, PATCH /api/rides/bookings/{id}. Seed adds demo driver (chauffeur@jokoo.sn / Driver1234!) with 4 sample rides. Search supports filters: from_city, to_city, date, distance_type (weekly recurrence also matches when date's weekday is in recurrence_days)."
+
+frontend:
+  - task: "Mobility hub + Covoiturage screens"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/mobility/*"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added /mobility (hub), /mobility/rides (search), /mobility/rides/publish, /mobility/rides/[id] (detail + book), /mobility/rides/mine (passenger/driver tabs), /mobility/delivery (coming soon). Home tab now shows a 'Mobilité' section with Covoiturage + Livraison cards. Profile menu adds mobility shortcut + my rides. Uses existing chat for driver contact."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.1"
+  test_sequence: 2
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Rides CRUD + booking"
+    - "Mobility hub + Covoiturage screens"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      New Mobility module (Phase 1+2 Covoiturage). Backend endpoints under /api/rides — search + publish + book + cancel. Seed already ran (chauffeur@jokoo.sn / Driver1234! plus 4 demo rides). Please validate:
+      - GET /api/rides list & filters (from_city, to_city, date, distance_type)
+      - Weekly recurrence matches when queried date weekday is in recurrence_days
+      - POST /api/rides creates ride (driver can be any authenticated user)
+      - POST /api/rides/{id}/book decreases seats_available and creates ride_booking, prevents self-booking, prevents overbooking
+      - PATCH /api/rides/{id} cancel notifies passengers
+      - GET /api/rides/bookings/mine (passenger view) attaches ride summary
+      - GET /api/rides/bookings/received (driver view)
+      - PATCH /api/rides/bookings/{id} status=cancelled increments seats_available back
+      Use test creds: admin@jokoo.sn / Admin1234! and chauffeur@jokoo.sn / Driver1234!.

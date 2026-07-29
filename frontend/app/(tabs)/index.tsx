@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, TextInput, RefreshControl, FlatList } from "react-native";
 import { Image } from "expo-image";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -25,12 +26,13 @@ export default function Home() {
 
   const load = useCallback(async () => {
     try {
+      const audience = user?.role || "client";
       const [svc, near, best, ah, am] = await Promise.all([
         api.get<ServiceItem[]>("/services"),
         api.get<Provider[]>(`/providers?city=${encodeURIComponent(user?.city || "Dakar")}&limit=8`),
         api.get<Provider[]>("/providers?sort=rating&limit=6"),
-        api.get<Ad[]>("/ads?placement=home"),
-        api.get<Ad[]>("/ads?placement=between_lists"),
+        api.get<Ad[]>(`/ads?placement=home&audience=${audience}`),
+        api.get<Ad[]>(`/ads?placement=between_lists&audience=${audience}`),
       ]);
       setServices(svc);
       setNearby(near);
@@ -40,7 +42,7 @@ export default function Home() {
     } catch (e) {
       // ignore
     }
-  }, [user?.city]);
+  }, [user?.city, user?.role]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -95,7 +97,7 @@ export default function Home() {
         {/* Publicité principale (home) */}
         {homeAds.length > 0 ? (
           <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.md }}>
-            <AdBanner ad={homeAds[0]} testID={`ad-home-${homeAds[0].id}`} />
+            <AdCarousel ads={homeAds} testIDPrefix="ad-home" />
           </View>
         ) : null}
 
@@ -123,6 +125,33 @@ export default function Home() {
           )}
         />
 
+        {/* Mobilité */}
+        <SectionHeader title="Mobilité" action="Explorer" onAction={() => router.push("/mobility")} testID="section-mobility" />
+        <View style={{ paddingHorizontal: spacing.xl, flexDirection: "row", gap: spacing.md }}>
+          <Pressable
+            onPress={() => router.push("/mobility/rides")}
+            style={[styles.mobCard, { backgroundColor: colors.midnight }]}
+            testID="mob-covoiturage"
+          >
+            <View style={styles.mobEmoji}>
+              <Txt size="xxl">🚗</Txt>
+            </View>
+            <Txt size="md" weight="700" color={colors.white} style={{ marginTop: 8 }}>Covoiturage</Txt>
+            <Txt size="xxs" color="rgba(255,255,255,0.7)" numberOfLines={2}>Partagez la route, économisez</Txt>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push("/mobility/delivery")}
+            style={[styles.mobCard, { backgroundColor: colors.turquoise }]}
+            testID="mob-livraison"
+          >
+            <View style={styles.mobEmoji}>
+              <Txt size="xxl">📦</Txt>
+            </View>
+            <Txt size="md" weight="700" color={colors.white} style={{ marginTop: 8 }}>Livraison</Txt>
+            <Txt size="xxs" color="rgba(255,255,255,0.85)" numberOfLines={2}>Colis · courses · interurbain</Txt>
+          </Pressable>
+        </View>
+
         {/* Nearby */}
         <SectionHeader title="Près de vous" action="Voir plus" onAction={() => router.push("/(tabs)/search")} />
         <FlatList
@@ -138,7 +167,7 @@ export default function Home() {
         <SectionHeader title="Les mieux notés" />
         {midAds.length > 0 ? (
           <View style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.md }}>
-            <AdBanner ad={midAds[0]} compact testID={`ad-mid-${midAds[0].id}`} />
+            <AdCarousel ads={midAds} testIDPrefix="ad-mid" />
           </View>
         ) : null}
         <View style={{ paddingHorizontal: spacing.xl, gap: spacing.md }}>
@@ -151,8 +180,42 @@ export default function Home() {
   );
 }
 
+function AdCarousel({ ads, testIDPrefix }: { ads: Ad[]; testIDPrefix: string }) {
+  // Fait défiler auto toutes les 5s les ads dont display_mode="carousel_queue",
+  // OU s'il y a plusieurs ads pour cet emplacement.
+  const shouldRotate = ads.length > 1 || ads.some((a) => a.display_mode === "carousel_queue");
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    if (!shouldRotate) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % ads.length), 5000);
+    return () => clearInterval(t);
+  }, [ads.length, shouldRotate]);
+  const cur = ads[idx % ads.length];
+  return (
+    <View>
+      <AdBanner ad={cur} testID={`${testIDPrefix}-${cur.id}`} />
+      {shouldRotate ? (
+        <View style={{ flexDirection: "row", justifyContent: "center", marginTop: 6 }}>
+          {ads.map((_, i) => (
+            <View
+              key={i}
+              style={{
+                width: i === idx ? 16 : 6, height: 6, borderRadius: 3,
+                backgroundColor: i === idx ? colors.turquoise : colors.borderStrong,
+                marginHorizontal: 3,
+              }}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function AdBanner({ ad, compact, testID }: { ad: Ad; compact?: boolean; testID?: string }) {
   const router = useRouter();
+  const m = ad.media?.[0];
+  const player = useVideoPlayer(m?.kind === "video" ? m.url : "", (p) => { p.loop = true; p.muted = true; p.play(); });
   const onPress = () => {
     api.post(`/ads/${ad.id}/click`).catch(() => {});
     if (!ad.link) return;
@@ -168,8 +231,10 @@ function AdBanner({ ad, compact, testID }: { ad: Ad; compact?: boolean; testID?:
   };
   return (
     <Pressable onPress={onPress} style={[styles.promo, compact && { height: 100 }]} testID={testID}>
-      {ad.images[0] ? (
-        <Image source={{ uri: ad.images[0] }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      {m?.kind === "video" && m.url ? (
+        <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
+      ) : m?.url ? (
+        <Image source={{ uri: m.url }} style={StyleSheet.absoluteFill} contentFit="cover" />
       ) : null}
       <LinearGradient
         colors={["rgba(11,31,58,0.85)", "rgba(0,194,168,0.65)"]}
@@ -271,6 +336,25 @@ const styles = StyleSheet.create({
   },
   svcCard: { width: 84, alignItems: "center" },
   svcIcon: { width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  mobCard: {
+    flex: 1,
+    height: 120,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    justifyContent: "flex-end",
+    ...shadow.card,
+  },
+  mobEmoji: {
+    position: "absolute",
+    top: 10,
+    right: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   nearCard: { width: 200, borderRadius: radius.lg, backgroundColor: colors.surface, overflow: "hidden", ...shadow.card },
   nearImg: { width: "100%", height: 130 },
   sponsoredBadge: {
