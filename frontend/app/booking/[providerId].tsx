@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, TextInput } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Provider } from "@/src/api";
+import { priceLabel } from "@/src/pricing";
 import { Btn, ErrorBox, Input, Txt } from "@/src/components/ui";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
 
@@ -33,7 +34,6 @@ export default function BookingScreen() {
   const [time, setTime] = useState("10:00");
   const [address, setAddress] = useState("");
   const [description, setDescription] = useState("");
-  const [hours, setHours] = useState("2");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const days = nextDays();
@@ -42,11 +42,12 @@ export default function BookingScreen() {
     if (providerId) api.get<Provider>(`/providers/${providerId}`).then(setP);
   }, [providerId]);
 
-  const estimated = (p?.hourly_price || 0) * Math.max(1, parseInt(hours || "1", 10) || 1);
+  const isQuote = !p || p.price_type === "quote" || p.price_amount == null;
 
   const submit = async () => {
     setErr(null);
     if (!address.trim()) return setErr("Veuillez indiquer une adresse");
+    if (!description.trim()) return setErr("Décrivez votre besoin pour permettre au prestataire de répondre");
     setLoading(true);
     try {
       const b = await api.post<any>("/bookings", {
@@ -55,9 +56,15 @@ export default function BookingScreen() {
         time,
         address,
         description,
-        estimated_price: estimated,
       });
-      router.replace({ pathname: "/booking/success", params: { bookingId: b.id, amount: String(estimated) } });
+      router.replace({
+        pathname: "/booking/success",
+        params: {
+          bookingId: b.id,
+          amount: String(b.price ?? ""),
+          priceType: p?.price_type || "quote",
+        },
+      });
     } catch (e: any) {
       setErr(e.message || "Erreur");
     } finally {
@@ -86,7 +93,9 @@ export default function BookingScreen() {
                 <Txt weight="700">{p.name}</Txt>
                 <Txt size="xs" color={colors.textMuted}>{p.service} · {p.city}</Txt>
               </View>
-              <Txt weight="700" color={colors.turquoise}>{p.hourly_price.toLocaleString()} F/h</Txt>
+              <Txt weight="700" color={colors.turquoise} numberOfLines={2} style={{ textAlign: "right", maxWidth: 110 }}>
+                {priceLabel(p)}
+              </Txt>
             </View>
           ) : null}
 
@@ -126,44 +135,60 @@ export default function BookingScreen() {
             <Input
               label="Description du besoin"
               icon="document-text-outline"
-              placeholder="Ex: fuite sous l'évier de la cuisine…"
+              placeholder="Décrivez précisément votre besoin (matériel, surface, urgence…)"
               value={description}
               onChangeText={setDescription}
               multiline
               numberOfLines={4}
-              style={{ height: 100, textAlignVertical: "top", paddingTop: 12 }}
+              style={{ height: 110, textAlignVertical: "top", paddingTop: 12 }}
               testID="booking-description"
-            />
-            <Input
-              label="Durée estimée (heures)"
-              icon="time-outline"
-              placeholder="2"
-              keyboardType="numeric"
-              value={hours}
-              onChangeText={setHours}
-              testID="booking-hours"
             />
           </View>
 
           <View style={styles.summary}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Txt color={colors.textMuted}>Tarif horaire</Txt>
-              <Txt weight="600">{(p?.hourly_price || 0).toLocaleString()} F</Txt>
-            </View>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8 }}>
-              <Txt color={colors.textMuted}>Durée</Txt>
-              <Txt weight="600">{hours || 1} h</Txt>
-            </View>
-            <View style={styles.line} />
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Txt size="md" weight="700">Total estimé</Txt>
-              <Txt size="xl" weight="700" color={colors.turquoise}>{estimated.toLocaleString()} F</Txt>
-            </View>
+            <Txt size="md" weight="700">Tarification</Txt>
+            {isQuote ? (
+              <>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: 10 }}>
+                  <Ionicons name="document-text" size={18} color={colors.turquoise} style={{ marginTop: 2 }} />
+                  <Txt size="sm" color={colors.text} style={{ flex: 1, marginLeft: 8, lineHeight: 20 }}>
+                    {"Le prestataire étudiera votre demande puis vous enverra un devis personnalisé dans le chat. Vous pourrez l'accepter et payer directement dans l'application."}
+                  </Txt>
+                </View>
+                <View style={styles.quotePill} testID="quote-pill">
+                  <Ionicons name="mail-open-outline" size={14} color={colors.midnight} />
+                  <Txt size="sm" weight="700" color={colors.midnight} style={{ marginLeft: 6 }}>
+                    Devis sur demande
+                  </Txt>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10 }}>
+                  <Txt color={colors.textMuted}>
+                    {p?.price_type === "from" ? "Prix de départ" : "Prix fixe"}
+                  </Txt>
+                  <Txt weight="700" size="xl" color={colors.turquoise}>{priceLabel(p)}</Txt>
+                </View>
+                {p?.price_type === "from" ? (
+                  <Txt size="xs" color={colors.textMuted} style={{ marginTop: 8 }}>
+                    Le montant final peut varier après visite / échange avec le prestataire.
+                  </Txt>
+                ) : null}
+              </>
+            )}
           </View>
         </ScrollView>
 
         <View style={[styles.bottom, { paddingBottom: 12 + insets.bottom }]}>
-          <Btn title="Confirmer la réservation" onPress={submit} loading={loading} fullWidth size="lg" testID="booking-submit" />
+          <Btn
+            title={isQuote ? "Envoyer ma demande" : "Confirmer la réservation"}
+            onPress={submit}
+            loading={loading}
+            fullWidth
+            size="lg"
+            testID="booking-submit"
+          />
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -179,6 +204,12 @@ const styles = StyleSheet.create({
   timeBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: radius.pill, backgroundColor: colors.surface2, borderWidth: 1, borderColor: colors.border },
   timeBtnActive: { backgroundColor: colors.turquoise, borderColor: colors.turquoise },
   summary: { marginTop: spacing.xl, backgroundColor: colors.surface2, borderRadius: radius.lg, padding: spacing.lg },
-  line: { height: 1, backgroundColor: colors.border, marginVertical: 12 },
+  quotePill: {
+    alignSelf: "flex-start",
+    marginTop: 12,
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: radius.pill, backgroundColor: colors.brandTertiary,
+  },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0, padding: spacing.xl, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.divider },
 });

@@ -5,6 +5,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Provider } from "@/src/api";
+import { priceLabel } from "@/src/pricing";
 import { Stars, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
@@ -56,7 +57,7 @@ export default function Favorites() {
                 <Txt size="xs" color={colors.textMuted} style={{ marginLeft: 6 }}>{item.rating.toFixed(1)}</Txt>
               </View>
             </View>
-            <Txt weight="700" color={colors.turquoise}>{item.hourly_price.toLocaleString()} F</Txt>
+            <Txt weight="700" color={colors.turquoise} numberOfLines={2} style={{ textAlign: "right", maxWidth: 100 }}>{priceLabel(item)}</Txt>
           </Pressable>
         )}
       />

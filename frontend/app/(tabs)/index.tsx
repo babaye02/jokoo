@@ -7,6 +7,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
 import { api, Provider, ServiceItem } from "@/src/api";
+import { priceLabel } from "@/src/pricing";
 import { Txt, Avatar, Stars, SectionHeader } from "@/src/components/ui";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
 
@@ -171,7 +172,7 @@ function NearbyCard({ p, onPress }: { p: Provider; onPress: () => void }) {
             <Txt size="xs" weight="600" style={{ marginLeft: 3 }}>{p.rating.toFixed(1)}</Txt>
             <Txt size="xs" color={colors.textSubtle}> ({p.reviews_count})</Txt>
           </View>
-          <Txt size="xs" weight="700" color={colors.turquoise}>{p.hourly_price.toLocaleString()} F</Txt>
+          <Txt size="xs" weight="700" color={colors.turquoise} numberOfLines={1}>{priceLabel(p)}</Txt>
         </View>
       </View>
     </Pressable>
@@ -193,9 +194,9 @@ function ProviderRow({ p, onPress }: { p: Provider; onPress: () => void }) {
           <Txt size="xs" color={colors.textMuted} style={{ marginLeft: 6 }}>{p.rating.toFixed(1)} · {p.reviews_count} avis</Txt>
         </View>
       </View>
-      <View style={{ alignItems: "flex-end" }}>
-        <Txt size="md" weight="700" color={colors.turquoise}>{p.hourly_price.toLocaleString()} F</Txt>
-        <Txt size="xxs" color={colors.textSubtle}>/ heure</Txt>
+      <View style={{ alignItems: "flex-end", maxWidth: 110 }}>
+        <Txt size="md" weight="700" color={colors.turquoise} numberOfLines={1} style={{ textAlign: "right" }}>{priceLabel(p)}</Txt>
+        <Txt size="xxs" color={colors.textSubtle}>par prestation</Txt>
       </View>
     </Pressable>
   );

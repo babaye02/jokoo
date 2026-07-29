@@ -5,6 +5,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Provider, ServiceItem } from "@/src/api";
+import { priceLabel } from "@/src/pricing";
 import { Chip, Stars, Txt } from "@/src/components/ui";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
 
@@ -119,9 +120,9 @@ export default function Search() {
                 <Txt size="xs" color={colors.textMuted} style={{ marginLeft: 6 }}>{item.rating.toFixed(1)} ({item.reviews_count})</Txt>
               </View>
             </View>
-            <View style={{ alignItems: "flex-end" }}>
-              <Txt weight="700" color={colors.turquoise}>{item.hourly_price.toLocaleString()} F</Txt>
-              <Txt size="xxs" color={colors.textSubtle}>/ heure</Txt>
+            <View style={{ alignItems: "flex-end", maxWidth: 110 }}>
+              <Txt weight="700" color={colors.turquoise} numberOfLines={1} style={{ textAlign: "right" }}>{priceLabel(item)}</Txt>
+              <Txt size="xxs" color={colors.textSubtle}>par prestation</Txt>
             </View>
           </Pressable>
         )}

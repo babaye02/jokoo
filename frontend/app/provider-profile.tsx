@@ -1,13 +1,19 @@
-// Prestataire: create / edit provider profile (my provider record).
+// Prestataire: create / edit provider profile with the new pricing model.
 import { useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
-import { api, ServiceItem } from "@/src/api";
+import { api, ServiceItem, PriceType } from "@/src/api";
 import { Btn, Input, Txt } from "@/src/components/ui";
-import { colors, radius, shadow, spacing } from "@/src/theme";
+import { colors, fs, radius, shadow, spacing } from "@/src/theme";
+
+const PRICE_TYPES: { key: PriceType; title: string; subtitle: string; icon: any }[] = [
+  { key: "fixed", title: "Prix fixe", subtitle: "Ex. 15 000 F par prestation", icon: "pricetag" },
+  { key: "from",  title: "À partir de…", subtitle: "Ex. Dès 10 000 F, prix affiné après échange", icon: "trending-up" },
+  { key: "quote", title: "Devis sur demande", subtitle: "Vous envoyez un devis après avoir vu la demande", icon: "document-text" },
+];
 
 export default function ProviderProfile() {
   const router = useRouter();
@@ -16,7 +22,8 @@ export default function ProviderProfile() {
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [serviceKey, setServiceKey] = useState("plombier");
   const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("5000");
+  const [priceType, setPriceType] = useState<PriceType>("fixed");
+  const [priceAmount, setPriceAmount] = useState("15000");
   const [city, setCity] = useState(user?.city || "Dakar");
   const [zonesStr, setZonesStr] = useState("Dakar, Almadies, Plateau");
   const [hoursStr, setHoursStr] = useState("Lun-Sam · 8h-19h");
@@ -28,7 +35,9 @@ export default function ProviderProfile() {
       if (!p) return;
       setServiceKey(p.service_key || "plombier");
       setDescription(p.description || "");
-      setPrice(String(p.hourly_price || 5000));
+      const pt = (p.price_type as PriceType) || "quote";
+      setPriceType(pt);
+      setPriceAmount(p.price_amount != null ? String(p.price_amount) : "");
       setCity(p.city || "Dakar");
       setZonesStr((p.zones || []).join(", ") || "Dakar");
       setHoursStr(p.hours || "");
@@ -36,16 +45,24 @@ export default function ProviderProfile() {
   }, [user?.id]);
 
   const save = async () => {
+    if (priceType !== "quote") {
+      const amt = parseFloat(priceAmount || "0");
+      if (!amt || amt < 500) {
+        Alert.alert("Prix invalide", "Indiquez un montant en FCFA (minimum 500 F).");
+        return;
+      }
+    }
     setLoading(true);
     try {
       await api.post("/providers/me", {
         service: serviceKey,
         description,
-        hourly_price: parseFloat(price || "0"),
+        price_type: priceType,
+        price_amount: priceType === "quote" ? null : parseFloat(priceAmount || "0"),
         city,
         zones: zonesStr.split(",").map((s) => s.trim()).filter(Boolean),
         hours: hoursStr,
-        id_card: "mock-id-card-uploaded",  // demo verification
+        id_card: "mock-id-card-uploaded",
       });
       Alert.alert("Profil enregistré", "Votre profil prestataire est à jour.");
       router.back();
@@ -83,8 +100,65 @@ export default function ProviderProfile() {
             ))}
           </View>
 
-          <Input label="Description" icon="document-text-outline" placeholder="Présentez-vous en quelques lignes…" multiline numberOfLines={4} style={{ height: 100, textAlignVertical: "top", paddingTop: 12 }} value={description} onChangeText={setDescription} />
-          <Input label="Tarif horaire (F CFA)" icon="cash-outline" keyboardType="numeric" value={price} onChangeText={setPrice} />
+          <Input
+            label="Description"
+            icon="document-text-outline"
+            placeholder="Présentez-vous, précisez ce que vous facturez par prestation…"
+            multiline
+            numberOfLines={4}
+            style={{ height: 110, textAlignVertical: "top", paddingTop: 12 }}
+            value={description}
+            onChangeText={setDescription}
+          />
+
+          {/* Pricing block */}
+          <Txt size="md" weight="700" style={{ marginBottom: spacing.md, marginTop: spacing.sm }}>
+            Comment facturez-vous ?
+          </Txt>
+          <Txt size="xs" color={colors.textMuted} style={{ marginBottom: spacing.md, lineHeight: 18 }}>
+            {"Choisissez le mode qui convient à votre activité. Jokoo ne facture jamais à l'heure."}
+          </Txt>
+
+          {PRICE_TYPES.map((opt) => (
+            <Pressable
+              key={opt.key}
+              onPress={() => setPriceType(opt.key)}
+              style={[styles.optRow, priceType === opt.key && styles.optRowActive]}
+              testID={`price-type-${opt.key}`}
+            >
+              <View style={[styles.optIcon, { backgroundColor: priceType === opt.key ? colors.brandTertiary : colors.surface2 }]}>
+                <Ionicons name={opt.icon} size={20} color={priceType === opt.key ? colors.turquoise : colors.midnight} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Txt weight="700">{opt.title}</Txt>
+                <Txt size="xs" color={colors.textMuted} style={{ marginTop: 2 }}>{opt.subtitle}</Txt>
+              </View>
+              <View style={[styles.radio, priceType === opt.key && styles.radioActive]}>
+                {priceType === opt.key ? <View style={styles.radioDot} /> : null}
+              </View>
+            </Pressable>
+          ))}
+
+          {priceType !== "quote" ? (
+            <Input
+              label={priceType === "from" ? "Prix de départ (F CFA)" : "Prix fixe (F CFA)"}
+              icon="cash-outline"
+              placeholder="Ex : 15000"
+              keyboardType="numeric"
+              value={priceAmount}
+              onChangeText={setPriceAmount}
+              testID="price-amount-input"
+            />
+          ) : (
+            <View style={styles.info}>
+              <Ionicons name="information-circle" size={18} color={colors.turquoise} />
+              <Txt size="sm" color={colors.text} style={{ flex: 1, marginLeft: 8, lineHeight: 20 }}>
+                {"Aucun montant n'est affiché aux clients. Vous leur enverrez un devis personnalisé après avoir lu leur demande."}
+              </Txt>
+            </View>
+          )}
+
+          <View style={{ height: spacing.lg }} />
           <Input label="Ville" icon="location-outline" value={city} onChangeText={setCity} />
           <Input label="Zones d'intervention" icon="map-outline" placeholder="Dakar, Almadies, Plateau" value={zonesStr} onChangeText={setZonesStr} />
           <Input label="Horaires" icon="time-outline" placeholder="Lun-Sam · 8h-19h" value={hoursStr} onChangeText={setHoursStr} />
@@ -108,5 +182,22 @@ const styles = StyleSheet.create({
   back: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
   chip: { flexDirection: "row", alignItems: "center", height: 34, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   chipActive: { backgroundColor: colors.midnight, borderColor: colors.midnight },
+  optRow: {
+    flexDirection: "row", alignItems: "center",
+    padding: spacing.md, borderRadius: radius.lg,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    marginBottom: 10,
+  },
+  optRowActive: { borderColor: colors.turquoise, backgroundColor: "#F0FBF8" },
+  optIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  radioActive: { borderColor: colors.turquoise },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.turquoise },
+  info: {
+    flexDirection: "row", alignItems: "flex-start",
+    padding: 12, borderRadius: radius.md,
+    backgroundColor: colors.brandTertiary,
+    marginBottom: spacing.md, marginTop: 4,
+  },
   upload: { marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, borderStyle: "dashed", alignItems: "center", backgroundColor: colors.surface2 },
 });

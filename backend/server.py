@@ -132,10 +132,14 @@ class AuthOut(BaseModel):
     user: dict
 
 
+PriceType = Literal["fixed", "from", "quote"]
+
+
 class ProviderProfileIn(BaseModel):
     service: str  # e.g. "Plombier"
     description: Optional[str] = ""
-    hourly_price: float = 0
+    price_type: PriceType = "quote"
+    price_amount: Optional[float] = None  # None si "quote"
     city: str
     zones: List[str] = []
     hours: Optional[str] = ""
@@ -151,11 +155,11 @@ class BookingIn(BaseModel):
     time: str  # "14:00"
     address: str
     description: str
-    estimated_price: float
 
 
 class BookingUpdate(BaseModel):
-    status: Literal["accepted", "rejected", "completed", "cancelled"]
+    status: Optional[Literal["accepted", "rejected", "completed", "cancelled"]] = None
+    quote_amount: Optional[float] = None  # prestataire envoie / met à jour le devis
 
 
 class ReviewIn(BaseModel):
@@ -271,7 +275,8 @@ async def list_providers(
     if sort == "rating":
         items.sort(key=lambda p: p.get("rating", 0), reverse=True)
     elif sort == "price":
-        items.sort(key=lambda p: p.get("hourly_price", 0))
+        # Prix croissant, "quote" et prix nuls placés à la fin
+        items.sort(key=lambda p: (p.get("price_type") == "quote", p.get("price_amount") or 10**12))
     return items
 
 
@@ -300,7 +305,8 @@ async def upsert_my_provider(body: ProviderProfileIn, user=Depends(current_user)
         "service": label,
         "service_key": key,
         "description": body.description or "",
-        "hourly_price": body.hourly_price,
+        "price_type": body.price_type,
+        "price_amount": body.price_amount if body.price_type != "quote" else None,
         "city": body.city,
         "zones": body.zones,
         "hours": body.hours or "",
@@ -325,6 +331,10 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
     provider = await db.providers.find_one({"id": body.provider_id}, {"_id": 0})
     if not provider:
         raise HTTPException(404, "Prestataire introuvable")
+    price_type = provider.get("price_type") or "quote"
+    price_amount = provider.get("price_amount")
+    # Prix initial: null pour "quote" (le prestataire enverra un devis), sinon le prix affiché.
+    initial_price = None if price_type == "quote" else price_amount
     bid = str(uuid.uuid4())
     doc = {
         "id": bid,
@@ -337,7 +347,9 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
         "time": body.time,
         "address": body.address,
         "description": body.description,
-        "estimated_price": body.estimated_price,
+        "price": initial_price,
+        "price_type": price_type,
+        "quote_amount": None,
         "status": "pending",
         "paid": False,
         "created_at": now_iso(),
@@ -372,26 +384,55 @@ async def update_booking(bid: str, body: BookingUpdate, user=Depends(current_use
     b = await db.bookings.find_one({"id": bid}, {"_id": 0})
     if not b:
         raise HTTPException(404, "Réservation introuvable")
-    # Only provider can accept/reject/complete; client can cancel
-    if body.status in ("accepted", "rejected", "completed"):
+
+    updates: dict = {"updated_at": now_iso()}
+
+    # Quote from prestataire (before/after acceptance): only provider can quote.
+    if body.quote_amount is not None:
         if b["provider_id"] != user["id"]:
-            raise HTTPException(403, "Interdit")
-    else:
-        if b["client_id"] != user["id"]:
-            raise HTTPException(403, "Interdit")
-    await db.bookings.update_one({"id": bid}, {"$set": {"status": body.status, "updated_at": now_iso()}})
-    # notify counterparty
-    target = b["client_id"] if body.status in ("accepted", "rejected", "completed") else b["provider_id"]
-    await db.notifications.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": target,
-        "type": f"booking_{body.status}",
-        "title": f"Réservation {body.status}",
-        "body": f"Statut mis à jour : {body.status}",
-        "booking_id": bid,
-        "read": False,
-        "created_at": now_iso(),
-    })
+            raise HTTPException(403, "Seul le prestataire peut envoyer un devis")
+        if body.quote_amount <= 0:
+            raise HTTPException(400, "Montant du devis invalide")
+        updates["quote_amount"] = float(body.quote_amount)
+        updates["price"] = float(body.quote_amount)
+        # Notify client
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": b["client_id"],
+            "type": "booking_quote",
+            "title": "Devis reçu",
+            "body": f"{b['provider_name']} vous a envoyé un devis de {int(body.quote_amount):,} F CFA".replace(",", " "),
+            "booking_id": bid,
+            "read": False,
+            "created_at": now_iso(),
+        })
+
+    # Status change
+    if body.status is not None:
+        # Only provider can accept/reject/complete; client can cancel
+        if body.status in ("accepted", "rejected", "completed"):
+            if b["provider_id"] != user["id"]:
+                raise HTTPException(403, "Interdit")
+        else:
+            if b["client_id"] != user["id"]:
+                raise HTTPException(403, "Interdit")
+        updates["status"] = body.status
+        target = b["client_id"] if body.status in ("accepted", "rejected", "completed") else b["provider_id"]
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": target,
+            "type": f"booking_{body.status}",
+            "title": f"Réservation {body.status}",
+            "body": f"Statut mis à jour : {body.status}",
+            "booking_id": bid,
+            "read": False,
+            "created_at": now_iso(),
+        })
+
+    if len(updates) == 1:
+        raise HTTPException(400, "Aucune mise à jour fournie")
+
+    await db.bookings.update_one({"id": bid}, {"$set": updates})
     return {"ok": True}
 
 
@@ -556,7 +597,7 @@ async def dashboard(user=Depends(current_user)):
     pending = [b for b in all_b if b["status"] == "pending"]
     accepted = [b for b in all_b if b["status"] == "accepted"]
     completed = [b for b in all_b if b["status"] == "completed"]
-    revenue = sum(b.get("estimated_price", 0) for b in completed)
+    revenue = sum((b.get("price") or b.get("quote_amount") or 0) for b in completed)
     provider = await db.providers.find_one({"id": user["id"]}, {"_id": 0})
     return {
         "total_bookings": len(all_b),
@@ -832,23 +873,25 @@ async def om_notify(request: Request):
 
 
 # ---------- seed ----------
+# Chaque prestataire a un mode de tarification distinct :
+# "fixed" = prix ferme par prestation, "from" = prix de départ, "quote" = sur devis.
 SEED_PROVIDERS = [
-    {"name": "Moussa Diop", "service_key": "plombier", "service": "Plombier", "city": "Dakar", "hourly_price": 5000, "rating": 4.8, "reviews_count": 42, "description": "Plombier certifié avec 10 ans d'expérience. Interventions rapides à Dakar.", "photo": "https://images.pexels.com/photos/8005368/pexels-photo-8005368.jpeg", "verified": True},
-    {"name": "Awa Ndiaye", "service_key": "coiffeuse", "service": "Coiffeuse", "city": "Dakar", "hourly_price": 8000, "rating": 4.9, "reviews_count": 87, "description": "Spécialiste tresses, extensions et défrisage. À domicile.", "photo": "https://images.pexels.com/photos/3993449/pexels-photo-3993449.jpeg", "verified": True},
-    {"name": "Ibrahima Fall", "service_key": "electricien", "service": "Électricien", "city": "Dakar", "hourly_price": 6000, "rating": 4.7, "reviews_count": 33, "description": "Électricien qualifié, dépannage 24/7, installations complètes.", "photo": "https://images.pexels.com/photos/8005397/pexels-photo-8005397.jpeg", "verified": True},
-    {"name": "Fatou Sow", "service_key": "menage", "service": "Femme de ménage", "city": "Dakar", "hourly_price": 3500, "rating": 4.9, "reviews_count": 121, "description": "Ménage complet, repassage. Sérieuse et ponctuelle.", "photo": "https://images.pexels.com/photos/8817841/pexels-photo-8817841.jpeg", "verified": True},
-    {"name": "Cheikh Ba", "service_key": "macon", "service": "Maçon", "city": "Thiès", "hourly_price": 7000, "rating": 4.5, "reviews_count": 19, "description": "Maçonnerie générale, carrelage, rénovation.", "photo": "https://images.pexels.com/photos/8961251/pexels-photo-8961251.jpeg", "verified": True},
-    {"name": "Aminata Sy", "service_key": "prof", "service": "Professeur", "city": "Dakar", "hourly_price": 5000, "rating": 5.0, "reviews_count": 56, "description": "Prof de maths & physique — collège & lycée. Cours à domicile.", "photo": "https://images.pexels.com/photos/5212345/pexels-photo-5212345.jpeg", "verified": True},
-    {"name": "Ousmane Kane", "service_key": "peintre", "service": "Peintre", "city": "Dakar", "hourly_price": 4500, "rating": 4.6, "reviews_count": 28, "description": "Peinture intérieure & extérieure, finitions soignées.", "photo": "https://images.pexels.com/photos/8961324/pexels-photo-8961324.jpeg", "verified": True},
-    {"name": "Sokhna Dieng", "service_key": "decorateur", "service": "Décoratrice", "city": "Dakar", "hourly_price": 12000, "rating": 4.8, "reviews_count": 22, "description": "Décoration événementielle, mariages, baptêmes.", "photo": "https://images.pexels.com/photos/1181696/pexels-photo-1181696.jpeg", "verified": True},
-    {"name": "Mamadou Sarr", "service_key": "clim", "service": "Climatisation", "city": "Dakar", "hourly_price": 8000, "rating": 4.7, "reviews_count": 47, "description": "Installation & entretien climatisation toutes marques.", "photo": "https://images.pexels.com/photos/5877455/pexels-photo-5877455.jpeg", "verified": True},
-    {"name": "Papis Gueye", "service_key": "jardinier", "service": "Jardinier", "city": "Saly", "hourly_price": 4000, "rating": 4.6, "reviews_count": 31, "description": "Entretien jardins, taille de haies, arrosage automatique.", "photo": "https://images.pexels.com/photos/6231795/pexels-photo-6231795.jpeg", "verified": True},
-    {"name": "Serigne Mbaye", "service_key": "chauffeur", "service": "Chauffeur", "city": "Dakar", "hourly_price": 6000, "rating": 4.9, "reviews_count": 64, "description": "Chauffeur privé, aéroport & courses. Véhicule confort.", "photo": "https://images.pexels.com/photos/3771120/pexels-photo-3771120.jpeg", "verified": True},
-    {"name": "Ndèye Faye", "service_key": "photographe", "service": "Photographe", "city": "Dakar", "hourly_price": 25000, "rating": 5.0, "reviews_count": 38, "description": "Photographe portrait, mariage & évènements.", "photo": "https://images.pexels.com/photos/1264210/pexels-photo-1264210.jpeg", "verified": True},
-    {"name": "Aliou Cissé", "service_key": "plombier", "service": "Plombier", "city": "Rufisque", "hourly_price": 4500, "rating": 4.5, "reviews_count": 17, "description": "Fuites, chauffe-eau, wc. Intervention rapide.", "photo": "https://images.pexels.com/photos/5691660/pexels-photo-5691660.jpeg", "verified": False},
-    {"name": "Mariam Gassama", "service_key": "coiffeuse", "service": "Coiffeuse", "city": "Thiès", "hourly_price": 6000, "rating": 4.6, "reviews_count": 41, "description": "Coiffure afro & modernes. Salon et à domicile.", "photo": "https://images.pexels.com/photos/3993451/pexels-photo-3993451.jpeg", "verified": True},
-    {"name": "Bassirou Diallo", "service_key": "electricien", "service": "Électricien", "city": "Dakar", "hourly_price": 5500, "rating": 4.4, "reviews_count": 25, "description": "Câblage, tableaux électriques, urgences.", "photo": "https://images.pexels.com/photos/8005398/pexels-photo-8005398.jpeg", "verified": True},
-    {"name": "Khady Ndoye", "service_key": "menage", "service": "Femme de ménage", "city": "Dakar", "hourly_price": 3000, "rating": 4.7, "reviews_count": 63, "description": "Ménage régulier ou ponctuel. Références disponibles.", "photo": "https://images.pexels.com/photos/8817842/pexels-photo-8817842.jpeg", "verified": True},
+    {"name": "Moussa Diop", "service_key": "plombier", "service": "Plombier", "city": "Dakar", "price_type": "from", "price_amount": 5000, "rating": 4.8, "reviews_count": 42, "description": "Plombier certifié avec 10 ans d'expérience. Interventions rapides à Dakar. Devis gratuit avant intervention.", "photo": "https://images.pexels.com/photos/8005368/pexels-photo-8005368.jpeg", "verified": True},
+    {"name": "Awa Ndiaye", "service_key": "coiffeuse", "service": "Coiffeuse", "city": "Dakar", "price_type": "fixed", "price_amount": 15000, "rating": 4.9, "reviews_count": 87, "description": "Spécialiste tresses, extensions et défrisage. À domicile. Forfait tout compris.", "photo": "https://images.pexels.com/photos/3993449/pexels-photo-3993449.jpeg", "verified": True},
+    {"name": "Ibrahima Fall", "service_key": "electricien", "service": "Électricien", "city": "Dakar", "price_type": "from", "price_amount": 8000, "rating": 4.7, "reviews_count": 33, "description": "Électricien qualifié, dépannage 24/7, installations complètes. Devis rapide.", "photo": "https://images.pexels.com/photos/8005397/pexels-photo-8005397.jpeg", "verified": True},
+    {"name": "Fatou Sow", "service_key": "menage", "service": "Femme de ménage", "city": "Dakar", "price_type": "fixed", "price_amount": 12000, "rating": 4.9, "reviews_count": 121, "description": "Ménage complet d'appartement (jusqu'à 3 pièces), repassage inclus. Sérieuse et ponctuelle.", "photo": "https://images.pexels.com/photos/8817841/pexels-photo-8817841.jpeg", "verified": True},
+    {"name": "Cheikh Ba", "service_key": "macon", "service": "Maçon", "city": "Thiès", "price_type": "quote", "price_amount": None, "rating": 4.5, "reviews_count": 19, "description": "Maçonnerie générale, carrelage, rénovation. Devis personnalisé après visite.", "photo": "https://images.pexels.com/photos/8961251/pexels-photo-8961251.jpeg", "verified": True},
+    {"name": "Aminata Sy", "service_key": "prof", "service": "Professeur", "city": "Dakar", "price_type": "fixed", "price_amount": 8000, "rating": 5.0, "reviews_count": 56, "description": "Prof de maths & physique — collège & lycée. Cours à domicile de 1h30.", "photo": "https://images.pexels.com/photos/5212345/pexels-photo-5212345.jpeg", "verified": True},
+    {"name": "Ousmane Kane", "service_key": "peintre", "service": "Peintre", "city": "Dakar", "price_type": "quote", "price_amount": None, "rating": 4.6, "reviews_count": 28, "description": "Peinture intérieure & extérieure, finitions soignées. Devis gratuit sur mesure.", "photo": "https://images.pexels.com/photos/8961324/pexels-photo-8961324.jpeg", "verified": True},
+    {"name": "Sokhna Dieng", "service_key": "decorateur", "service": "Décoratrice", "city": "Dakar", "price_type": "quote", "price_amount": None, "rating": 4.8, "reviews_count": 22, "description": "Décoration événementielle, mariages, baptêmes. Devis personnalisé selon l'événement.", "photo": "https://images.pexels.com/photos/1181696/pexels-photo-1181696.jpeg", "verified": True},
+    {"name": "Mamadou Sarr", "service_key": "clim", "service": "Climatisation", "city": "Dakar", "price_type": "from", "price_amount": 20000, "rating": 4.7, "reviews_count": 47, "description": "Installation & entretien climatisation toutes marques. Tarif variable selon puissance.", "photo": "https://images.pexels.com/photos/5877455/pexels-photo-5877455.jpeg", "verified": True},
+    {"name": "Papis Gueye", "service_key": "jardinier", "service": "Jardinier", "city": "Saly", "price_type": "fixed", "price_amount": 10000, "rating": 4.6, "reviews_count": 31, "description": "Entretien jardin (jusqu'à 200 m²), taille de haies, arrosage automatique.", "photo": "https://images.pexels.com/photos/6231795/pexels-photo-6231795.jpeg", "verified": True},
+    {"name": "Serigne Mbaye", "service_key": "chauffeur", "service": "Chauffeur", "city": "Dakar", "price_type": "from", "price_amount": 15000, "rating": 4.9, "reviews_count": 64, "description": "Chauffeur privé, aéroport & courses. Véhicule confort. Forfait journée disponible.", "photo": "https://images.pexels.com/photos/3771120/pexels-photo-3771120.jpeg", "verified": True},
+    {"name": "Ndèye Faye", "service_key": "photographe", "service": "Photographe", "city": "Dakar", "price_type": "from", "price_amount": 75000, "rating": 5.0, "reviews_count": 38, "description": "Photographe portrait, mariage & évènements. Forfaits demi-journée / journée.", "photo": "https://images.pexels.com/photos/1264210/pexels-photo-1264210.jpeg", "verified": True},
+    {"name": "Aliou Cissé", "service_key": "plombier", "service": "Plombier", "city": "Rufisque", "price_type": "fixed", "price_amount": 7500, "rating": 4.5, "reviews_count": 17, "description": "Fuites, chauffe-eau, wc. Intervention rapide. Forfait dépannage simple.", "photo": "https://images.pexels.com/photos/5691660/pexels-photo-5691660.jpeg", "verified": False},
+    {"name": "Mariam Gassama", "service_key": "coiffeuse", "service": "Coiffeuse", "city": "Thiès", "price_type": "from", "price_amount": 10000, "rating": 4.6, "reviews_count": 41, "description": "Coiffure afro & modernes. Salon et à domicile. Tarif selon prestation.", "photo": "https://images.pexels.com/photos/3993451/pexels-photo-3993451.jpeg", "verified": True},
+    {"name": "Bassirou Diallo", "service_key": "electricien", "service": "Électricien", "city": "Dakar", "price_type": "quote", "price_amount": None, "rating": 4.4, "reviews_count": 25, "description": "Câblage, tableaux électriques, urgences. Devis après diagnostic.", "photo": "https://images.pexels.com/photos/8005398/pexels-photo-8005398.jpeg", "verified": True},
+    {"name": "Khady Ndoye", "service_key": "menage", "service": "Femme de ménage", "city": "Dakar", "price_type": "from", "price_amount": 8000, "rating": 4.7, "reviews_count": 63, "description": "Ménage régulier ou ponctuel. Tarif selon surface et fréquence.", "photo": "https://images.pexels.com/photos/8817842/pexels-photo-8817842.jpeg", "verified": True},
 ]
 
 SEED_REVIEWS = [

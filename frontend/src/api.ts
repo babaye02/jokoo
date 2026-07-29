@@ -59,13 +59,16 @@ export type ServiceItem = {
   color: string;
 };
 
+export type PriceType = "fixed" | "from" | "quote";
+
 export type Provider = {
   id: string;
   name: string;
   service: string;
   service_key: string;
   city: string;
-  hourly_price: number;
+  price_type?: PriceType;
+  price_amount?: number | null;
   rating: number;
   reviews_count: number;
   description: string;
@@ -100,7 +103,9 @@ export type Booking = {
   time: string;
   address: string;
   description: string;
-  estimated_price: number;
+  price?: number | null;
+  price_type?: PriceType;
+  quote_amount?: number | null;
   status: "pending" | "accepted" | "rejected" | "completed" | "cancelled";
   paid?: boolean;
   created_at: string;

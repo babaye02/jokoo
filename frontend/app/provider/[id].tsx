@@ -6,6 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Provider, Review } from "@/src/api";
+import { priceLabel } from "@/src/pricing";
 import { Btn, Card, Stars, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
@@ -76,9 +77,17 @@ export default function ProviderDetail() {
                 <Txt size="sm" color={colors.textMuted} style={{ marginLeft: 4 }}>{p.city}</Txt>
               </View>
             </View>
-            <View style={{ alignItems: "flex-end" }}>
-              <Txt size="xxl" weight="700" color={colors.turquoise}>{p.hourly_price.toLocaleString()} F</Txt>
-              <Txt size="xs" color={colors.textMuted}>/ heure</Txt>
+            <View style={{ alignItems: "flex-end", maxWidth: 150 }}>
+              <Txt size="xl" weight="700" color={colors.turquoise} numberOfLines={2} style={{ textAlign: "right" }}>
+                {priceLabel(p)}
+              </Txt>
+              <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 2, textAlign: "right" }}>
+                {p.price_type === "quote"
+                  ? "Devis personnalisé"
+                  : p.price_type === "from"
+                  ? "Prix de départ"
+                  : "Prix fixe"}
+              </Txt>
             </View>
           </View>
 

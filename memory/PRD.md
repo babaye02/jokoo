@@ -9,6 +9,18 @@ Jokoo est la première plateforme sénégalaise qui met en relation les particul
 - **Client** : recherche un pro, réserve, discute, paie, note, gère favoris et historique.
 - **Prestataire** : gère son profil (métier, tarif, zones, horaires, pièce d'identité), reçoit et accepte des demandes, consulte son dashboard (revenus, note, calendrier) et souscrit un abonnement mensuel.
 
+## Modèle de tarification
+
+Jokoo **ne facture pas à l'heure**. Chaque prestataire choisit son mode :
+
+| Mode | Description | Ex. |
+|---|---|---|
+| `fixed` | Prix ferme par prestation | `15 000 F` |
+| `from` | Prix "à partir de…" (indicatif) | `Dès 10 000 F` |
+| `quote` | Devis personnalisé après lecture de la demande | `Sur devis` |
+
+**Flux quote** : le client crée une demande sans prix → le prestataire reçoit la demande et envoie un devis (`PATCH /bookings/{id}` avec `quote_amount`) → le client voit le montant dans son historique et peut payer.
+
 ## Fonctionnalités livrées (MVP)
 
 - Splash animé + onboarding 3 écrans (skip / next / commencer).
