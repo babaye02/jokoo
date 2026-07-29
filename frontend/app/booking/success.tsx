@@ -21,21 +21,25 @@ export default function BookingSuccess() {
   const pay = async () => {
     setLoading(true);
     try {
-      if (method === "card") {
-        const r = await api.post<{ url: string; session_id: string }>("/payments/checkout/booking", {
-          booking_id: bookingId,
-          amount_xof: Math.max(500, parseInt(amount || "0", 10) || 500),
-        });
-        if (Platform.OS === "web") window.location.assign(r.url);
-        else await WebBrowser.openBrowserAsync(r.url);
-        // when returning, mark paid via status polling would be ideal; for MVP show success screen
+      const amount_xof = Math.max(500, parseInt(amount || "0", 10) || 500);
+      if (method === "cash") {
+        // paiement à la prestation — pas de flux en ligne
         setPaid(true);
-      } else {
-        // mocked for wave / orange money / cash
-        setPaid(true);
+        return;
       }
+      const endpoint =
+        method === "card" ? "/payments/checkout/booking" :
+        method === "wave" ? "/payments/wave/checkout/booking" :
+        "/payments/orange/checkout/booking";
+      const r = await api.post<{ url: string; session_id?: string; pay_token?: string }>(
+        endpoint,
+        { booking_id: bookingId, amount_xof },
+      );
+      if (Platform.OS === "web") window.location.assign(r.url);
+      else await WebBrowser.openBrowserAsync(r.url);
+      setPaid(true);
     } catch (e: any) {
-      Alert.alert("Paiement", e.message || "Erreur");
+      Alert.alert("Paiement indisponible", e.message || "Erreur");
     } finally {
       setLoading(false);
     }

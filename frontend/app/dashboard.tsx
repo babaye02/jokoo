@@ -39,17 +39,34 @@ export default function Dashboard() {
   const reject = async (id: string) => { await api.patch(`/bookings/${id}`, { status: "rejected" }); load(); };
   const complete = async (id: string) => { await api.patch(`/bookings/${id}`, { status: "completed" }); load(); };
 
-  const subscribe = async () => {
+  const subscribe = async (provider: "card" | "wave" | "orange" = "card") => {
     setPaying(true);
     try {
-      const r = await api.post<{ url: string }>("/payments/checkout/subscription", { plan: "monthly" });
+      const endpoint =
+        provider === "card" ? "/payments/checkout/subscription" :
+        provider === "wave" ? "/payments/wave/checkout/subscription" :
+        "/payments/orange/checkout/subscription";
+      const r = await api.post<{ url: string }>(endpoint, { plan: "monthly" });
       if (Platform.OS === "web") window.location.assign(r.url);
       else await WebBrowser.openBrowserAsync(r.url);
     } catch (e: any) {
-      Alert.alert("Paiement", e.message);
+      Alert.alert("Paiement indisponible", e.message);
     } finally {
       setPaying(false);
     }
+  };
+
+  const chooseSubMethod = () => {
+    Alert.alert(
+      "S'abonner à Jokoo Pro",
+      "15 000 F CFA / mois. Choisissez un moyen de paiement.",
+      [
+        { text: "Carte bancaire", onPress: () => subscribe("card") },
+        { text: "Wave", onPress: () => subscribe("wave") },
+        { text: "Orange Money", onPress: () => subscribe("orange") },
+        { text: "Annuler", style: "cancel" },
+      ],
+    );
   };
 
   if (!dash) return <View style={{ flex: 1, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" }}><Txt color={colors.textMuted}>Chargement…</Txt></View>;
@@ -84,7 +101,7 @@ export default function Dashboard() {
             </Txt>
           </View>
           {!dash.subscription_active ? (
-            <Pressable onPress={subscribe} disabled={paying} style={styles.subBtn} testID="subscribe-btn">
+            <Pressable onPress={chooseSubMethod} disabled={paying} style={styles.subBtn} testID="subscribe-btn">
               <Txt weight="700" color={colors.midnight}>{paying ? "…" : "15 000 F/mois"}</Txt>
             </Pressable>
           ) : (

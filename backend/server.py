@@ -28,10 +28,18 @@ from emergentintegrations.payments.stripe.checkout import (
     CheckoutSessionRequest,
 )
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
+
+from payments_local import (
+    wave_create_checkout,
+    wave_get_session,
+    wave_verify_webhook,
+    om_create_webpayment,
+    om_get_status,
+)
 
 
 ROOT_DIR = Path(__file__).parent
@@ -637,6 +645,190 @@ async def payment_status(session_id: str, user=Depends(current_user)):
             {"$set": {"subscription_active": True, "subscription_until": until}},
         )
     return {"paid": paid, "status": getattr(s, "payment_status", getattr(s, "status", None))}
+
+
+# ---------- Wave (Business API) ----------
+@api.post("/payments/wave/checkout/booking")
+async def wave_pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
+    b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
+    if not b or b["client_id"] != user["id"]:
+        raise HTTPException(404, "Réservation introuvable")
+    session = await wave_create_checkout(
+        amount_xof=int(body.amount_xof),
+        success_url=f"{APP_URL}/api/payments/wave/return?booking_id={body.booking_id}",
+        error_url=f"{APP_URL}/api/payments/wave/cancel",
+        client_reference=f"booking:{body.booking_id}",
+    )
+    await db.bookings.update_one(
+        {"id": body.booking_id},
+        {"$set": {
+            "wave_session_id": session.get("id"),
+            "payment_provider": "wave",
+        }},
+    )
+    return {"url": session.get("wave_launch_url"), "session_id": session.get("id")}
+
+
+@api.post("/payments/wave/checkout/subscription")
+async def wave_pay_sub(body: CheckoutSubIn, user=Depends(current_user)):
+    if user["role"] != "prestataire":
+        raise HTTPException(403, "Prestataire uniquement")
+    session = await wave_create_checkout(
+        amount_xof=15000,
+        success_url=f"{APP_URL}/api/payments/wave/return?user_id={user['id']}&kind=sub",
+        error_url=f"{APP_URL}/api/payments/wave/cancel",
+        client_reference=f"sub:{user['id']}",
+    )
+    return {"url": session.get("wave_launch_url"), "session_id": session.get("id")}
+
+
+@api.post("/payments/wave/webhook")
+async def wave_webhook(request: Request):
+    """Wave webhook — verifies signature then marks booking/subscription paid."""
+    raw = await request.body()
+    sig = request.headers.get("Wave-Signature") or request.headers.get("wave-signature")
+    if not wave_verify_webhook(raw, sig):
+        raise HTTPException(400, "Signature invalide")
+    event = await request.json()
+    et = event.get("type") or event.get("event") or ""
+    data = event.get("data") or event
+    if et in ("checkout.session.completed", "checkout.session.payment_success"):
+        ref = data.get("client_reference") or ""
+        if ref.startswith("booking:"):
+            bid = ref.split(":", 1)[1]
+            await db.bookings.update_one(
+                {"id": bid},
+                {"$set": {"paid": True, "paid_at": now_iso(), "payment_provider": "wave"}},
+            )
+        elif ref.startswith("sub:"):
+            uid = ref.split(":", 1)[1]
+            until = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+            await db.providers.update_one(
+                {"id": uid},
+                {"$set": {"subscription_active": True, "subscription_until": until}},
+            )
+    return {"received": True}
+
+
+@api.get("/payments/wave/return")
+async def wave_return(booking_id: Optional[str] = None, user_id: Optional[str] = None, kind: Optional[str] = None):
+    """Landing page after Wave redirect (browser). Just informs user; final state comes via webhook."""
+    return {"ok": True, "booking_id": booking_id, "user_id": user_id, "kind": kind}
+
+
+@api.get("/payments/wave/cancel")
+async def wave_cancel():
+    return {"ok": False, "cancelled": True}
+
+
+# ---------- Orange Money Web Payment ----------
+@api.post("/payments/orange/checkout/booking")
+async def om_pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
+    b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
+    if not b or b["client_id"] != user["id"]:
+        raise HTTPException(404, "Réservation introuvable")
+    order_id = f"jokoo-{body.booking_id}"
+    session = await om_create_webpayment(
+        amount_xof=int(body.amount_xof),
+        order_id=order_id,
+        return_url=f"{APP_URL}/api/payments/orange/return?booking_id={body.booking_id}",
+        cancel_url=f"{APP_URL}/api/payments/orange/cancel",
+        notif_url=f"{APP_URL}/api/payments/orange/notify",
+        reference="Jokoo",
+    )
+    await db.bookings.update_one(
+        {"id": body.booking_id},
+        {"$set": {
+            "om_pay_token": session.get("pay_token"),
+            "om_notif_token": session.get("notif_token"),
+            "payment_provider": "orange",
+        }},
+    )
+    return {
+        "url": session.get("payment_url"),
+        "pay_token": session.get("pay_token"),
+    }
+
+
+@api.post("/payments/orange/checkout/subscription")
+async def om_pay_sub(body: CheckoutSubIn, user=Depends(current_user)):
+    if user["role"] != "prestataire":
+        raise HTTPException(403, "Prestataire uniquement")
+    order_id = f"jokoo-sub-{user['id']}-{int(datetime.now(timezone.utc).timestamp())}"
+    session = await om_create_webpayment(
+        amount_xof=15000,
+        order_id=order_id,
+        return_url=f"{APP_URL}/api/payments/orange/return?user_id={user['id']}&kind=sub",
+        cancel_url=f"{APP_URL}/api/payments/orange/cancel",
+        notif_url=f"{APP_URL}/api/payments/orange/notify",
+        reference="Jokoo Pro",
+    )
+    return {"url": session.get("payment_url"), "pay_token": session.get("pay_token")}
+
+
+@api.get("/payments/orange/status/{pay_token}")
+async def om_status(pay_token: str, user=Depends(current_user)):
+    """Client polls this after the OM redirect flow. Marks paid on SUCCESS."""
+    r = await om_get_status(pay_token)
+    status_ = (r.get("status") or "").upper()
+    if status_ == "SUCCESS":
+        # Try mark booking
+        b = await db.bookings.find_one({"om_pay_token": pay_token}, {"_id": 0})
+        if b:
+            await db.bookings.update_one(
+                {"id": b["id"]},
+                {"$set": {"paid": True, "paid_at": now_iso(), "payment_provider": "orange"}},
+            )
+        else:
+            # subscription
+            until = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+            await db.providers.update_one(
+                {"id": user["id"]},
+                {"$set": {"subscription_active": True, "subscription_until": until}},
+            )
+    return {"paid": status_ == "SUCCESS", "status": status_}
+
+
+@api.get("/payments/orange/return")
+async def om_return(booking_id: Optional[str] = None, user_id: Optional[str] = None, kind: Optional[str] = None):
+    return {"ok": True, "booking_id": booking_id, "user_id": user_id, "kind": kind}
+
+
+@api.get("/payments/orange/cancel")
+async def om_cancel():
+    return {"ok": False, "cancelled": True}
+
+
+@api.post("/payments/orange/notify")
+async def om_notify(request: Request):
+    """Optional Orange Money server notification endpoint.
+
+    OM sends a POST here after a payment. Best-effort mark paid; relies on order_id
+    which we set to jokoo-<booking_id> or jokoo-sub-<user_id>-<ts>.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return {"received": True}
+    status_ = str(data.get("status") or "").upper()
+    order_id = str(data.get("order_id") or "")
+    if status_ == "SUCCESS":
+        if order_id.startswith("jokoo-sub-"):
+            uid = order_id.split("-")[2] if len(order_id.split("-")) > 2 else None
+            if uid:
+                until = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+                await db.providers.update_one(
+                    {"id": uid},
+                    {"$set": {"subscription_active": True, "subscription_until": until}},
+                )
+        elif order_id.startswith("jokoo-"):
+            bid = order_id.split("-", 1)[1]
+            await db.bookings.update_one(
+                {"id": bid},
+                {"$set": {"paid": True, "paid_at": now_iso(), "payment_provider": "orange"}},
+            )
+    return {"received": True}
+
 
 
 # ---------- seed ----------
