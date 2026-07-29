@@ -6,7 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
-import { api, Provider, ServiceItem } from "@/src/api";
+import { api, Provider, ServiceItem, Ad } from "@/src/api";
 import { priceLabel } from "@/src/pricing";
 import { Txt, Avatar, Stars, SectionHeader } from "@/src/components/ui";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
@@ -18,19 +18,25 @@ export default function Home() {
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [nearby, setNearby] = useState<Provider[]>([]);
   const [top, setTop] = useState<Provider[]>([]);
+  const [homeAds, setHomeAds] = useState<Ad[]>([]);
+  const [midAds, setMidAds] = useState<Ad[]>([]);
   const [q, setQ] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [svc, near, best] = await Promise.all([
+      const [svc, near, best, ah, am] = await Promise.all([
         api.get<ServiceItem[]>("/services"),
         api.get<Provider[]>(`/providers?city=${encodeURIComponent(user?.city || "Dakar")}&limit=8`),
         api.get<Provider[]>("/providers?sort=rating&limit=6"),
+        api.get<Ad[]>("/ads?placement=home"),
+        api.get<Ad[]>("/ads?placement=between_lists"),
       ]);
       setServices(svc);
       setNearby(near);
       setTop(best);
+      setHomeAds(ah);
+      setMidAds(am);
     } catch (e) {
       // ignore
     }
@@ -86,26 +92,12 @@ export default function Home() {
           </View>
         </SafeAreaView>
 
-        {/* Promo banner */}
-        <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.md }}>
-          <View style={styles.promo}>
-            <Image
-              source={{ uri: "https://images.unsplash.com/photo-1657302699239-c350f0372260" }}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-            />
-            <LinearGradient
-              colors={["rgba(11,31,58,0.85)", "rgba(0,194,168,0.65)"]}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={{ padding: spacing.xl }}>
-              <Txt size="sm" color="rgba(255,255,255,0.9)" weight="500">Promo Jokoo</Txt>
-              <Txt size="xl" weight="700" color={colors.white} style={{ marginTop: 4 }}>–20% sur votre 1ère réservation</Txt>
-              <Txt size="sm" color="rgba(255,255,255,0.85)" style={{ marginTop: 6 }}>Code : JOKOO20</Txt>
-            </View>
+        {/* Publicité principale (home) */}
+        {homeAds.length > 0 ? (
+          <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.md }}>
+            <AdBanner ad={homeAds[0]} testID={`ad-home-${homeAds[0].id}`} />
           </View>
-        </View>
+        ) : null}
 
         {/* Categories */}
         <SectionHeader title="Services populaires" action="Tout voir" onAction={() => router.push("/(tabs)/search")} testID="section-services" />
@@ -144,6 +136,11 @@ export default function Home() {
 
         {/* Top rated */}
         <SectionHeader title="Les mieux notés" />
+        {midAds.length > 0 ? (
+          <View style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.md }}>
+            <AdBanner ad={midAds[0]} compact testID={`ad-mid-${midAds[0].id}`} />
+          </View>
+        ) : null}
         <View style={{ paddingHorizontal: spacing.xl, gap: spacing.md }}>
           {top.map((p) => (
             <ProviderRow key={p.id} p={p} onPress={() => router.push(`/provider/${p.id}`)} />
@@ -154,13 +151,59 @@ export default function Home() {
   );
 }
 
+function AdBanner({ ad, compact, testID }: { ad: Ad; compact?: boolean; testID?: string }) {
+  const router = useRouter();
+  const onPress = () => {
+    api.post(`/ads/${ad.id}/click`).catch(() => {});
+    if (!ad.link) return;
+    if (ad.link.startsWith("category:")) {
+      const key = ad.link.split(":")[1];
+      router.push({ pathname: "/(tabs)/search", params: { service: key } });
+    } else if (ad.link.startsWith("provider:")) {
+      const pid = ad.link.split(":")[1];
+      router.push(`/provider/${pid}`);
+    } else if (ad.link.startsWith("app:home")) {
+      router.push("/(tabs)/search");
+    }
+  };
+  return (
+    <Pressable onPress={onPress} style={[styles.promo, compact && { height: 100 }]} testID={testID}>
+      {ad.images[0] ? (
+        <Image source={{ uri: ad.images[0] }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      ) : null}
+      <LinearGradient
+        colors={["rgba(11,31,58,0.85)", "rgba(0,194,168,0.65)"]}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={{ padding: compact ? spacing.md : spacing.xl, flex: 1, justifyContent: "flex-end" }}>
+        <View style={styles.adTag}>
+          <Ionicons name="megaphone" size={10} color={colors.midnight} />
+          <Txt size="xxs" weight="700" color={colors.midnight} style={{ marginLeft: 3 }}>Sponsorisé</Txt>
+        </View>
+        <Txt size={compact ? "md" : "xl"} weight="700" color={colors.white} numberOfLines={2}>{ad.title}</Txt>
+        {!compact && ad.description ? (
+          <Txt size="sm" color="rgba(255,255,255,0.85)" style={{ marginTop: 4 }} numberOfLines={1}>{ad.description}</Txt>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
 function NearbyCard({ p, onPress }: { p: Provider; onPress: () => void }) {
+  const sponsored = p.sponsored_until && p.sponsored_until > new Date().toISOString();
   return (
     <Pressable onPress={onPress} style={styles.nearCard} testID={`nearby-${p.id}`}>
       <Image source={{ uri: p.photo || "https://images.unsplash.com/photo-1621905252472-943afaa20e20" }} style={styles.nearImg} contentFit="cover" />
       {p.verified ? (
         <View style={styles.verifiedBadge}>
           <Ionicons name="checkmark-circle" size={14} color={colors.turquoise} />
+        </View>
+      ) : null}
+      {sponsored ? (
+        <View style={styles.sponsoredBadge} testID={`sponsored-${p.id}`}>
+          <Ionicons name="rocket" size={10} color={colors.white} />
+          <Txt size="xxs" weight="700" color={colors.white} style={{ marginLeft: 3 }}>Sponsorisé</Txt>
         </View>
       ) : null}
       <View style={{ padding: 12 }}>
@@ -230,6 +273,19 @@ const styles = StyleSheet.create({
   svcIcon: { width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   nearCard: { width: 200, borderRadius: radius.lg, backgroundColor: colors.surface, overflow: "hidden", ...shadow.card },
   nearImg: { width: "100%", height: 130 },
+  sponsoredBadge: {
+    position: "absolute", top: 10, left: 10,
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: colors.turquoise,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999,
+  },
+  adTag: {
+    alignSelf: "flex-start",
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: colors.white,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999,
+    marginBottom: 8,
+  },
   verifiedBadge: { position: "absolute", top: 10, right: 10, backgroundColor: colors.white, borderRadius: 999, padding: 3 },
   row: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surface, borderRadius: radius.lg, padding: 12, ...shadow.soft },
   rowImg: { width: 56, height: 56, borderRadius: 16 },

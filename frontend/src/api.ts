@@ -47,6 +47,7 @@ export type User = {
   email: string;
   name: string;
   role: "client" | "prestataire";
+  is_admin?: boolean;
   phone?: string | null;
   city?: string | null;
   avatar?: string | null;
@@ -79,7 +80,53 @@ export type Provider = {
   hours?: string;
   zones?: string[];
   reviews?: Review[];
+  services?: PrestationSvc[];
   subscription_active?: boolean;
+  sponsored_until?: string | null;
+};
+
+export type PrestationSvc = {
+  id: string;
+  provider_id: string;
+  name: string;
+  description: string;
+  category_key: string;
+  photos: string[];
+  price_type: PriceType;
+  price_amount: number | null;
+  duration_minutes: number | null;
+  active: boolean;
+  created_at?: string;
+};
+
+export type Ad = {
+  id: string;
+  format: "banner" | "image" | "carousel";
+  title: string;
+  description?: string;
+  button_label?: string;
+  link?: string | null;
+  images: string[];
+  placements: string[];
+  category_key?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  active: boolean;
+  impressions?: number;
+  clicks?: number;
+};
+
+export type Sponsorship = {
+  id: string;
+  provider_id: string;
+  provider_name: string;
+  duration_days: 7 | 15 | 30;
+  amount_xof: number;
+  status: "pending" | "approved" | "rejected" | "active" | "expired";
+  starts_at?: string | null;
+  ends_at?: string | null;
+  paid?: boolean;
+  created_at: string;
 };
 
 export type Review = {
@@ -99,6 +146,8 @@ export type Booking = {
   provider_id: string;
   provider_name: string;
   provider_service: string;
+  service_id?: string | null;
+  service_name?: string | null;
   date: string;
   time: string;
   address: string;

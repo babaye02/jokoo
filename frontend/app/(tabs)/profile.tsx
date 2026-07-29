@@ -105,7 +105,14 @@ export default function Profile() {
         <View style={{ padding: spacing.xl, gap: spacing.sm }}>
           <MenuRow icon="heart-outline" title="Favoris" onPress={() => router.push("/favorites")} testID="menu-favorites" />
           {user.role === "prestataire" ? (
-            <MenuRow icon="person-circle-outline" title="Profil prestataire" onPress={() => router.push("/provider-profile")} testID="menu-provider-profile" />
+            <>
+              <MenuRow icon="pricetags-outline" title="Mes prestations" onPress={() => router.push("/my-services")} testID="menu-my-services" />
+              <MenuRow icon="rocket-outline" title="Sponsoriser mon profil" onPress={() => router.push("/sponsor")} testID="menu-sponsor" />
+              <MenuRow icon="person-circle-outline" title="Profil prestataire" onPress={() => router.push("/provider-profile")} testID="menu-provider-profile" />
+            </>
+          ) : null}
+          {user.is_admin ? (
+            <MenuRow icon="shield-outline" title="Espace administrateur" onPress={() => router.push("/admin")} testID="menu-admin" />
           ) : null}
           <MenuRow icon="card-outline" title="Paiements" onPress={() => {}} />
           <MenuRow icon="settings-outline" title="Paramètres" onPress={() => {}} />

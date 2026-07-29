@@ -109,6 +109,16 @@ async def current_user(authorization: Optional[str] = Header(None)) -> dict:
     return user
 
 
+async def admin_user(user=Depends(lambda authorization=Header(None): current_user(authorization))) -> dict:
+    # thin wrapper — we just re-check the flag from the DB
+    return user  # placeholder replaced by dependency below
+
+
+def require_admin(user: dict) -> None:
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Accès administrateur requis")
+
+
 # ---------- models ----------
 Role = Literal["client", "prestataire"]
 
@@ -151,10 +161,41 @@ class ProviderProfileIn(BaseModel):
 
 class BookingIn(BaseModel):
     provider_id: str
+    service_id: Optional[str] = None  # id de la prestation choisie (facultatif)
     date: str  # ISO
     time: str  # "14:00"
     address: str
     description: str
+
+
+class ServiceIn(BaseModel):
+    """Une prestation du prestataire (Ex: 'Tresses complètes', 'Diagnostic élec.', etc.)."""
+    name: str = Field(min_length=2, max_length=80)
+    description: Optional[str] = ""
+    category_key: str  # clé du catalogue (plombier, electricien...)
+    photos: List[str] = []  # URLs ou base64
+    price_type: PriceType = "quote"
+    price_amount: Optional[float] = None
+    duration_minutes: Optional[int] = None
+    active: bool = True
+
+
+class AdIn(BaseModel):
+    format: Literal["banner", "image", "carousel"] = "banner"
+    title: str
+    description: Optional[str] = ""
+    button_label: Optional[str] = "Voir"
+    link: Optional[str] = None  # URL ou lien app (provider:<id>, category:<key>)
+    images: List[str] = []
+    placements: List[Literal["home", "between_lists", "category"]] = ["home"]
+    category_key: Optional[str] = None  # si placement inclut "category"
+    start_at: Optional[str] = None
+    end_at: Optional[str] = None
+    active: bool = True
+
+
+class SponsorshipIn(BaseModel):
+    duration_days: Literal[7, 15, 30] = 7
 
 
 class BookingUpdate(BaseModel):
@@ -214,6 +255,7 @@ async def register(body: RegisterIn):
         "password_hash": hash_password(body.password),
         "name": body.name,
         "role": body.role,
+        "is_admin": False,
         "phone": body.phone,
         "city": body.city or "Dakar",
         "avatar": None,
@@ -255,6 +297,7 @@ def _provider_public(p: dict) -> dict:
 async def list_providers(
     service: Optional[str] = None,
     city: Optional[str] = None,
+    zone: Optional[str] = None,  # quartier/commune : match sur zones[] ou city
     q: Optional[str] = None,
     sort: Optional[str] = None,  # "rating" | "price"
     limit: int = 50,
@@ -264,19 +307,31 @@ async def list_providers(
         query["service_key"] = service
     if city:
         query["city"] = {"$regex": city, "$options": "i"}
-    if q:
+    if zone:
         query["$or"] = [
+            {"zones": {"$regex": zone, "$options": "i"}},
+            {"city": {"$regex": zone, "$options": "i"}},
+        ]
+    if q:
+        query.setdefault("$or", [])
+        query["$or"] += [
             {"name": {"$regex": q, "$options": "i"}},
             {"service": {"$regex": q, "$options": "i"}},
             {"description": {"$regex": q, "$options": "i"}},
         ]
     cursor = db.providers.find(query, {"_id": 0}).limit(limit)
     items = await cursor.to_list(length=limit)
+    # Les prestataires sponsorisés (sponsored_until dans le futur) sont mis en tête.
+    now = now_iso()
+    def sponsored(p: dict) -> bool:
+        su = p.get("sponsored_until")
+        return bool(su and su > now)
     if sort == "rating":
-        items.sort(key=lambda p: p.get("rating", 0), reverse=True)
+        items.sort(key=lambda p: (not sponsored(p), -p.get("rating", 0)))
     elif sort == "price":
-        # Prix croissant, "quote" et prix nuls placés à la fin
-        items.sort(key=lambda p: (p.get("price_type") == "quote", p.get("price_amount") or 10**12))
+        items.sort(key=lambda p: (not sponsored(p), p.get("price_type") == "quote", p.get("price_amount") or 10**12))
+    else:
+        items.sort(key=lambda p: (not sponsored(p), -p.get("rating", 0)))
     return items
 
 
@@ -286,7 +341,9 @@ async def get_provider(provider_id: str):
     if not p:
         raise HTTPException(404, "Prestataire introuvable")
     reviews = await db.reviews.find({"provider_id": provider_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    services = await db.services.find({"provider_id": provider_id, "active": True}, {"_id": 0}).sort("created_at", 1).to_list(200)
     p["reviews"] = reviews
+    p["services"] = services
     return p
 
 
@@ -331,9 +388,16 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
     provider = await db.providers.find_one({"id": body.provider_id}, {"_id": 0})
     if not provider:
         raise HTTPException(404, "Prestataire introuvable")
-    price_type = provider.get("price_type") or "quote"
-    price_amount = provider.get("price_amount")
-    # Prix initial: null pour "quote" (le prestataire enverra un devis), sinon le prix affiché.
+
+    # Si une prestation spécifique est choisie, on prend son tarif ; sinon on retombe sur le profil.
+    svc = None
+    if body.service_id:
+        svc = await db.services.find_one({"id": body.service_id, "provider_id": body.provider_id}, {"_id": 0})
+        if not svc or not svc.get("active", True):
+            raise HTTPException(404, "Prestation introuvable")
+
+    price_type = (svc.get("price_type") if svc else provider.get("price_type")) or "quote"
+    price_amount = svc.get("price_amount") if svc else provider.get("price_amount")
     initial_price = None if price_type == "quote" else price_amount
     bid = str(uuid.uuid4())
     doc = {
@@ -343,6 +407,8 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
         "provider_id": body.provider_id,
         "provider_name": provider["name"],
         "provider_service": provider["service"],
+        "service_id": body.service_id,
+        "service_name": svc["name"] if svc else None,
         "date": body.date,
         "time": body.time,
         "address": body.address,
@@ -872,6 +938,244 @@ async def om_notify(request: Request):
 
 
 
+# ---------- prestations (services personnels du prestataire) ----------
+def _clean_service(doc: dict) -> dict:
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/providers/{provider_id}/services")
+async def list_provider_services(provider_id: str):
+    """Liste publique des prestations actives d'un prestataire."""
+    cur = db.services.find(
+        {"provider_id": provider_id, "active": True}, {"_id": 0}
+    ).sort("created_at", 1)
+    return await cur.to_list(200)
+
+
+@api.get("/services/mine")
+async def list_my_services(user=Depends(current_user)):
+    if user["role"] != "prestataire":
+        raise HTTPException(403, "Prestataire uniquement")
+    cur = db.services.find({"provider_id": user["id"]}, {"_id": 0}).sort("created_at", 1)
+    return await cur.to_list(200)
+
+
+@api.post("/services/mine")
+async def create_my_service(body: ServiceIn, user=Depends(current_user)):
+    if user["role"] != "prestataire":
+        raise HTTPException(403, "Prestataire uniquement")
+    if body.price_type != "quote" and (not body.price_amount or body.price_amount < 500):
+        raise HTTPException(400, "Prix minimum 500 F CFA pour un prix fixe / de départ")
+    sid = str(uuid.uuid4())
+    doc = {
+        "id": sid,
+        "provider_id": user["id"],
+        "name": body.name,
+        "description": body.description or "",
+        "category_key": body.category_key,
+        "photos": body.photos,
+        "price_type": body.price_type,
+        "price_amount": None if body.price_type == "quote" else body.price_amount,
+        "duration_minutes": body.duration_minutes,
+        "active": body.active,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.services.insert_one(doc)
+    return _clean_service(doc)
+
+
+@api.patch("/services/mine/{sid}")
+async def update_my_service(sid: str, body: ServiceIn, user=Depends(current_user)):
+    svc = await db.services.find_one({"id": sid}, {"_id": 0})
+    if not svc:
+        raise HTTPException(404, "Prestation introuvable")
+    if svc["provider_id"] != user["id"]:
+        raise HTTPException(403, "Interdit")
+    updates = {
+        "name": body.name,
+        "description": body.description or "",
+        "category_key": body.category_key,
+        "photos": body.photos,
+        "price_type": body.price_type,
+        "price_amount": None if body.price_type == "quote" else body.price_amount,
+        "duration_minutes": body.duration_minutes,
+        "active": body.active,
+        "updated_at": now_iso(),
+    }
+    await db.services.update_one({"id": sid}, {"$set": updates})
+    return {"ok": True}
+
+
+@api.delete("/services/mine/{sid}")
+async def delete_my_service(sid: str, user=Depends(current_user)):
+    svc = await db.services.find_one({"id": sid}, {"_id": 0})
+    if not svc:
+        raise HTTPException(404, "Prestation introuvable")
+    if svc["provider_id"] != user["id"]:
+        raise HTTPException(403, "Interdit")
+    await db.services.delete_one({"id": sid})
+    return {"ok": True}
+
+
+# ---------- publicités (admin) ----------
+@api.get("/ads")
+async def list_public_ads(placement: str = "home", category: Optional[str] = None):
+    """Liste publique — filtre par placement, dates, actif. Incrémente le compteur d'affichages."""
+    now = now_iso()
+    query: dict = {"active": True, "placements": placement}
+    if placement == "category" and category:
+        query["category_key"] = category
+    cur = db.ads.find(query, {"_id": 0}).sort("created_at", -1)
+    items = await cur.to_list(50)
+    valid = []
+    for a in items:
+        if a.get("start_at") and now < a["start_at"]:
+            continue
+        if a.get("end_at") and now > a["end_at"]:
+            continue
+        valid.append(a)
+    if valid:
+        ids = [a["id"] for a in valid]
+        await db.ads.update_many({"id": {"$in": ids}}, {"$inc": {"impressions": 1}})
+    return valid
+
+
+@api.post("/ads/{ad_id}/click")
+async def ad_click(ad_id: str):
+    await db.ads.update_one({"id": ad_id}, {"$inc": {"clicks": 1}})
+    return {"ok": True}
+
+
+@api.get("/admin/ads")
+async def admin_list_ads(user=Depends(current_user)):
+    require_admin(user)
+    cur = db.ads.find({}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.post("/admin/ads")
+async def admin_create_ad(body: AdIn, user=Depends(current_user)):
+    require_admin(user)
+    aid = str(uuid.uuid4())
+    doc = {
+        "id": aid,
+        **body.model_dump(),
+        "impressions": 0,
+        "clicks": 0,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.ads.insert_one(doc)
+    return _clean_service(doc)
+
+
+@api.patch("/admin/ads/{ad_id}")
+async def admin_update_ad(ad_id: str, body: AdIn, user=Depends(current_user)):
+    require_admin(user)
+    await db.ads.update_one(
+        {"id": ad_id},
+        {"$set": {**body.model_dump(), "updated_at": now_iso()}},
+    )
+    return {"ok": True}
+
+
+@api.delete("/admin/ads/{ad_id}")
+async def admin_delete_ad(ad_id: str, user=Depends(current_user)):
+    require_admin(user)
+    await db.ads.delete_one({"id": ad_id})
+    return {"ok": True}
+
+
+@api.get("/admin/ads/stats")
+async def admin_ads_stats(user=Depends(current_user)):
+    require_admin(user)
+    ads = await db.ads.find({}, {"_id": 0}).to_list(1000)
+    return {
+        "total_ads": len(ads),
+        "active_ads": sum(1 for a in ads if a.get("active")),
+        "total_impressions": sum(a.get("impressions", 0) for a in ads),
+        "total_clicks": sum(a.get("clicks", 0) for a in ads),
+        "top": sorted(
+            ads,
+            key=lambda a: a.get("impressions", 0),
+            reverse=True,
+        )[:10],
+    }
+
+
+# ---------- sponsorisation prestataires ----------
+SPONSOR_PRICES_XOF = {7: 5000, 15: 9000, 30: 15000}
+
+
+@api.post("/sponsorships")
+async def request_sponsorship(body: SponsorshipIn, user=Depends(current_user)):
+    if user["role"] != "prestataire":
+        raise HTTPException(403, "Prestataire uniquement")
+    sid = str(uuid.uuid4())
+    doc = {
+        "id": sid,
+        "provider_id": user["id"],
+        "provider_name": user["name"],
+        "duration_days": body.duration_days,
+        "amount_xof": SPONSOR_PRICES_XOF[body.duration_days],
+        "status": "pending",  # pending | approved | rejected | active | expired
+        "starts_at": None,
+        "ends_at": None,
+        "paid": False,
+        "created_at": now_iso(),
+    }
+    await db.sponsorships.insert_one(doc)
+    return _clean_service(doc)
+
+
+@api.get("/sponsorships/mine")
+async def my_sponsorships(user=Depends(current_user)):
+    cur = db.sponsorships.find({"provider_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(50)
+
+
+@api.get("/admin/sponsorships")
+async def admin_list_sponsorships(user=Depends(current_user)):
+    require_admin(user)
+    cur = db.sponsorships.find({}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.patch("/admin/sponsorships/{sid}")
+async def admin_update_sponsorship(
+    sid: str,
+    body: dict,
+    user=Depends(current_user),
+):
+    require_admin(user)
+    s = await db.sponsorships.find_one({"id": sid}, {"_id": 0})
+    if not s:
+        raise HTTPException(404, "Introuvable")
+    status_ = body.get("status")
+    updates: dict = {"updated_at": now_iso()}
+    if status_ == "approved":
+        starts = datetime.now(timezone.utc)
+        ends = starts + timedelta(days=s["duration_days"])
+        updates.update({
+            "status": "active",
+            "starts_at": starts.isoformat(),
+            "ends_at": ends.isoformat(),
+            "paid": True,
+        })
+        await db.providers.update_one(
+            {"id": s["provider_id"]},
+            {"$set": {"sponsored_until": ends.isoformat()}},
+        )
+    elif status_ in ("rejected", "expired"):
+        updates["status"] = status_
+    else:
+        raise HTTPException(400, "status invalide")
+    await db.sponsorships.update_one({"id": sid}, {"$set": updates})
+    return {"ok": True}
+
+
+
 # ---------- seed ----------
 # Chaque prestataire a un mode de tarification distinct :
 # "fixed" = prix ferme par prestation, "from" = prix de départ, "quote" = sur devis.
@@ -908,26 +1212,100 @@ async def seed():
     # idempotent
     await db.providers.delete_many({"seeded": True})
     await db.reviews.delete_many({"seeded": True})
+    await db.services.delete_many({"seeded": True})
+    await db.ads.delete_many({"seeded": True})
+
+    # Seed admin user (idempotent)
+    admin_email = "admin@jokoo.sn"
+    existing_admin = await db.users.find_one({"email": admin_email})
+    if not existing_admin:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()),
+            "email": admin_email,
+            "password_hash": hash_password("Admin1234!"),
+            "name": "Admin Jokoo",
+            "role": "client",
+            "is_admin": True,
+            "phone": None,
+            "city": "Dakar",
+            "avatar": None,
+            "created_at": now_iso(),
+        })
+    else:
+        await db.users.update_one({"email": admin_email}, {"$set": {"is_admin": True}})
+
     inserted = 0
+    dakar_zones = ["Almadies", "Plateau", "Yoff", "Ouakam", "Point E", "Sacré-Cœur", "Mermoz"]
     for s in SEED_PROVIDERS:
         pid = str(uuid.uuid4())
+        zones = dakar_zones if s["city"] == "Dakar" else [s["city"]]
         doc = {
             "id": pid,
             "user_id": pid,
             "seeded": True,
             "avatar": s.get("photo"),
             **s,
-            "zones": ["Dakar", "Almadies", "Plateau"] if s["city"] == "Dakar" else [s["city"]],
+            "zones": zones,
             "hours": "Lun-Sam · 8h-19h",
             "gallery": [s.get("photo")],
             "diplomas": [],
             "id_card": None,
             "subscription_active": True,
             "subscription_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+            "sponsored_until": (datetime.now(timezone.utc) + timedelta(days=15)).isoformat() if inserted in (1, 5, 9) else None,
             "phone": "+2217700000" + str(inserted).zfill(2),
             "created_at": now_iso(),
         }
         await db.providers.insert_one(doc)
+
+        # 2 prestations par prestataire (adaptées au métier)
+        base = s.get("price_amount") or 10000
+        prestations_examples = {
+            "plombier":    [("Débouchage évacuation", "Débouchage rapide de canalisation", "fixed", 8000, 45),
+                            ("Réparation fuite", "Diagnostic et réparation de fuite d'eau", "from", base, 60)],
+            "electricien": [("Diagnostic électrique", "Contrôle complet du tableau", "fixed", 10000, 60),
+                            ("Installation prise/interrupteur", "Pose ou remplacement", "from", base, 30)],
+            "macon":       [("Pose de carrelage", "Pose au m²", "quote", None, None),
+                            ("Rénovation muret", "Reprise et enduit", "quote", None, None)],
+            "peintre":     [("Peinture 1 pièce", "Murs + plafond, peinture fournie", "from", 35000, None),
+                            ("Façade extérieure", "Ravalement complet", "quote", None, None)],
+            "menage":      [("Ménage complet 3 pièces", "Nettoyage + repassage", "fixed", base, 180),
+                            ("Grand ménage post-emménagement", "Nettoyage intensif", "from", base * 2 if base else 20000, None)],
+            "coiffeuse":   [("Tresses complètes", "Tresses avec mèches, à domicile", "fixed", base, 180),
+                            ("Défrisage + brushing", "Salon ou domicile", "from", int(base * 0.7) if base else 8000, 90)],
+            "prof":        [("Cours particulier 1h30", "Maths & physique — collège / lycée", "fixed", base, 90),
+                            ("Pack 4 séances", "Réduction pour engagement mensuel", "from", int(base * 3.5) if base else 25000, None)],
+            "decorateur":  [("Déco mariage", "Décoration complète cérémonie", "quote", None, None),
+                            ("Déco baptême", "Ambiance et scénographie", "quote", None, None)],
+            "clim":        [("Installation split 12000 BTU", "Fourniture + pose", "from", base, 180),
+                            ("Entretien annuel", "Nettoyage filtres et recharge", "fixed", 12000, 60)],
+            "jardinier":   [("Entretien jardin < 200m²", "Tonte + taille", "fixed", base, 120),
+                            ("Création massif", "Conception et plantation", "quote", None, None)],
+            "chauffeur":   [("Course aéroport", "Prise en charge domicile ↔ AIBD", "fixed", base, 60),
+                            ("Journée complète 8h", "Véhicule + chauffeur", "from", int(base * 3) if base else 40000, 480)],
+            "photographe": [("Séance portrait 1h", "Studio ou extérieur", "fixed", base, 60),
+                            ("Reportage mariage journée", "Photos + retouches", "from", int(base * 4) if base else 200000, None)],
+        }
+        exs = prestations_examples.get(s["service_key"], [
+            ("Prestation standard", s.get("description", ""), s.get("price_type", "quote"), s.get("price_amount"), None),
+        ])
+        for name, desc, pt, amt, dur in exs:
+            await db.services.insert_one({
+                "id": str(uuid.uuid4()),
+                "seeded": True,
+                "provider_id": pid,
+                "name": name,
+                "description": desc,
+                "category_key": s["service_key"],
+                "photos": [s.get("photo")] if s.get("photo") else [],
+                "price_type": pt,
+                "price_amount": amt,
+                "duration_minutes": dur,
+                "active": True,
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+            })
+
         # seed reviews
         for name, rating, comment in SEED_REVIEWS[: (3 + inserted % 3)]:
             await db.reviews.insert_one({
@@ -943,7 +1321,55 @@ async def seed():
                 "created_at": now_iso(),
             })
         inserted += 1
-    return {"ok": True, "providers": inserted}
+
+    # Seed a few ads
+    ads_seed = [
+        {
+            "format": "banner",
+            "title": "Trouvez votre pro en 2 min",
+            "description": "Des milliers de professionnels vérifiés à Dakar & Thiès",
+            "button_label": "Découvrir",
+            "link": "app:home",
+            "images": ["https://images.unsplash.com/photo-1657302699239-c350f0372260"],
+            "placements": ["home"],
+            "category_key": None,
+        },
+        {
+            "format": "image",
+            "title": "-20% sur votre 1ère réservation",
+            "description": "Utilisez le code JOKOO20",
+            "button_label": "Profiter",
+            "link": "app:home",
+            "images": ["https://images.pexels.com/photos/8005368/pexels-photo-8005368.jpeg"],
+            "placements": ["between_lists"],
+            "category_key": None,
+        },
+        {
+            "format": "banner",
+            "title": "Nos meilleurs plombiers",
+            "description": "Interventions en moins de 2h",
+            "button_label": "Voir",
+            "link": "category:plombier",
+            "images": ["https://images.pexels.com/photos/8961251/pexels-photo-8961251.jpeg"],
+            "placements": ["category"],
+            "category_key": "plombier",
+        },
+    ]
+    for a in ads_seed:
+        await db.ads.insert_one({
+            "id": str(uuid.uuid4()),
+            "seeded": True,
+            **a,
+            "start_at": None,
+            "end_at": None,
+            "active": True,
+            "impressions": 0,
+            "clicks": 0,
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        })
+
+    return {"ok": True, "providers": inserted, "admin_email": admin_email}
 
 
 # ---------- health ----------

@@ -124,6 +124,39 @@ export default function ProviderDetail() {
             </Section>
           ) : null}
 
+          {/* Prestations */}
+          {p.services && p.services.length > 0 ? (
+            <Section title={`Prestations proposées (${p.services.length})`}>
+              {p.services.map((s) => (
+                <Pressable
+                  key={s.id}
+                  onPress={() => router.push({ pathname: "/booking/[providerId]", params: { providerId: p.id, serviceId: s.id } })}
+                  style={styles.svcRow}
+                  testID={`pub-svc-${s.id}`}
+                >
+                  {s.photos && s.photos[0] ? (
+                    <Image source={{ uri: s.photos[0] }} style={styles.svcImg} contentFit="cover" />
+                  ) : (
+                    <View style={[styles.svcImg, { backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }]}>
+                      <Ionicons name="briefcase" size={22} color={colors.turquoise} />
+                    </View>
+                  )}
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Txt weight="700" numberOfLines={1}>{s.name}</Txt>
+                    <Txt size="xs" color={colors.textMuted} numberOfLines={2} style={{ marginTop: 2 }}>{s.description || "—"}</Txt>
+                    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
+                      <Txt weight="700" color={colors.turquoise}>{priceLabel(s)}</Txt>
+                      {s.duration_minutes ? (
+                        <Txt size="xxs" color={colors.textMuted} style={{ marginLeft: 8 }}>· ~{s.duration_minutes} min</Txt>
+                      ) : null}
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+                </Pressable>
+              ))}
+            </Section>
+          ) : null}
+
           {p.gallery && p.gallery.length > 0 ? (
             <Section title="Galerie">
               <FlatList
@@ -209,6 +242,8 @@ const styles = StyleSheet.create({
   statDivider: { width: 1, backgroundColor: colors.divider },
   zoneChip: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.brandTertiary, borderRadius: radius.pill },
   galleryImg: { width: 140, height: 100, borderRadius: radius.md },
+  svcRow: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginBottom: 10 },
+  svcImg: { width: 64, height: 64, borderRadius: radius.md },
   bottomBar: {
     position: "absolute", left: 0, right: 0, bottom: 0,
     backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,

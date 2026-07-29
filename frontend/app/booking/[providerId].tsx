@@ -26,7 +26,7 @@ function nextDays(n = 7) {
 const HOURS = ["08:00", "09:00", "10:00", "11:00", "12:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
 
 export default function BookingScreen() {
-  const { providerId } = useLocalSearchParams<{ providerId: string }>();
+  const { providerId, serviceId } = useLocalSearchParams<{ providerId: string; serviceId?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [p, setP] = useState<Provider | null>(null);
@@ -42,7 +42,10 @@ export default function BookingScreen() {
     if (providerId) api.get<Provider>(`/providers/${providerId}`).then(setP);
   }, [providerId]);
 
-  const isQuote = !p || p.price_type === "quote" || p.price_amount == null;
+  // Résout la prestation sélectionnée (si serviceId fourni) — sinon retombe sur le profil.
+  const selectedSvc = serviceId && p?.services ? p.services.find((s) => s.id === serviceId) : null;
+  const priceSource = selectedSvc || p;
+  const isQuote = !priceSource || priceSource.price_type === "quote" || priceSource.price_amount == null;
 
   const submit = async () => {
     setErr(null);
@@ -52,6 +55,7 @@ export default function BookingScreen() {
     try {
       const b = await api.post<any>("/bookings", {
         provider_id: providerId,
+        service_id: serviceId || null,
         date: days[dateIdx].iso,
         time,
         address,
@@ -62,7 +66,7 @@ export default function BookingScreen() {
         params: {
           bookingId: b.id,
           amount: String(b.price ?? ""),
-          priceType: p?.price_type || "quote",
+          priceType: priceSource?.price_type || "quote",
         },
       });
     } catch (e: any) {
@@ -92,9 +96,14 @@ export default function BookingScreen() {
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Txt weight="700">{p.name}</Txt>
                 <Txt size="xs" color={colors.textMuted}>{p.service} · {p.city}</Txt>
+                {selectedSvc ? (
+                  <Txt size="xs" weight="600" color={colors.turquoise} style={{ marginTop: 2 }} numberOfLines={1}>
+                    {selectedSvc.name}
+                  </Txt>
+                ) : null}
               </View>
               <Txt weight="700" color={colors.turquoise} numberOfLines={2} style={{ textAlign: "right", maxWidth: 110 }}>
-                {priceLabel(p)}
+                {priceLabel(priceSource || p)}
               </Txt>
             </View>
           ) : null}
@@ -166,11 +175,11 @@ export default function BookingScreen() {
               <>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10 }}>
                   <Txt color={colors.textMuted}>
-                    {p?.price_type === "from" ? "Prix de départ" : "Prix fixe"}
+                    {priceSource?.price_type === "from" ? "Prix de départ" : "Prix fixe"}
                   </Txt>
-                  <Txt weight="700" size="xl" color={colors.turquoise}>{priceLabel(p)}</Txt>
+                  <Txt weight="700" size="xl" color={colors.turquoise}>{priceLabel(priceSource || p)}</Txt>
                 </View>
-                {p?.price_type === "from" ? (
+                {priceSource?.price_type === "from" ? (
                   <Txt size="xs" color={colors.textMuted} style={{ marginTop: 8 }}>
                     Le montant final peut varier après visite / échange avec le prestataire.
                   </Txt>
