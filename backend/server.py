@@ -384,6 +384,11 @@ class RideIn(BaseModel):
     vehicle_plate: Optional[str] = ""
     vehicle_color: Optional[str] = ""
     notes: Optional[str] = ""
+    # Livraison longue distance (facultatif — uniquement sur trajets "long")
+    accepts_parcels: bool = False
+    parcel_price_xof: int = 0
+    parcel_max_kg: int = 20
+    parcel_payment_mode: Literal["app_only", "app_or_cash", "cash_only"] = "app_or_cash"
 
 
 class RideUpdate(BaseModel):
@@ -404,11 +409,31 @@ class RideUpdate(BaseModel):
     vehicle_color: Optional[str] = None
     notes: Optional[str] = None
     status: Optional[RideStatus] = None
+    accepts_parcels: Optional[bool] = None
+    parcel_price_xof: Optional[int] = None
+    parcel_max_kg: Optional[int] = None
+    parcel_payment_mode: Optional[Literal["app_only", "app_or_cash", "cash_only"]] = None
 
 
 class RideBookingIn(BaseModel):
     seats: int = Field(ge=1, le=8)
     note: Optional[str] = ""
+
+
+class ParcelIn(BaseModel):
+    pickup_address: str = Field(min_length=2)
+    dropoff_address: str = Field(min_length=2)
+    description: str = Field(min_length=2, max_length=500)
+    weight_kg: float = Field(ge=0, le=200)
+    recipient_name: str = Field(min_length=2)
+    recipient_phone: str = Field(min_length=6)
+    photo: Optional[str] = None  # base64 ou URL
+    payment_mode: Literal["app", "cash"] = "app"
+
+
+class ParcelUpdate(BaseModel):
+    status: Optional[Literal["accepted", "rejected", "picked_up", "delivered", "cancelled"]] = None
+    paid: Optional[bool] = None
 
 
 # ---------- services catalog ----------
@@ -1670,6 +1695,8 @@ async def _driver_info(uid: str) -> dict:
 async def create_ride(body: RideIn, user=Depends(current_user)):
     rid = str(uuid.uuid4())
     info = await _driver_info(user["id"])
+    # Sécurité : colis autorisés uniquement sur longue distance.
+    accepts_parcels = bool(body.accepts_parcels and body.distance_type == "long")
     doc = {
         "id": rid,
         **info,
@@ -1690,6 +1717,10 @@ async def create_ride(body: RideIn, user=Depends(current_user)):
         "vehicle_plate": body.vehicle_plate or "",
         "vehicle_color": body.vehicle_color or "",
         "notes": body.notes or "",
+        "accepts_parcels": accepts_parcels,
+        "parcel_price_xof": int(body.parcel_price_xof) if accepts_parcels else 0,
+        "parcel_max_kg": int(body.parcel_max_kg) if accepts_parcels else 0,
+        "parcel_payment_mode": body.parcel_payment_mode if accepts_parcels else "app_or_cash",
         "status": "active",
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -1704,6 +1735,7 @@ async def search_rides(
     to_city: Optional[str] = None,
     date: Optional[str] = None,
     distance_type: Optional[str] = None,
+    accepts_parcels: Optional[bool] = None,
     limit: int = 50,
 ):
     q: dict = {"status": "active"}
@@ -1725,6 +1757,9 @@ async def search_rides(
         q["$or"] = or_clauses
     if distance_type in ("short", "long"):
         q["distance_type"] = distance_type
+    if accepts_parcels is True:
+        q["accepts_parcels"] = True
+        q["distance_type"] = "long"
     cur = db.rides.find(q, {"_id": 0}).sort([("date", 1), ("time", 1)]).limit(limit)
     return await cur.to_list(limit)
 
@@ -1878,6 +1913,152 @@ async def update_ride_booking(bid: str, body: dict, user=Depends(current_user)):
     await db.ride_bookings.update_one({"id": bid}, {"$set": {"status": new_status, "updated_at": now_iso()}})
     if new_status == "cancelled" and b["status"] != "cancelled":
         await db.rides.update_one({"id": b["ride_id"]}, {"$inc": {"seats_available": b["seats"]}})
+    return {"ok": True}
+
+
+# ---------- Mobility · Livraison longue distance (parcels) ----------
+PARCEL_STATUSES = ("pending", "accepted", "rejected", "picked_up", "delivered", "cancelled")
+
+
+@api.post("/rides/{rid}/parcel")
+async def create_parcel_request(rid: str, body: ParcelIn, user=Depends(current_user)):
+    r = await db.rides.find_one({"id": rid}, {"_id": 0})
+    if not r or r.get("status") != "active":
+        raise HTTPException(404, "Trajet indisponible")
+    if not r.get("accepts_parcels") or r.get("distance_type") != "long":
+        raise HTTPException(400, "Ce trajet n'accepte pas de colis longue distance")
+    if r["driver_id"] == user["id"]:
+        raise HTTPException(400, "Vous ne pouvez pas envoyer un colis sur votre propre trajet")
+    if body.weight_kg > (r.get("parcel_max_kg") or 0):
+        raise HTTPException(400, f"Poids maximum autorisé : {r.get('parcel_max_kg')} kg")
+    payment_mode_allowed = r.get("parcel_payment_mode") or "app_or_cash"
+    if payment_mode_allowed == "app_only" and body.payment_mode == "cash":
+        raise HTTPException(400, "Le conducteur n'accepte que le paiement en app")
+    if payment_mode_allowed == "cash_only" and body.payment_mode == "app":
+        raise HTTPException(400, "Le conducteur n'accepte que le paiement en espèces")
+    pid = str(uuid.uuid4())
+    price = int(r.get("parcel_price_xof") or 0)
+    doc = {
+        "id": pid,
+        "ride_id": rid,
+        "sender_id": user["id"],
+        "sender_name": user.get("name") or "Expéditeur",
+        "sender_phone": user.get("phone"),
+        "driver_id": r["driver_id"],
+        "driver_name": r.get("driver_name"),
+        "driver_avatar": r.get("driver_avatar"),
+        "from_city": r.get("from_city"),
+        "to_city": r.get("to_city"),
+        "date": r.get("date"),
+        "time": r.get("time"),
+        "pickup_address": body.pickup_address.strip(),
+        "dropoff_address": body.dropoff_address.strip(),
+        "description": body.description.strip(),
+        "weight_kg": float(body.weight_kg),
+        "recipient_name": body.recipient_name.strip(),
+        "recipient_phone": body.recipient_phone.strip(),
+        "photo": body.photo,
+        "payment_mode": body.payment_mode,
+        "price_xof": price,
+        "status": "pending",
+        "paid": False,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.parcels.insert_one(doc)
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": r["driver_id"],
+        "type": "parcel_request",
+        "title": "Nouvelle demande de colis",
+        "body": f"{doc['sender_name']} — {r.get('from_city')} → {r.get('to_city')} ({body.weight_kg} kg)",
+        "peer_id": user["id"],
+        "read": False,
+        "created_at": now_iso(),
+    })
+    return _clean(doc)
+
+
+@api.get("/parcels/mine")
+async def my_parcels(user=Depends(current_user)):
+    cur = db.parcels.find({"sender_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(200)
+
+
+@api.get("/parcels/received")
+async def received_parcels(user=Depends(current_user)):
+    cur = db.parcels.find({"driver_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.get("/parcels/{pid}")
+async def get_parcel(pid: str, user=Depends(current_user)):
+    p = await db.parcels.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Colis introuvable")
+    if user["id"] not in (p["sender_id"], p["driver_id"]) and not (user.get("is_admin") or user.get("staff_role")):
+        raise HTTPException(403, "Interdit")
+    return p
+
+
+@api.patch("/parcels/{pid}")
+async def update_parcel(pid: str, body: ParcelUpdate, user=Depends(current_user)):
+    p = await db.parcels.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Colis introuvable")
+    new_status = body.status
+    if new_status is None and body.paid is None:
+        raise HTTPException(400, "Aucune mise à jour fournie")
+
+    is_driver = user["id"] == p["driver_id"]
+    is_sender = user["id"] == p["sender_id"]
+
+    # Transitions autorisées
+    allowed_driver = {"accepted", "rejected", "picked_up", "delivered", "cancelled"}
+    allowed_sender = {"cancelled"}
+    if new_status:
+        if new_status not in PARCEL_STATUSES:
+            raise HTTPException(400, "Statut invalide")
+        if is_driver and new_status not in allowed_driver:
+            raise HTTPException(403, "Transition interdite pour le conducteur")
+        if is_sender and new_status not in allowed_sender:
+            raise HTTPException(403, "Transition interdite pour l'expéditeur")
+        # Séquence logique
+        cur_s = p.get("status") or "pending"
+        if cur_s in ("delivered", "cancelled", "rejected") and new_status != cur_s:
+            raise HTTPException(400, f"Colis déjà en statut '{cur_s}'")
+
+    updates: dict = {"updated_at": now_iso()}
+    notif_target = None
+    notif_msg = None
+    if new_status:
+        updates["status"] = new_status
+        notif_target = p["sender_id"] if is_driver else p["driver_id"]
+        labels = {
+            "accepted": "Colis accepté par le conducteur",
+            "rejected": "Colis refusé",
+            "picked_up": "Colis récupéré, en route",
+            "delivered": "Colis livré ✅",
+            "cancelled": "Colis annulé",
+        }
+        notif_msg = labels.get(new_status, f"Statut : {new_status}")
+        if new_status == "delivered" and p.get("payment_mode") == "cash":
+            updates["paid"] = True
+    if body.paid is not None:
+        updates["paid"] = bool(body.paid)
+
+    await db.parcels.update_one({"id": pid}, {"$set": updates})
+    if notif_target and notif_msg:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": notif_target,
+            "type": "parcel_update",
+            "title": notif_msg,
+            "body": f"{p.get('from_city')} → {p.get('to_city')} · {p.get('date')}",
+            "peer_id": user["id"],
+            "read": False,
+            "created_at": now_iso(),
+        })
     return {"ok": True}
 
 
@@ -2209,6 +2390,7 @@ async def seed():
     for r in demo_rides:
         rid = str(uuid.uuid4())
         info = await _driver_info(did)
+        accepts_parcels = r["distance_type"] == "long"
         await db.rides.insert_one({
             "id": rid,
             "seeded": True,
@@ -2216,6 +2398,10 @@ async def seed():
             **r,
             "seats_available": r["seats_total"],
             "status": "active",
+            "accepts_parcels": accepts_parcels,
+            "parcel_price_xof": 2500 if accepts_parcels else 0,
+            "parcel_max_kg": 15 if accepts_parcels else 0,
+            "parcel_payment_mode": "app_or_cash" if accepts_parcels else "app_or_cash",
             "created_at": now_iso(),
             "updated_at": now_iso(),
         })

@@ -106,6 +106,7 @@ export default function Profile() {
           <MenuRow icon="heart-outline" title="Favoris" onPress={() => router.push("/favorites")} testID="menu-favorites" />
           <MenuRow icon="car-sport-outline" title="Mobilité · Covoiturage" onPress={() => router.push("/mobility")} testID="menu-mobility" />
           <MenuRow icon="ticket-outline" title="Mes trajets" onPress={() => router.push("/mobility/rides/mine")} testID="menu-rides" />
+          <MenuRow icon="cube-outline" title="Mes colis · Livraison" onPress={() => router.push("/mobility/delivery/mine")} testID="menu-parcels" />
           {user.role === "prestataire" ? (
             <>
               <MenuRow icon="pricetags-outline" title="Mes prestations" onPress={() => router.push("/my-services")} testID="menu-my-services" />

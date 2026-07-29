@@ -1,0 +1,29 @@
+{
+  "iteration": 3,
+  "date": "2026-06-30",
+  "focus": "Parcels · Livraison longue distance (mobility)",
+  "backend_results": {
+    "total": 24,
+    "passed": 24,
+    "failed": 0,
+    "skipped": 0,
+    "pass_rate": "100%",
+    "test_file": "/app/backend/tests/test_parcels.py"
+  },
+  "test_categories": {
+    "ride_parcel_fields": {"tests": 2, "passed": 2},
+    "search_filter": {"tests": 1, "passed": 1},
+    "create_parcel_happy_and_failures": {"tests": 6, "passed": 6},
+    "listing_and_permissions": {"tests": 6, "passed": 6},
+    "driver_transitions_and_cash_paid": {"tests": 4, "passed": 4},
+    "sender_transitions": {"tests": 2, "passed": 2},
+    "rejection_path": {"tests": 2, "passed": 2}
+  },
+  "notes": [
+    "All 11 review-request scenarios covered.",
+    "Test file initially failed 12 tests due to short strings ('A'/'B'/'X') triggering pydantic 422 instead of endpoint 400 — fixed by using strings ≥ 2 chars.",
+    "Listing tests were also updated to use a class-scoped fixture (worker-safe) instead of module-level state.",
+    "No backend code changes were required."
+  ],
+  "should_call_test_agent_after_fix": false
+}

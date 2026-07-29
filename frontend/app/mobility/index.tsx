@@ -72,12 +72,12 @@ export default function MobilityHub() {
               <Txt size="xxxl">📦</Txt>
             </View>
             <View style={{ flex: 1, marginLeft: spacing.lg }}>
-              <View style={[styles.badge, { backgroundColor: "rgba(255,255,255,0.9)" }]}>
-                <Txt size="xxs" weight="700" color={colors.midnight}>Bientôt</Txt>
+              <View style={[styles.badge, { backgroundColor: colors.turquoise }]}>
+                <Txt size="xxs" weight="700" color={colors.white}>Nouveau</Txt>
               </View>
               <Txt size="xl" weight="700" color={colors.white}>Livraison</Txt>
               <Txt size="sm" color="rgba(255,255,255,0.85)" style={{ marginTop: 4 }} numberOfLines={2}>
-                Motos, voitures, camionnettes — pour tous vos colis et courses.
+                Colis longue distance via conducteurs covoiturage.
               </Txt>
             </View>
             <Ionicons name="chevron-forward" size={22} color={colors.white} />
@@ -86,7 +86,7 @@ export default function MobilityHub() {
 
         {/* Quick actions */}
         <Txt size="lg" weight="700" style={{ marginTop: spacing.xxl, marginBottom: spacing.md }}>Accès rapides</Txt>
-        <View style={{ flexDirection: "row", gap: spacing.md }}>
+        <View style={{ flexDirection: "row", gap: spacing.md, flexWrap: "wrap" }}>
           <QuickAction
             icon="add-circle"
             label="Publier un trajet"
@@ -96,10 +96,24 @@ export default function MobilityHub() {
           />
           <QuickAction
             icon="list"
-            label="Mes réservations"
+            label="Mes trajets"
             hint="Passager"
             onPress={() => router.push("/mobility/rides/mine")}
             testID="qa-mine"
+          />
+          <QuickAction
+            icon="cube"
+            label="Envoyer un colis"
+            hint="Longue distance"
+            onPress={() => router.push("/mobility/delivery")}
+            testID="qa-send-parcel"
+          />
+          <QuickAction
+            icon="cube-outline"
+            label="Mes colis"
+            hint="Suivi & livraisons"
+            onPress={() => router.push("/mobility/delivery/mine")}
+            testID="qa-my-parcels"
           />
         </View>
       </ScrollView>
@@ -157,7 +171,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   qa: {
-    flex: 1,
+    width: "48%",
     backgroundColor: colors.surface,
     padding: spacing.lg,
     borderRadius: radius.lg,

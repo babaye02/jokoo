@@ -235,6 +235,11 @@ export type Ride = {
   vehicle_color?: string;
   notes?: string;
   status: "active" | "cancelled" | "completed";
+  // Livraison longue distance
+  accepts_parcels?: boolean;
+  parcel_price_xof?: number;
+  parcel_max_kg?: number;
+  parcel_payment_mode?: "app_only" | "app_or_cash" | "cash_only";
   created_at: string;
 };
 
@@ -251,4 +256,31 @@ export type RideBooking = {
   note?: string;
   created_at: string;
   ride?: Partial<Ride>;
+};
+
+export type Parcel = {
+  id: string;
+  ride_id: string;
+  sender_id: string;
+  sender_name: string;
+  sender_phone?: string | null;
+  driver_id: string;
+  driver_name: string;
+  driver_avatar?: string | null;
+  from_city: string;
+  to_city: string;
+  date: string;
+  time: string;
+  pickup_address: string;
+  dropoff_address: string;
+  description: string;
+  weight_kg: number;
+  recipient_name: string;
+  recipient_phone: string;
+  photo?: string | null;
+  payment_mode: "app" | "cash";
+  price_xof: number;
+  status: "pending" | "accepted" | "rejected" | "picked_up" | "delivered" | "cancelled";
+  paid?: boolean;
+  created_at: string;
 };

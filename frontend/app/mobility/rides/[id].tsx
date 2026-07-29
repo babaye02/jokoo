@@ -183,6 +183,40 @@ export default function RideDetail() {
           </View>
         ) : null}
 
+        {/* Colis longue distance */}
+        {ride.accepts_parcels && ride.distance_type === "long" ? (
+          <View style={{ marginTop: spacing.md }}>
+            <Card>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={styles.parcelIcon}>
+                  <Txt size="xl">📦</Txt>
+                </View>
+                <View style={{ flex: 1, marginLeft: spacing.md }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Txt size="md" weight="700">Colis acceptés</Txt>
+                    <View style={[styles.tagBig, { marginLeft: 8, backgroundColor: "#DCFCE7" }]}>
+                      <Txt size="xxs" weight="700" color="#166534">Longue distance</Txt>
+                    </View>
+                  </View>
+                  <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4 }}>
+                    Dès {formatXof(ride.parcel_price_xof || 0)} · jusqu&apos;à {ride.parcel_max_kg} kg
+                  </Txt>
+                </View>
+              </View>
+              {!isMine ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Btn
+                    title="Envoyer un colis sur ce trajet"
+                    icon="cube"
+                    onPress={() => router.push(`/mobility/delivery/send/${ride.id}`)}
+                    testID="ride-send-parcel"
+                  />
+                </View>
+              ) : null}
+            </Card>
+          </View>
+        ) : null}
+
         {/* Booking */}
         {!isMine ? (
           <View style={{ marginTop: spacing.md }}>
@@ -262,6 +296,7 @@ const styles = StyleSheet.create({
   line: { flex: 1, width: 2, backgroundColor: colors.borderStrong, marginVertical: 3, minHeight: 24 },
   dayChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: colors.brandTertiary },
   chatBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
+  parcelIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
   stepper: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surface2, borderRadius: 999, padding: 4 },
   stepBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
   totalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.divider },

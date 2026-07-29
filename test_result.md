@@ -107,6 +107,27 @@ user_problem_statement: |
   Phase 1+2 focus: Backend foundations + Covoiturage complete (drivers publish rides, passengers search & book, my rides & bookings screens, home hub, cancel flows, messaging integration).
 
 backend:
+  - task: "Parcels · Livraison longue distance"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Extended Ride model with accepts_parcels (bool), parcel_price_xof (int), parcel_max_kg (int), parcel_payment_mode ("app_only"|"app_or_cash"|"cash_only"). New endpoints:
+          - POST /api/rides/{rid}/parcel — create parcel request (requires ride.accepts_parcels && ride.distance_type=='long'; blocks self-driver, over-weight, incompatible payment mode)
+          - GET /api/parcels/mine — sender view
+          - GET /api/parcels/received — driver view
+          - GET /api/parcels/{pid} — auth: sender OR driver OR admin
+          - PATCH /api/parcels/{pid} — status transitions with per-role guards.
+      - working: true
+        agent: "main"
+        comment: "24/24 pytest tests passed after fixing test-file issues (min_length constraint expected 400 but got 422 with 'A'/'B' strings; test-file updated to use ≥ 2-char strings). Report at /app/test_reports/iteration_3.json."
+
   - task: "Rides CRUD + booking"
     implemented: true
     working: true
@@ -143,8 +164,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Rides CRUD + booking"
-    - "Mobility hub + Covoiturage screens"
+    - "Parcels · Livraison longue distance"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"

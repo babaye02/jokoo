@@ -52,6 +52,11 @@ export default function PublishRide() {
   const [vehiclePlate, setVehiclePlate] = useState("");
   const [vehicleColor, setVehicleColor] = useState("");
   const [notes, setNotes] = useState("");
+  // Livraison longue distance
+  const [acceptsParcels, setAcceptsParcels] = useState(false);
+  const [parcelPrice, setParcelPrice] = useState("2500");
+  const [parcelMaxKg, setParcelMaxKg] = useState("15");
+  const [parcelPaymentMode, setParcelPaymentMode] = useState<"app_only" | "app_or_cash" | "cash_only">("app_or_cash");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -91,6 +96,10 @@ export default function PublishRide() {
         vehicle_plate: vehiclePlate.trim(),
         vehicle_color: vehicleColor.trim(),
         notes: notes.trim(),
+        accepts_parcels: distanceType === "long" && acceptsParcels,
+        parcel_price_xof: distanceType === "long" && acceptsParcels ? (parseInt(parcelPrice || "0", 10) || 0) : 0,
+        parcel_max_kg: distanceType === "long" && acceptsParcels ? (parseInt(parcelMaxKg || "0", 10) || 0) : 0,
+        parcel_payment_mode: parcelPaymentMode,
       };
       const r = await api.post<{ id: string }>("/rides", body);
       router.replace(`/mobility/rides/${r.id}`);
@@ -232,6 +241,61 @@ export default function PublishRide() {
             </View>
           </View>
 
+          {/* Livraison longue distance */}
+          {distanceType === "long" ? (
+            <>
+              <SectionTitle icon="cube" label="Colis longue distance (facultatif)" />
+              <Pressable
+                onPress={() => setAcceptsParcels((v) => !v)}
+                style={[styles.toggleRow, acceptsParcels && styles.toggleRowActive]}
+                testID="pub-accept-parcels"
+              >
+                <View style={{ flex: 1 }}>
+                  <Txt weight="700">J&apos;accepte des colis sur ce trajet</Txt>
+                  <Txt size="xs" color={colors.textMuted} style={{ marginTop: 2 }}>
+                    Un revenu supplémentaire — livraisons entre villes.
+                  </Txt>
+                </View>
+                <View style={[styles.switch, acceptsParcels && styles.switchOn]}>
+                  <View style={[styles.switchKnob, acceptsParcels && styles.switchKnobOn]} />
+                </View>
+              </Pressable>
+
+              {acceptsParcels ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Input
+                        label="Prix / colis (F CFA)"
+                        icon="cash-outline"
+                        keyboardType="numeric"
+                        value={parcelPrice}
+                        onChangeText={(v) => setParcelPrice(v.replace(/[^0-9]/g, ""))}
+                        testID="pub-parcel-price"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Input
+                        label="Poids max (kg)"
+                        icon="barbell-outline"
+                        keyboardType="numeric"
+                        value={parcelMaxKg}
+                        onChangeText={(v) => setParcelMaxKg(v.replace(/[^0-9]/g, ""))}
+                        testID="pub-parcel-max-kg"
+                      />
+                    </View>
+                  </View>
+                  <Txt size="sm" weight="500" color={colors.textMuted} style={{ marginBottom: 6 }}>Modes de paiement acceptés</Txt>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    <Chip label="App uniquement" icon="phone-portrait" active={parcelPaymentMode === "app_only"} onPress={() => setParcelPaymentMode("app_only")} testID="pub-pay-app" />
+                    <Chip label="App ou espèces" icon="swap-horizontal" active={parcelPaymentMode === "app_or_cash"} onPress={() => setParcelPaymentMode("app_or_cash")} testID="pub-pay-both" />
+                    <Chip label="Espèces uniquement" icon="cash" active={parcelPaymentMode === "cash_only"} onPress={() => setParcelPaymentMode("cash_only")} testID="pub-pay-cash" />
+                  </View>
+                </View>
+              ) : null}
+            </>
+          ) : null}
+
           <SectionTitle icon="chatbox-ellipses" label="Notes pour les passagers" />
           <Input
             placeholder="Ex. Départ ponctuel — climatisation dispo — bagage limité…"
@@ -289,5 +353,19 @@ const styles = StyleSheet.create({
   timeBtnActive: { backgroundColor: colors.turquoise, borderColor: colors.turquoise },
   stepper: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surface2, borderRadius: 999, padding: 4, alignSelf: "flex-start" },
   stepBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  toggleRowActive: { borderColor: colors.turquoise, backgroundColor: colors.brandTertiary },
+  switch: { width: 46, height: 26, borderRadius: 13, backgroundColor: colors.borderStrong, padding: 3, justifyContent: "center" },
+  switchOn: { backgroundColor: colors.turquoise },
+  switchKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.white },
+  switchKnobOn: { alignSelf: "flex-end" },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0, padding: spacing.xl, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.divider },
 });
