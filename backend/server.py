@@ -23,7 +23,10 @@ from typing import List, Optional, Literal
 
 import bcrypt
 import jwt
-import stripe
+from emergentintegrations.payments.stripe.checkout import (
+    StripeCheckout,
+    CheckoutSessionRequest,
+)
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,11 +44,12 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "jokoo-dev-secret-change-me")
 JWT_ALG = "HS256"
 JWT_EXP_DAYS = 30
 
-stripe.api_key = os.environ.get("STRIPE_API_KEY", "sk_test_emergent")
+STRIPE_KEY = os.environ.get("STRIPE_API_KEY", "sk_test_emergent")
 APP_URL = os.environ.get(
     "APP_URL",
     "https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com",
 )
+stripe_checkout = StripeCheckout(api_key=STRIPE_KEY)
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -560,30 +564,33 @@ async def dashboard(user=Depends(current_user)):
     }
 
 
-# ---------- payments (Stripe checkout) ----------
+# ---------- payments (Stripe checkout via emergentintegrations) ----------
 @api.post("/payments/checkout/booking")
 async def pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
     b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
     if not b or b["client_id"] != user["id"]:
         raise HTTPException(404, "Réservation introuvable")
     try:
-        session = stripe.checkout.Session.create(
-            mode="payment",
-            payment_method_types=["card"],
-            line_items=[{
-                "price_data": {
-                    "currency": "xof",
-                    "product_data": {"name": f"Jokoo · {b['provider_service']} · {b['provider_name']}"},
-                    "unit_amount": body.amount_xof,  # XOF has 0 decimals
-                },
-                "quantity": 1,
-            }],
+        # emergentintegrations wrapper expects amount as float in major units.
+        req = CheckoutSessionRequest(
+            amount=float(body.amount_xof),
+            currency="xof",
             success_url=f"{APP_URL}/api/payments/success?session_id={{CHECKOUT_SESSION_ID}}&booking_id={body.booking_id}",
             cancel_url=f"{APP_URL}/api/payments/cancel",
-            metadata={"booking_id": body.booking_id, "user_id": user["id"], "kind": "booking"},
+            metadata={
+                "booking_id": body.booking_id,
+                "user_id": user["id"],
+                "kind": "booking",
+            },
         )
-        await db.bookings.update_one({"id": body.booking_id}, {"$set": {"stripe_session_id": session.id}})
-        return {"url": session.url, "session_id": session.id}
+        session = await stripe_checkout.create_checkout_session(req)
+        await db.bookings.update_one(
+            {"id": body.booking_id},
+            {"$set": {"stripe_session_id": session.session_id}},
+        )
+        return {"url": session.url, "session_id": session.session_id}
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception("stripe booking checkout failed")
         raise HTTPException(500, f"Paiement indisponible: {e}")
@@ -594,22 +601,17 @@ async def pay_sub(body: CheckoutSubIn, user=Depends(current_user)):
     if user["role"] != "prestataire":
         raise HTTPException(403, "Prestataire uniquement")
     try:
-        session = stripe.checkout.Session.create(
-            mode="payment",
-            payment_method_types=["card"],
-            line_items=[{
-                "price_data": {
-                    "currency": "xof",
-                    "product_data": {"name": "Jokoo Pro · Abonnement mensuel"},
-                    "unit_amount": 15000,  # 15 000 FCFA
-                },
-                "quantity": 1,
-            }],
+        req = CheckoutSessionRequest(
+            amount=15000.0,  # 15 000 F CFA / month
+            currency="xof",
             success_url=f"{APP_URL}/api/payments/success?session_id={{CHECKOUT_SESSION_ID}}&kind=sub",
             cancel_url=f"{APP_URL}/api/payments/cancel",
             metadata={"user_id": user["id"], "kind": "subscription"},
         )
-        return {"url": session.url, "session_id": session.id}
+        session = await stripe_checkout.create_checkout_session(req)
+        return {"url": session.url, "session_id": session.session_id}
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception("stripe sub checkout failed")
         raise HTTPException(500, f"Paiement indisponible: {e}")
@@ -618,20 +620,23 @@ async def pay_sub(body: CheckoutSubIn, user=Depends(current_user)):
 @api.get("/payments/status/{session_id}")
 async def payment_status(session_id: str, user=Depends(current_user)):
     try:
-        s = stripe.checkout.Session.retrieve(session_id)
+        s = await stripe_checkout.get_checkout_status(session_id)
     except Exception as e:
         raise HTTPException(500, f"Impossible de vérifier: {e}")
-    paid = s.get("payment_status") == "paid"
-    meta = s.get("metadata") or {}
+    paid = getattr(s, "payment_status", None) == "paid" or getattr(s, "status", None) == "complete"
+    meta = getattr(s, "metadata", {}) or {}
     if paid and meta.get("kind") == "booking" and meta.get("booking_id"):
-        await db.bookings.update_one({"id": meta["booking_id"]}, {"$set": {"paid": True, "paid_at": now_iso()}})
+        await db.bookings.update_one(
+            {"id": meta["booking_id"]},
+            {"$set": {"paid": True, "paid_at": now_iso()}},
+        )
     if paid and meta.get("kind") == "subscription":
         until = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
         await db.providers.update_one(
             {"id": user["id"]},
             {"$set": {"subscription_active": True, "subscription_until": until}},
         )
-    return {"paid": paid, "status": s.get("payment_status")}
+    return {"paid": paid, "status": getattr(s, "payment_status", getattr(s, "status", None))}
 
 
 # ---------- seed ----------
