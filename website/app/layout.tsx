@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Script from "next/script";
 import "./globals.css";
+import { DownloadButton } from "./components/DownloadButton";
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://jokooservices.com";
 
@@ -100,9 +101,17 @@ function Header() {
           <Link href="/blog" className="hover:text-turquoise transition">Blog</Link>
           <Link href="/legal" className="hover:text-turquoise transition">Juridique</Link>
         </div>
-        <Link href="/#download" className="px-4 py-2 rounded-full bg-turquoise text-white font-bold text-sm hover:bg-turquoise-light transition">
+        <Link href="/#download" className="px-4 py-2 rounded-full bg-turquoise text-white font-bold text-sm hover:bg-turquoise-light transition md:hidden">
           Télécharger
         </Link>
+        <div className="hidden md:block">
+          <DownloadButton
+            testId="header-download-btn"
+            className="px-4 py-2 rounded-full bg-turquoise text-white font-bold text-sm hover:bg-turquoise-light transition"
+          >
+            Télécharger
+          </DownloadButton>
+        </div>
       </nav>
     </header>
   );

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { DownloadButton, StoreButtons } from "./components/DownloadButton";
 
 export const metadata: Metadata = {
   title: "Jokoo — Services · Mobilité · Family au Sénégal",
@@ -40,9 +41,12 @@ export default function HomePage() {
               Prestataires vérifiés, paiement sécurisé, assistance 24/7.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <a href="#download" className="px-6 py-4 rounded-full bg-turquoise text-midnight font-extrabold hover:bg-turquoise-light transition shadow-xl shadow-turquoise/20">
+              <DownloadButton
+                testId="hero-download-btn"
+                className="px-6 py-4 rounded-full bg-turquoise text-midnight font-extrabold hover:bg-turquoise-light transition shadow-xl shadow-turquoise/20"
+              >
                 Télécharger Jokoo
-              </a>
+              </DownloadButton>
               <Link href="/prestataires" className="px-6 py-4 rounded-full border-2 border-white/20 hover:bg-white/10 font-bold transition">
                 Devenir prestataire
               </Link>
@@ -147,23 +151,9 @@ export default function HomePage() {
             Téléchargez Jokoo. C'est gratuit.
           </h2>
           <p className="mt-4 text-gray-600 text-lg">
-            Disponible bientôt sur iOS et Android. Inscrivez-vous pour être notifié·e du lancement.
+            Sur Android : téléchargez directement l'APK. Sur iPhone : bientôt sur l'App Store.
           </p>
-          <div className="mt-10 flex flex-wrap justify-center gap-4">
-            <div className="px-6 py-4 rounded-2xl bg-midnight text-white font-bold flex items-center gap-3 cursor-not-allowed opacity-80">
-               <div className="text-left leading-tight">
-                <div className="text-xs text-white/60">Bientôt sur</div>
-                <div className="text-lg">App Store</div>
-              </div>
-            </div>
-            <div className="px-6 py-4 rounded-2xl bg-midnight text-white font-bold flex items-center gap-3 cursor-not-allowed opacity-80">
-              ▶️
-              <div className="text-left leading-tight">
-                <div className="text-xs text-white/60">Bientôt sur</div>
-                <div className="text-lg">Google Play</div>
-              </div>
-            </div>
-          </div>
+          <StoreButtons />
           <div className="mt-14 grid md:grid-cols-2 gap-4">
             <Link href="/prestataires" className="p-6 rounded-3xl bg-gradient-to-br from-turquoise/10 to-turquoise/5 border border-turquoise/20 hover:border-turquoise transition group text-left">
               <div className="text-3xl">💼</div>
