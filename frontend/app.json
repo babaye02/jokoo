@@ -1,25 +1,54 @@
 {
   "expo": {
-    "name": "frontend",
+    "name": "Jokoo",
     "slug": "frontend",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "jokoo",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.emergent.jokoomobiledev.b94ufz",
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "buildNumber": "2",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Prenez des photos pour votre profil et vos annonces.",
+        "NSPhotoLibraryUsageDescription": "Ajoutez des photos à vos annonces et profil.",
+        "NSPhotoLibraryAddUsageDescription": "Enregistrez vos reçus de mission.",
+        "NSLocationWhenInUseUsageDescription": "Trouvez les prestataires proches de vous.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Suivez les trajets et déclenchez le SOS.",
+        "NSMicrophoneUsageDescription": "Envoyez des messages vocaux aux prestataires.",
+        "NSContactsUsageDescription": "Partagez Jokoo avec vos proches.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleDisplayName": "Jokoo",
+        "LSApplicationQueriesSchemes": ["wave", "orangemoney", "tel", "mailto", "sms"]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#0B1F3A"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.jokoomobiledev.b94ufz"
+      "package": "com.emergent.jokoomobiledev.b94ufz",
+      "versionCode": 2,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -35,13 +64,23 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#0B1F3A"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Ajoutez des photos à vos annonces et profil.",
+          "cameraPermission": "Prenez des photos pour votre profil et vos annonces."
         }
       ],
       "expo-video"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {}
     }
   }
 }
