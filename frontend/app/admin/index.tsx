@@ -20,6 +20,7 @@ const NAV_ITEMS: {
   { key: "sponsors", title: "Sponsorisations",         sub: "Valider les campagnes payantes",             icon: "rocket-outline",         route: "/admin/sponsorships",       superOnly: true },
   { key: "assist",   title: "Inscription assistée",    sub: "Créer un compte client/prestataire",         icon: "person-add-outline",     route: "/admin/assisted-register", perm: "operator:create_account" },
   { key: "reports",  title: "Signalements",            sub: "Réclamations et modération",                 icon: "flag-outline",           route: "/admin/reports",            perm: "reports:handle" },
+  { key: "legal",    title: "Centre juridique",        sub: "Éditer les 22 documents & versions",         icon: "document-text-outline",  route: "/admin/legal" },
 ];
 
 export default function AdminHub() {

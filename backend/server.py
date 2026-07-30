@@ -522,6 +522,24 @@ class SessionReportIn(BaseModel):
     photo: Optional[str] = None
 
 
+# ---------- Legal Center ----------
+class LegalDocumentUpsertIn(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    content: str = Field(min_length=1)  # Markdown
+    summary: Optional[str] = ""
+    category: Optional[str] = "general"
+    language: str = "fr"
+    country: str = "SN"
+    effective_date: Optional[str] = None  # ISO date; défaut = date de publication
+    requires_acceptance: bool = False
+    published: bool = True
+
+
+class LegalAcceptanceIn(BaseModel):
+    slug: str
+    version: int
+
+
 # ---------- services catalog ----------
 SERVICES_CATALOG = [
     {"key": "plombier", "label": "Plombier", "icon": "water-outline", "color": "#00C2A8"},
@@ -2664,6 +2682,121 @@ async def get_session_report(bid: str, user=Depends(current_user)):
     return r
 
 
+# ---------- Legal Center ----------
+LEGAL_STAFF_ROLES = {"super_admin", "admin", "support"}
+
+
+def _is_legal_admin(user: dict) -> bool:
+    return bool(user.get("is_admin") or (user.get("staff_role") in LEGAL_STAFF_ROLES))
+
+
+@api.get("/legal/documents")
+async def list_legal_documents(language: str = "fr", country: str = "SN"):
+    cur = db.legal_documents.find(
+        {"language": language, "country": country, "published": True},
+        {"_id": 0, "content": 0},
+    ).sort([("category", 1), ("order", 1), ("title", 1)])
+    return await cur.to_list(200)
+
+
+@api.get("/legal/documents/{slug}")
+async def get_legal_document(slug: str, language: str = "fr", country: str = "SN"):
+    d = await db.legal_documents.find_one(
+        {"slug": slug, "language": language, "country": country},
+        {"_id": 0},
+    )
+    if not d:
+        raise HTTPException(404, "Document introuvable")
+    return d
+
+
+@api.post("/legal/acceptances")
+async def record_acceptance(body: LegalAcceptanceIn, user=Depends(current_user)):
+    d = await db.legal_documents.find_one({"slug": body.slug}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "Document introuvable")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "slug": body.slug,
+        "version": body.version,
+        "accepted_at": now_iso(),
+    }
+    await db.legal_acceptances.insert_one(doc)
+    return {"ok": True}
+
+
+@api.get("/legal/acceptances/mine")
+async def my_acceptances(user=Depends(current_user)):
+    cur = db.legal_acceptances.find({"user_id": user["id"]}, {"_id": 0}).sort("accepted_at", -1)
+    return await cur.to_list(200)
+
+
+# --- Admin editor ---
+@api.get("/admin/legal/documents/{slug}/versions")
+async def list_versions(slug: str, user=Depends(current_user)):
+    if not _is_legal_admin(user):
+        raise HTTPException(403, "Interdit")
+    cur = db.legal_versions.find({"slug": slug}, {"_id": 0}).sort("version", -1)
+    return await cur.to_list(500)
+
+
+@api.put("/admin/legal/documents/{slug}")
+async def upsert_legal_document(slug: str, body: LegalDocumentUpsertIn, user=Depends(current_user)):
+    if not _is_legal_admin(user):
+        raise HTTPException(403, "Interdit")
+    existing = await db.legal_documents.find_one({"slug": slug, "language": body.language, "country": body.country}, {"_id": 0})
+    version = (existing.get("version", 0) if existing else 0) + 1
+    now = now_iso()
+    doc = {
+        "slug": slug,
+        "title": body.title.strip(),
+        "content": body.content,
+        "summary": (body.summary or "").strip(),
+        "category": body.category or "general",
+        "language": body.language,
+        "country": body.country,
+        "version": version,
+        "requires_acceptance": body.requires_acceptance,
+        "published": body.published,
+        "effective_date": body.effective_date or now[:10],
+        "updated_at": now,
+        "updated_by": user["id"],
+    }
+    if existing:
+        doc["created_at"] = existing.get("created_at", now)
+        doc["order"] = existing.get("order", 100)
+        await db.legal_documents.update_one({"slug": slug, "language": body.language, "country": body.country}, {"$set": doc})
+    else:
+        doc["created_at"] = now
+        doc["order"] = 100
+        await db.legal_documents.insert_one(doc)
+    # Historique version
+    await db.legal_versions.insert_one({
+        "id": str(uuid.uuid4()),
+        **doc,
+        "author_id": user["id"],
+    })
+    return {"ok": True, "version": version}
+
+
+@api.post("/admin/legal/documents/{slug}/versions/{version}/restore")
+async def restore_version(slug: str, version: int, user=Depends(current_user)):
+    if not _is_legal_admin(user):
+        raise HTTPException(403, "Interdit")
+    old = await db.legal_versions.find_one({"slug": slug, "version": version}, {"_id": 0})
+    if not old:
+        raise HTTPException(404, "Version introuvable")
+    body = LegalDocumentUpsertIn(
+        title=old["title"], content=old["content"], summary=old.get("summary", ""),
+        category=old.get("category"), language=old.get("language", "fr"),
+        country=old.get("country", "SN"), effective_date=old.get("effective_date"),
+        requires_acceptance=old.get("requires_acceptance", False),
+        published=old.get("published", True),
+    )
+    return await upsert_legal_document(slug, body, user)
+
+
 # ---------- seed ----------
 # Chaque prestataire a un mode de tarification distinct :
 # "fixed" = prix ferme par prestation, "from" = prix de départ, "quote" = sur devis.
@@ -3178,6 +3311,69 @@ async def seed():
             "created_at": now_iso(),
             "updated_at": now_iso(),
         })
+
+    # Seed legal documents (Jokoo Legal Center) — placeholders "À rédiger"
+    LEGAL_DOCS = [
+        ("cgu", "Conditions générales d'utilisation", "conditions", True, 10),
+        ("privacy", "Politique de confidentialité", "conditions", True, 20),
+        ("cookies", "Politique relative aux cookies", "conditions", False, 30),
+        ("mentions-legales", "Mentions légales", "conditions", False, 40),
+        ("terms-prestataires", "Conditions des prestataires", "conditions", False, 50),
+        ("terms-clients", "Conditions des clients", "conditions", False, 60),
+        ("refund-policy", "Politique de remboursement", "paiements", False, 70),
+        ("cancellation-policy", "Politique d'annulation", "paiements", False, 80),
+        ("payment-policy", "Politique de paiement", "paiements", False, 90),
+        ("verification-policy", "Politique de vérification des prestataires", "securite", False, 100),
+        ("security-policy", "Politique de sécurité", "securite", False, 110),
+        ("anti-fraud", "Politique anti-fraude", "securite", False, 120),
+        ("content-moderation", "Politique de modération des contenus", "communaute", False, 130),
+        ("children-protection", "Politique de protection des enfants", "securite", False, 140),
+        ("data-protection", "Politique de protection des données", "conditions", False, 150),
+        ("geolocation-policy", "Politique de géolocalisation", "conditions", False, 160),
+        ("reviews-policy", "Politique des avis et évaluations", "communaute", False, 170),
+        ("community-charter", "Charte de la communauté", "communaute", False, 180),
+        ("code-of-conduct", "Code de conduite", "communaute", False, 190),
+        ("faq", "FAQ", "aide", False, 200),
+        ("help-center", "Centre d'aide", "aide", False, 210),
+        ("legal-contact", "Contact juridique", "aide", False, 220),
+    ]
+    for slug, title, category, requires_acc, order in LEGAL_DOCS:
+        existing = await db.legal_documents.find_one({"slug": slug, "language": "fr", "country": "SN"})
+        if existing:
+            continue
+        placeholder = (
+            f"# {title}\n\n"
+            f"> ⚠️ **Contenu à rédiger** — Ce document est un espace réservé.\n"
+            f"> L'équipe juridique de Jokoo publiera prochainement la version officielle.\n\n"
+            f"## À propos de ce document\n\n"
+            f"Cette section détaillera prochainement la politique de Jokoo concernant : "
+            f"**{title.lower()}**.\n\n"
+            f"## Sections prévues\n\n"
+            f"- Objet du document\n- Champ d'application\n- Vos droits et obligations\n"
+            f"- Nos engagements\n- Modifications & mises à jour\n- Contact\n\n"
+            f"---\n\n"
+            f"*Pour toute question, contactez-nous à support@jokoo.sn.*\n"
+        )
+        now = now_iso()
+        doc = {
+            "slug": slug,
+            "title": title,
+            "content": placeholder,
+            "summary": f"Document juridique de Jokoo — {title}",
+            "category": category,
+            "language": "fr",
+            "country": "SN",
+            "version": 1,
+            "order": order,
+            "requires_acceptance": requires_acc,
+            "published": True,
+            "effective_date": now[:10],
+            "created_at": now,
+            "updated_at": now,
+            "updated_by": "system",
+        }
+        await db.legal_documents.insert_one(doc)
+        await db.legal_versions.insert_one({"id": str(uuid.uuid4()), **doc, "author_id": "system"})
 
     return {"ok": True, "providers": inserted, "admin_email": admin_email}
 

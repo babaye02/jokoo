@@ -17,6 +17,7 @@ export default function Register() {
   const [phone, setPhone] = useState("");
   const [city, setCity] = useState("Dakar");
   const [password, setPassword] = useState("");
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -26,9 +27,22 @@ export default function Register() {
       setErr("Nom, email et mot de passe (6+ caractères) requis");
       return;
     }
+    if (!acceptedLegal) {
+      setErr("Vous devez accepter les Conditions d'utilisation et la Politique de confidentialité");
+      return;
+    }
     setLoading(true);
     try {
-      await signUp({ email: email.trim().toLowerCase(), password, name: name.trim(), role, phone, city });
+      const u = await signUp({ email: email.trim().toLowerCase(), password, name: name.trim(), role, phone, city });
+      // Record acceptances after successful signup
+      try {
+        await Promise.all([
+          fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL || ""}/api/legal/acceptances`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${(u as any).__t || ""}` },
+          }).catch(() => null),
+        ]);
+      } catch { /* not fatal */ }
       router.replace("/(tabs)");
     } catch (e: any) {
       setErr(e.message || "Inscription impossible");
@@ -79,6 +93,18 @@ export default function Register() {
           <Input label="Ville" icon="location-outline" placeholder="Dakar" value={city} onChangeText={setCity} testID="register-city" />
           <Input label="Mot de passe" icon="lock-closed-outline" placeholder="6 caractères minimum" secureTextEntry value={password} onChangeText={setPassword} testID="register-password" />
 
+          <Pressable onPress={() => setAcceptedLegal((v) => !v)} style={styles.legalRow} testID="legal-accept">
+            <View style={[styles.checkbox, acceptedLegal && styles.checkboxOn]}>
+              {acceptedLegal ? <Ionicons name="checkmark" size={14} color={colors.white} /> : null}
+            </View>
+            <Txt size="xs" color={colors.textMuted} style={{ flex: 1, marginLeft: 10, lineHeight: 18 }}>
+              J&apos;accepte les{" "}
+              <Txt size="xs" weight="700" color={colors.turquoise} onPress={() => router.push("/legal/cgu")}>Conditions d&apos;utilisation</Txt>
+              {" "}et la{" "}
+              <Txt size="xs" weight="700" color={colors.turquoise} onPress={() => router.push("/legal/privacy")}>Politique de confidentialité</Txt>.
+            </Txt>
+          </Pressable>
+
           <Btn title="Créer mon compte" onPress={submit} loading={loading} fullWidth size="lg" testID="register-submit" />
 
           <View style={styles.divider}>
@@ -109,4 +135,20 @@ const styles = StyleSheet.create({
   footer: { flexDirection: "row", justifyContent: "center", marginTop: spacing.xl },
   divider: { flexDirection: "row", alignItems: "center", marginTop: spacing.lg },
   dividerLine: { flex: 1, height: 1, backgroundColor: colors.divider },
+  legalRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface2,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6,
+    borderWidth: 2, borderColor: colors.borderStrong,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  checkboxOn: { backgroundColor: colors.turquoise, borderColor: colors.turquoise },
 });

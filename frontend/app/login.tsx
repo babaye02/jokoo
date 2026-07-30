@@ -99,6 +99,15 @@ export default function Login() {
               <Btn title="Se connecter" onPress={submitEmail} loading={loading} fullWidth size="lg" testID="login-submit" />
               <OrDivider />
               <AppleSignInButton mode="signIn" />
+
+              <View style={{ flexDirection: "row", justifyContent: "center", marginTop: spacing.xl }}>
+                <Txt size="xxs" color={colors.textMuted}>
+                  En continuant, vous acceptez nos{" "}
+                  <Txt size="xxs" weight="700" color={colors.turquoise} onPress={() => router.push("/legal/cgu")}>CGU</Txt>
+                  {" & "}
+                  <Txt size="xxs" weight="700" color={colors.turquoise} onPress={() => router.push("/legal/privacy")}>Politique de confidentialité</Txt>.
+                </Txt>
+              </View>
             </>
           ) : (
             <>

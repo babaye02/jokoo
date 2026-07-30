@@ -109,6 +109,7 @@ export default function Profile() {
           <MenuRow icon="cube-outline" title="Mes colis · Livraison" onPress={() => router.push("/mobility/delivery/mine")} testID="menu-parcels" />
           <MenuRow icon="people-outline" title="Jokoo Family · Baby-sitting" onPress={() => router.push("/family")} testID="menu-family" />
           <MenuRow icon="school-outline" title="Mes réservations Family" onPress={() => router.push("/family/mine")} testID="menu-family-mine" />
+          <MenuRow icon="document-text-outline" title="Centre juridique" onPress={() => router.push("/legal")} testID="menu-legal" />
           {user.role === "prestataire" ? (
             <>
               <MenuRow icon="pricetags-outline" title="Mes prestations" onPress={() => router.push("/my-services")} testID="menu-my-services" />
