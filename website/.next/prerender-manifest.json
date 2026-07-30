@@ -1,11 +1,1 @@
-{
-  "version": 4,
-  "routes": {},
-  "dynamicRoutes": {},
-  "notFoundRoutes": [],
-  "preview": {
-    "previewModeId": "4cd23471036564e3d62683bd5880c5e1",
-    "previewModeSigningKey": "686beb65a8178e416021067cd6eb6dc62d2ab9273901dc3ab426850a197a462f",
-    "previewModeEncryptionKey": "63c3fb9a0ca857985f134359758c270833eaa4949c6ca81c13aa358e036ddf63"
-  }
-}
+{"version":4,"routes":{"/legal/faq":{},"/legal/help-center":{},"/legal/legal-contact":{},"/legal/content-moderation":{},"/legal/reviews-policy":{},"/legal/community-charter":{},"/legal/code-of-conduct":{},"/legal/cgu":{},"/legal/privacy":{},"/legal/cookies":{},"/legal/mentions-legales":{},"/legal/terms-prestataires":{},"/legal/terms-clients":{},"/legal/data-protection":{},"/legal/geolocation-policy":{},"/legal/refund-policy":{},"/legal/cancellation-policy":{},"/legal/payment-policy":{},"/legal/verification-policy":{},"/legal/security-policy":{},"/legal/anti-fraud":{},"/legal/children-protection":{}},"dynamicRoutes":{"/legal/[slug]":{"dataRoute":null,"dataRouteRegex":null,"fallback":null,"fallbackRevalidate":false,"fallbackSourceRoute":"/legal/[slug]","routeRegex":"^\\/legal\\/([^/]+?)(?:\\/)?$","allowHeader":[]}},"notFoundRoutes":[],"preview":{"previewModeId":"9e6dddf03a72dcf3a9ad9259f831873b","previewModeSigningKey":"fba22ea48cfd5c439f5eef3d47d6e410cd3c1c6e2bff28899c88ad77cb9c8855","previewModeEncryptionKey":"8ca5123efda8c960ffa137bf06b0896958962d3c26d854864e81836a975c833d"}}
