@@ -579,6 +579,123 @@ async def me(user=Depends(current_user)):
     return user
 
 
+# ---------- Sign in with Apple ----------
+# Client (iOS or web) submits Apple identity_token → we verify with Apple JWKS.
+# Idempotent: keyed on Apple `sub` (stable). Falls back to email match if same address.
+# Returns the same {token, user} shape as /auth/login.
+import httpx  # noqa: E402  (local import to keep top clean)
+
+APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
+APPLE_ISSUER = "https://appleid.apple.com"
+_APPLE_JWKS_CACHE: dict = {"keys": None, "fetched_at": None}
+
+
+async def _apple_jwks() -> list:
+    now = datetime.now(timezone.utc)
+    cached_at = _APPLE_JWKS_CACHE.get("fetched_at")
+    if _APPLE_JWKS_CACHE.get("keys") and cached_at and (now - cached_at).total_seconds() < 3600:
+        return _APPLE_JWKS_CACHE["keys"]
+    async with httpx.AsyncClient(timeout=10) as c:
+        r = await c.get(APPLE_JWKS_URL)
+        r.raise_for_status()
+        keys = r.json().get("keys", [])
+    _APPLE_JWKS_CACHE["keys"] = keys
+    _APPLE_JWKS_CACHE["fetched_at"] = now
+    return keys
+
+
+def _apple_audiences() -> list:
+    raw = os.environ.get("APPLE_AUDIENCES", "com.emergent.jokoomobiledev.b94ufz,host.exp.Exponent")
+    return [a.strip() for a in raw.split(",") if a.strip()]
+
+
+class AppleSignInIn(BaseModel):
+    identity_token: str
+    # First sign-in only — Apple gives these once, we must save them immediately
+    name: Optional[str] = None
+    email: Optional[str] = None
+
+
+async def _verify_apple_token(identity_token: str) -> dict:
+    """Verify Apple identity token against JWKS. Return decoded claims."""
+    try:
+        header = jwt.get_unverified_header(identity_token)
+    except jwt.PyJWTError as e:
+        raise HTTPException(401, f"Token Apple invalide: {e}")
+    kid = header.get("kid")
+    keys = await _apple_jwks()
+    key_dict = next((k for k in keys if k.get("kid") == kid), None)
+    if not key_dict:
+        raise HTTPException(401, "Clé Apple inconnue")
+    try:
+        pub_key = jwt.algorithms.RSAAlgorithm.from_jwk(key_dict)
+        audiences = _apple_audiences()
+        # PyJWT accepts a list for audience since v2
+        claims = jwt.decode(
+            identity_token,
+            pub_key,
+            algorithms=["RS256"],
+            audience=audiences,
+            issuer=APPLE_ISSUER,
+        )
+    except jwt.InvalidAudienceError:
+        raise HTTPException(401, "Audience Apple invalide (vérifiez APPLE_AUDIENCES)")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Token Apple expiré")
+    except jwt.PyJWTError as e:
+        raise HTTPException(401, f"Token Apple invalide: {e}")
+    return claims
+
+
+@api.post("/auth/apple", response_model=AuthOut)
+async def sign_in_with_apple(body: AppleSignInIn):
+    claims = await _verify_apple_token(body.identity_token)
+    apple_sub = claims.get("sub")
+    if not apple_sub:
+        raise HTTPException(401, "Token Apple sans identifiant sujet")
+    apple_email = (claims.get("email") or body.email or "").lower() or None
+
+    # Match order: apple_sub → email → new user
+    user = await db.users.find_one({"apple_sub": apple_sub}, {"_id": 0})
+    if not user and apple_email:
+        user = await db.users.find_one({"email": apple_email}, {"_id": 0})
+        if user:
+            # link this Apple identity to existing account
+            await db.users.update_one({"id": user["id"]}, {"$set": {
+                "apple_sub": apple_sub,
+                "updated_at": now_iso(),
+            }})
+            user["apple_sub"] = apple_sub
+
+    if not user:
+        # First sign-in — create the account. Save name/email ONLY here (Apple only sends these once).
+        uid = str(uuid.uuid4())
+        display_name = (body.name or "").strip() or (apple_email.split("@")[0] if apple_email else "Utilisateur Apple")
+        doc = {
+            "id": uid,
+            "email": apple_email or f"apple.{apple_sub[:8]}@private.appleid.local",
+            "password_hash": None,
+            "name": display_name,
+            "role": "client",
+            "is_admin": False,
+            "staff_role": None,
+            "permissions": [],
+            "phone": None,
+            "city": "Dakar",
+            "avatar": None,
+            "apple_sub": apple_sub,
+            "auth_provider": "apple",
+            "created_at": now_iso(),
+        }
+        await db.users.insert_one(doc)
+        user = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
+    else:
+        user = {k: v for k, v in user.items() if k not in ("password_hash", "_id")}
+
+    token = make_token(user["id"])
+    return {"token": token, "user": user}
+
+
 # ---------- services ----------
 @api.get("/services")
 async def list_services():

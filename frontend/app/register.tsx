@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
 import { Btn, ErrorBox, Input, Txt } from "@/src/components/ui";
+import { AppleSignInButton } from "@/src/components/AppleSignInButton";
 import { colors, radius, spacing } from "@/src/theme";
 
 export default function Register() {
@@ -80,6 +81,13 @@ export default function Register() {
 
           <Btn title="Créer mon compte" onPress={submit} loading={loading} fullWidth size="lg" testID="register-submit" />
 
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Txt size="xxs" color={colors.textMuted} weight="600" style={{ marginHorizontal: 10 }}>OU</Txt>
+            <View style={styles.dividerLine} />
+          </View>
+          <AppleSignInButton mode="signUp" />
+
           <View style={styles.footer}>
             <Txt color={colors.textMuted}>Déjà inscrit ? </Txt>
             <Pressable onPress={() => router.replace("/login")} testID="go-login">
@@ -99,4 +107,6 @@ const styles = StyleSheet.create({
   roleBtn: { flex: 1, height: 44, borderRadius: 999, alignItems: "center", justifyContent: "center", flexDirection: "row" },
   roleActive: { backgroundColor: colors.midnight },
   footer: { flexDirection: "row", justifyContent: "center", marginTop: spacing.xl },
+  divider: { flexDirection: "row", alignItems: "center", marginTop: spacing.lg },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.divider },
 });

@@ -10,6 +10,7 @@ type AuthState = {
   signInWithOtp: (phone: string, code: string) => Promise<User>;
   requestOtp: (phone: string) => Promise<{ ok: boolean; otp_dev_only?: string }>;
   signUp: (payload: { email: string; password: string; name: string; role: "client" | "prestataire"; phone?: string; city?: string }) => Promise<User>;
+  signInWithApple: (identityToken: string, name?: string, email?: string) => Promise<User>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -66,6 +67,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return r.user;
   };
 
+  const signInWithApple = async (identityToken: string, name?: string, email?: string) => {
+    const r = await api.post<{ token: string; user: User }>("/auth/apple", {
+      identity_token: identityToken,
+      name: name || null,
+      email: email || null,
+    }, false);
+    await storage.secureSet(TOKEN_KEY, r.token);
+    setToken(r.token);
+    setUser(r.user);
+    return r.user;
+  };
+
   const signOut = async () => {
     await storage.secureRemove(TOKEN_KEY);
     setToken(null);
@@ -80,7 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ user, token, loading, signIn, signInWithOtp, requestOtp, signUp, signOut, refresh }}>
+    <Ctx.Provider value={{ user, token, loading, signIn, signInWithOtp, requestOtp, signUp, signInWithApple, signOut, refresh }}>
       {children}
     </Ctx.Provider>
   );
