@@ -5,17 +5,16 @@ import { useCallback, useEffect, useState } from "react";
 type Platform = "ios" | "android" | "desktop" | "unknown";
 
 // Config via env vars — auto-updated when Play Store / App Store are live.
-// Set NEXT_PUBLIC_APK_URL to enable direct APK download (e.g. "/downloads/jokoo-latest.apk").
-// Leave empty until you host the APK.
-const APK_URL = process.env.NEXT_PUBLIC_APK_URL || "";
-const IOS_STORE_URL = process.env.NEXT_PUBLIC_IOS_APP_URL || ""; // empty = not yet published
-const ANDROID_STORE_URL = process.env.NEXT_PUBLIC_ANDROID_APP_URL || ""; // empty = not yet published
+const APK_URL = process.env.NEXT_PUBLIC_APK_URL || "/downloads/jokoo-latest.apk";
+const IOS_STORE_URL = process.env.NEXT_PUBLIC_IOS_APP_URL || "";
+const ANDROID_STORE_URL = process.env.NEXT_PUBLIC_ANDROID_APP_URL || "";
 
 function detectPlatform(): Platform {
   if (typeof navigator === "undefined") return "unknown";
   const ua = (navigator.userAgent || "").toLowerCase();
-  // iOS detection (incl. iPadOS 13+ which reports as MacIntel)
-  const isIOS = /iphone|ipad|ipod/.test(ua) || (ua.includes("mac") && typeof document !== "undefined" && "ontouchend" in document);
+  const isIOS =
+    /iphone|ipad|ipod/.test(ua) ||
+    (ua.includes("mac") && typeof document !== "undefined" && "ontouchend" in document);
   if (isIOS) return "ios";
   if (/android/.test(ua)) return "android";
   if (/mobi|tablet/.test(ua)) return "unknown";
@@ -24,68 +23,11 @@ function detectPlatform(): Platform {
 
 export type Toast = { type: "info" | "success" | "error"; message: string } | null;
 
-export function useDownloadHandler() {
-  const [toast, setToast] = useState<Toast>(null);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 5000);
-    return () => clearTimeout(t);
-  }, [toast]);
-
-  const handleDownload = useCallback((event?: React.MouseEvent) => {
-    event?.preventDefault();
-    const platform = detectPlatform();
-
-    if (platform === "ios") {
-      if (IOS_STORE_URL) {
-        window.location.href = IOS_STORE_URL;
-      } else {
-        setToast({ type: "info", message: "Disponible prochainement sur l'App Store 🍎" });
-      }
-      return;
-    }
-
-    if (platform === "android") {
-      if (ANDROID_STORE_URL) {
-        window.location.href = ANDROID_STORE_URL;
-        return;
-      }
-      if (!APK_URL) {
-        setToast({
-          type: "info",
-          message: "L'APK Android sera bientôt disponible ici. Merci de votre patience 🤖",
-        });
-        return;
-      }
-      // Download the latest APK
-      try {
-        const link = document.createElement("a");
-        link.href = APK_URL;
-        link.download = "jokoo-latest.apk";
-        link.rel = "noopener";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setToast({ type: "success", message: "Téléchargement de Jokoo lancé… 📥" });
-      } catch {
-        setToast({ type: "error", message: "Impossible de démarrer le téléchargement. Réessayez." });
-      }
-      return;
-    }
-
-    // Desktop / autre → scroll vers section download
-    const target = document.getElementById("download");
-    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-    else setToast({ type: "info", message: "Ouvrez ce site depuis votre téléphone pour télécharger l'app." });
-  }, []);
-
-  return { handleDownload, toast, setToast };
-}
-
+// ------- Toast component -------
 export function DownloadToast({ toast }: { toast: Toast }) {
   if (!toast) return null;
-  const bg = toast.type === "success" ? "bg-turquoise" : toast.type === "error" ? "bg-red-500" : "bg-midnight";
+  const bg =
+    toast.type === "success" ? "bg-turquoise" : toast.type === "error" ? "bg-red-500" : "bg-midnight";
   const text = toast.type === "success" ? "text-midnight" : "text-white";
   return (
     <div
@@ -99,7 +41,82 @@ export function DownloadToast({ toast }: { toast: Toast }) {
   );
 }
 
-/** Full-featured smart download button. Accepts optional children for custom styling. */
+// ------- Reusable download hook -------
+export function useDownloadHandler() {
+  const [toast, setToast] = useState<Toast>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  /**
+   * Force le téléchargement de l'APK, quelle que soit la plateforme du visiteur.
+   * Utilisé par les boutons "Android" et par les visiteurs Android depuis le bouton principal.
+   */
+  const downloadApk = useCallback(() => {
+    if (ANDROID_STORE_URL) {
+      window.location.href = ANDROID_STORE_URL;
+      return;
+    }
+    try {
+      const link = document.createElement("a");
+      link.href = APK_URL;
+      link.download = "jokoo-latest.apk";
+      link.rel = "noopener";
+      link.target = "_self";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setToast({ type: "success", message: "Téléchargement de l'APK Jokoo lancé… 📥" });
+    } catch {
+      // Fallback : navigation directe (au pire l'utilisateur récupère le fichier via la barre d'adresse)
+      try {
+        window.location.href = APK_URL;
+        setToast({ type: "success", message: "Ouverture du fichier APK…" });
+      } catch {
+        setToast({ type: "error", message: "Impossible de démarrer le téléchargement. Réessayez." });
+      }
+    }
+  }, []);
+
+  /**
+   * Ouvre l'App Store si l'app est publiée, sinon informe que ce n'est pas encore disponible.
+   */
+  const openIosStore = useCallback(() => {
+    if (IOS_STORE_URL) {
+      window.location.href = IOS_STORE_URL;
+      return;
+    }
+    setToast({ type: "info", message: "Disponible prochainement sur l'App Store 🍎" });
+  }, []);
+
+  /**
+   * Handler intelligent utilisé par le bouton principal "Télécharger Jokoo" — détecte la plateforme.
+   */
+  const handleSmartDownload = useCallback(
+    (event?: React.MouseEvent) => {
+      event?.preventDefault();
+      const platform = detectPlatform();
+      if (platform === "ios") {
+        openIosStore();
+        return;
+      }
+      if (platform === "android") {
+        downloadApk();
+        return;
+      }
+      // Desktop / autre : télécharger l'APK aussi (l'utilisateur pourra le transférer sur son téléphone)
+      downloadApk();
+    },
+    [openIosStore, downloadApk]
+  );
+
+  return { toast, setToast, downloadApk, openIosStore, handleSmartDownload };
+}
+
+// ------- Main smart download button (hero, header) -------
 export function DownloadButton({
   className,
   children,
@@ -109,12 +126,12 @@ export function DownloadButton({
   children?: React.ReactNode;
   testId?: string;
 }) {
-  const { handleDownload, toast } = useDownloadHandler();
+  const { handleSmartDownload, toast } = useDownloadHandler();
   return (
     <>
       <button
         type="button"
-        onClick={handleDownload}
+        onClick={handleSmartDownload}
         data-testid={testId || "download-jokoo-btn"}
         className={className}
       >
@@ -126,11 +143,13 @@ export function DownloadButton({
 }
 
 /**
- * Store buttons (bottom of homepage). Each triggers the same platform-aware handler
- * so users get consistent behavior no matter which one they tap.
+ * Boutons "Store" du bas de page.
+ * - Le bouton "App Store" ouvre toujours le lien iOS (ou toast si non publié).
+ * - Le bouton "Android" télécharge TOUJOURS l'APK (Play Store si publié).
+ * Ce comportement est indépendant de la plateforme du visiteur — l'utilisateur choisit explicitement.
  */
 export function StoreButtons() {
-  const { handleDownload, toast } = useDownloadHandler();
+  const { downloadApk, openIosStore, toast } = useDownloadHandler();
 
   const iosLive = !!IOS_STORE_URL;
   const androidLive = !!ANDROID_STORE_URL;
@@ -140,9 +159,12 @@ export function StoreButtons() {
       <div className="mt-10 flex flex-wrap justify-center gap-4">
         <button
           type="button"
-          onClick={handleDownload}
+          onClick={openIosStore}
           data-testid="store-ios-btn"
-          className={`px-6 py-4 rounded-2xl bg-midnight text-white font-bold flex items-center gap-3 transition ${iosLive ? "hover:bg-midnight-dark cursor-pointer" : "opacity-90 hover:opacity-100 cursor-pointer"}`}
+          className={`px-6 py-4 rounded-2xl bg-midnight text-white font-bold flex items-center gap-3 transition ${
+            iosLive ? "hover:bg-midnight-dark" : "opacity-90 hover:opacity-100"
+          } cursor-pointer`}
+          aria-label="Télécharger Jokoo pour iPhone"
         >
           <span className="text-2xl"></span>
           <div className="text-left leading-tight">
@@ -150,11 +172,22 @@ export function StoreButtons() {
             <div className="text-lg">App Store</div>
           </div>
         </button>
-        <button
-          type="button"
-          onClick={handleDownload}
+
+        {/* Anchor + button hybride : sur desktop l'attribut download déclenche le téléchargement natif ;
+            sur Android, onClick prend le relais et déclenche le download programmatiquement. */}
+        <a
+          href={APK_URL}
+          download="jokoo-latest.apk"
+          onClick={(e) => {
+            // Sur Play Store live → redirection ; sinon on garde le comportement natif de <a download>
+            if (ANDROID_STORE_URL) {
+              e.preventDefault();
+              downloadApk();
+            }
+          }}
           data-testid="store-android-btn"
-          className={`px-6 py-4 rounded-2xl bg-midnight text-white font-bold flex items-center gap-3 transition ${androidLive ? "hover:bg-midnight-dark cursor-pointer" : "hover:bg-midnight-dark cursor-pointer"}`}
+          className="px-6 py-4 rounded-2xl bg-midnight text-white font-bold flex items-center gap-3 transition hover:bg-midnight-dark cursor-pointer no-underline"
+          aria-label="Télécharger l'APK Jokoo pour Android"
         >
           <span className="text-2xl">▶️</span>
           <div className="text-left leading-tight">
@@ -163,7 +196,7 @@ export function StoreButtons() {
             </div>
             <div className="text-lg">{androidLive ? "Google Play" : "Android"}</div>
           </div>
-        </button>
+        </a>
       </div>
       <DownloadToast toast={toast} />
     </>

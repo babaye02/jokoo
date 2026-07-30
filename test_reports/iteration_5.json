@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend-only bug-fix verification for the 'APK direct pour Android' download button on the Next.js marketing site (localhost:3001). All 7 test scenarios passed. The placeholder APK is served correctly (HTTP 200, 803 bytes). The store-android-btn is now an <a href download> that triggers a native browser download on both desktop and Android UA. store-ios-btn correctly shows the 'Disponible prochainement sur l'App Store' toast without triggering any download. hero-download-btn uses handleSmartDownload: on desktop and Android UA it downloads the APK, on iPhone UA it shows the App Store toast. All content routes (/legal, /blog, /prestataires, /contact, /apropos) return HTTP 200. No JS console errors were captured during any interaction.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_5.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "DownloadButton.tsx is clean, small, well-typed and uses env-vars correctly with sensible defaults. No refactor needed.",
+    "The placeholder APK (803-byte ZIP) is fine for URL/download-plumbing verification but must be replaced by a real signed build before public release — recommend documenting this in the deployment checklist."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "100% (7/7 tests passed)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "APK download plumbing verified end-to-end on localhost:3001. Files: /app/website/public/downloads/jokoo-latest.apk (803B ZIP placeholder), /app/website/app/components/DownloadButton.tsx (StoreButtons uses <a href download>). Playwright helpers used: page.expect_download() and browser.new_context(user_agent=...) for UA spoofing.",
+  "detailed_results": {
+    "TEST_1_apk_file_served": "PASS - GET /downloads/jokoo-latest.apk returned 200 with 803 bytes",
+    "TEST_2_desktop_android_btn": "PASS - href='/downloads/jokoo-latest.apk', download='jokoo-latest.apk'; click triggered Playwright download event with suggested_filename='jokoo-latest.apk' (803 bytes)",
+    "TEST_3_android_ua_android_btn": "PASS - With Android UA, click triggered download of jokoo-latest.apk (803 bytes)",
+    "TEST_4_ios_btn_toast": "PASS - Click shows toast 'Disponible prochainement sur l'App Store 🍎', no download event fired",
+    "TEST_5_hero_desktop": "PASS - hero-download-btn on desktop triggered APK download (jokoo-latest.apk)",
+    "TEST_5_hero_android": "PASS - hero-download-btn on Android UA triggered APK download",
+    "TEST_5_hero_ios": "PASS - hero-download-btn on iPhone UA showed App Store toast, no download",
+    "TEST_6_no_regression": "PASS - /legal, /blog, /prestataires, /contact, /apropos all return HTTP 200",
+    "TEST_7_no_js_errors": "PASS - No console errors and no pageerror events during all interactions"
+  }
+}

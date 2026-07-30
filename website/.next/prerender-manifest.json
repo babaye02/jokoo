@@ -1,1 +1,11 @@
-{"version":4,"routes":{"/legal/faq":{},"/legal/help-center":{},"/legal/legal-contact":{},"/legal/content-moderation":{},"/legal/reviews-policy":{},"/legal/community-charter":{},"/legal/code-of-conduct":{},"/legal/cgu":{},"/legal/privacy":{},"/legal/cookies":{},"/legal/mentions-legales":{},"/legal/terms-prestataires":{},"/legal/terms-clients":{},"/legal/data-protection":{},"/legal/geolocation-policy":{},"/legal/refund-policy":{},"/legal/cancellation-policy":{},"/legal/payment-policy":{},"/legal/verification-policy":{},"/legal/security-policy":{},"/legal/anti-fraud":{},"/legal/children-protection":{}},"dynamicRoutes":{"/legal/[slug]":{"dataRoute":null,"dataRouteRegex":null,"fallback":null,"fallbackRevalidate":false,"fallbackSourceRoute":"/legal/[slug]","routeRegex":"^\\/legal\\/([^/]+?)(?:\\/)?$","allowHeader":[]}},"notFoundRoutes":[],"preview":{"previewModeId":"9e6dddf03a72dcf3a9ad9259f831873b","previewModeSigningKey":"fba22ea48cfd5c439f5eef3d47d6e410cd3c1c6e2bff28899c88ad77cb9c8855","previewModeEncryptionKey":"8ca5123efda8c960ffa137bf06b0896958962d3c26d854864e81836a975c833d"}}
+{
+  "version": 4,
+  "routes": {},
+  "dynamicRoutes": {},
+  "notFoundRoutes": [],
+  "preview": {
+    "previewModeId": "f59698a827c987082d3e3393d7919726",
+    "previewModeSigningKey": "448ca142525d141d2e83a785552b3f91b6e520b2a07f79555e609c6f1dad32b2",
+    "previewModeEncryptionKey": "c834812f31e45024abde3d0dc5379b2027501e554f1a39ea793850c76c53f25e"
+  }
+}
