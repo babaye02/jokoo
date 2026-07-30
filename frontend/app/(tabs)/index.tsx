@@ -152,6 +152,32 @@ export default function Home() {
           </Pressable>
         </View>
 
+        {/* Jokoo Family */}
+        <SectionHeader title="Jokoo Family" action="Découvrir" onAction={() => router.push("/family")} testID="section-family" />
+        <View style={{ paddingHorizontal: spacing.xl }}>
+          <Pressable onPress={() => router.push("/family")} style={styles.familyCard} testID="family-card">
+            <LinearGradient
+              colors={["#7C3AED", "#EC4899"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.familyEmoji}>
+              <Txt size="xxxl">👨‍👩‍👧</Txt>
+            </View>
+            <View style={{ flex: 1, marginLeft: spacing.md }}>
+              <View style={styles.familyPill}>
+                <Txt size="xxs" weight="700" color={colors.midnight}>NOUVEAU ✨</Txt>
+              </View>
+              <Txt size="lg" weight="800" color={colors.white} style={{ marginTop: 4 }}>Baby-sitting bilingue</Txt>
+              <Txt size="xs" color="rgba(255,255,255,0.9)" style={{ marginTop: 2 }} numberOfLines={2}>
+                Étudiants vérifiés · FR/EN/Wolof/Arabe · SOS 🚨
+              </Txt>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={colors.white} />
+          </Pressable>
+        </View>
+
         {/* Nearby */}
         <SectionHeader title="Près de vous" action="Voir plus" onAction={() => router.push("/(tabs)/search")} />
         <FlatList
@@ -354,6 +380,30 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.18)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  familyCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 100,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    overflow: "hidden",
+    ...shadow.card,
+  },
+  familyEmoji: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  familyPill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: colors.turquoise,
   },
   nearCard: { width: 200, borderRadius: radius.lg, backgroundColor: colors.surface, overflow: "hidden", ...shadow.card },
   nearImg: { width: "100%", height: 130 },

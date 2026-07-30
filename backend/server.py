@@ -436,6 +436,92 @@ class ParcelUpdate(BaseModel):
     paid: Optional[bool] = None
 
 
+# ---------- Jokoo Family · Babysitting & Tutorat ----------
+LanguageLevel = Literal["native", "fluent", "intermediate", "basic"]
+AgeGroup = Literal["0-2", "3-5", "6-10", "11-14"]
+Skill = Literal[
+    "languages", "homework", "music", "art", "sport", "cooking", "stories", "outdoor",
+    "educational_games", "baby_care", "school_pickup", "holiday_care",
+]
+StudyLevel = Literal["licence", "master", "doctorat", "prepa", "other"]
+ProfileType = Literal["student", "teacher", "professional"]
+FamilyService = Literal[
+    "babysitting", "tutoring", "school_pickup", "holiday_care", "educational_activities",
+]
+BabysitterServiceType = Literal["babysitting", "tutoring", "both"]
+BabysittingStatus = Literal["pending", "confirmed", "in_progress", "completed", "cancelled"]
+MoodType = Literal["happy", "calm", "tired", "upset"]
+
+
+class LanguageProficiency(BaseModel):
+    code: str  # ISO 639-1 short code (fr, en, ar, wo, es...)
+    level: LanguageLevel = "fluent"
+
+
+class EmergencyContact(BaseModel):
+    name: str
+    phone: str
+
+
+class BabysitterProfileIn(BaseModel):
+    bio: str = Field(min_length=10, max_length=800)
+    profile_type: ProfileType = "student"
+    university: str = Field(min_length=2)
+    level: StudyLevel = "licence"
+    field_of_study: Optional[str] = ""
+    city: str = Field(min_length=2)
+    languages: List[LanguageProficiency] = Field(min_length=1)
+    age_specialties: List[AgeGroup] = Field(min_length=1)
+    skills: List[Skill] = []
+    # Services offerts
+    services: List[FamilyService] = Field(default_factory=list)
+    tutoring_subjects: List[str] = []
+    # Disponibilité & mobilité
+    available_today: bool = False
+    night_care: bool = False
+    can_travel: bool = False
+    # Tarif & certifications
+    hourly_rate_xof: int = Field(ge=500, le=50000)
+    psc1_certified: bool = False
+    emergency_contact: Optional[EmergencyContact] = None
+    photo: Optional[str] = None  # base64 or URL
+    student_card: Optional[str] = None  # base64 pending verification
+
+
+class BabysittingKid(BaseModel):
+    name: str
+    age: int = Field(ge=0, le=17)
+    special_needs: Optional[str] = ""
+
+
+class BabysittingBookingIn(BaseModel):
+    babysitter_id: str
+    service_type: BabysitterServiceType = "babysitting"
+    address: str = Field(min_length=3)
+    city: str = Field(min_length=2)
+    date: str
+    time_start: str  # "18:00"
+    time_end: str  # "22:00"
+    kids: List[BabysittingKid] = Field(min_length=1)
+    language_focus: Optional[str] = None  # ISO code
+    tutoring_subjects: List[str] = []
+    notes: Optional[str] = ""
+    emergency_contact: EmergencyContact
+
+
+class BabysittingBookingUpdate(BaseModel):
+    status: Optional[BabysittingStatus] = None
+    checkin_photo: Optional[str] = None
+
+
+class SessionReportIn(BaseModel):
+    activities: str = Field(min_length=3, max_length=1000)
+    meals: Optional[str] = ""
+    mood: MoodType = "happy"
+    notes: Optional[str] = ""
+    photo: Optional[str] = None
+
+
 # ---------- services catalog ----------
 SERVICES_CATALOG = [
     {"key": "plombier", "label": "Plombier", "icon": "water-outline", "color": "#00C2A8"},
@@ -2062,6 +2148,405 @@ async def update_parcel(pid: str, body: ParcelUpdate, user=Depends(current_user)
     return {"ok": True}
 
 
+# ---------- Jokoo Family · Babysitting & Tutorat ----------
+def _rate_hint(hourly_rate: int, psc1: bool) -> dict:
+    """Give a rate-guidance meta object."""
+    rec_min = 2500 if psc1 else 2000
+    rec_max = 5000 if psc1 else 4000
+    ok = rec_min <= hourly_rate <= rec_max
+    return {"recommended_min": rec_min, "recommended_max": rec_max, "in_range": ok}
+
+
+@api.post("/family/profile")
+async def upsert_babysitter_profile(body: BabysitterProfileIn, user=Depends(current_user)):
+    """Create or update the current user's babysitter profile."""
+    existing = await db.babysitters.find_one({"user_id": user["id"]}, {"_id": 0})
+    # Back-compat: derive offers_* from services list
+    services = list(dict.fromkeys(body.services))
+    offers_babysitting = "babysitting" in services or "educational_activities" in services
+    offers_tutoring = "tutoring" in services
+    doc = {
+        "user_id": user["id"],
+        "name": user.get("name") or "Étudiant",
+        "phone": user.get("phone"),
+        "avatar": body.photo or user.get("avatar") or (existing or {}).get("avatar"),
+        "bio": body.bio.strip(),
+        "profile_type": body.profile_type,
+        "university": body.university.strip(),
+        "level": body.level,
+        "field_of_study": (body.field_of_study or "").strip(),
+        "city": body.city.strip(),
+        "languages": [l.model_dump() for l in body.languages],
+        "age_specialties": body.age_specialties,
+        "skills": body.skills,
+        "services": services,
+        "offers_babysitting": offers_babysitting,
+        "offers_tutoring": offers_tutoring,
+        "tutoring_subjects": body.tutoring_subjects,
+        "available_today": body.available_today,
+        "night_care": body.night_care,
+        "can_travel": body.can_travel,
+        "hourly_rate_xof": body.hourly_rate_xof,
+        "psc1_certified": body.psc1_certified,
+        "emergency_contact": body.emergency_contact.model_dump() if body.emergency_contact else None,
+        "student_card": body.student_card or (existing or {}).get("student_card"),
+        "student_card_verified": (existing or {}).get("student_card_verified", False),
+        "identity_verified": (existing or {}).get("identity_verified", False),
+        "references_verified": (existing or {}).get("references_verified", False),
+        "recommended_by_jokoo": (existing or {}).get("recommended_by_jokoo", False),
+        "status": "active",
+        "rating": (existing or {}).get("rating", 0),
+        "reviews_count": (existing or {}).get("reviews_count", 0),
+        "updated_at": now_iso(),
+    }
+    # Compute Verified+ badge server-side
+    doc["verified_plus"] = bool(
+        doc["identity_verified"]
+        and doc["references_verified"]
+        and doc["psc1_certified"]
+        and (doc["rating"] or 0) >= 4.5
+        and (doc["reviews_count"] or 0) >= 5
+    )
+    if existing:
+        await db.babysitters.update_one({"user_id": user["id"]}, {"$set": doc})
+        doc["id"] = existing["id"]
+        doc["created_at"] = existing.get("created_at")
+    else:
+        doc["id"] = str(uuid.uuid4())
+        doc["created_at"] = now_iso()
+        await db.babysitters.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/family/profile/me")
+async def get_my_babysitter_profile(user=Depends(current_user)):
+    p = await db.babysitters.find_one({"user_id": user["id"]}, {"_id": 0})
+    if not p:
+        return {"exists": False}
+    return {"exists": True, "profile": p, "rate_hint": _rate_hint(p.get("hourly_rate_xof", 0), p.get("psc1_certified", False))}
+
+
+@api.get("/family/babysitters")
+async def search_babysitters(
+    city: Optional[str] = None,
+    language: Optional[str] = None,  # ISO code (fr, en, wo, ar…)
+    age_group: Optional[str] = None,  # "0-2" etc.
+    skill: Optional[str] = None,
+    service: Optional[str] = None,  # "babysitting"|"tutoring"|"school_pickup"|"holiday_care"|"educational_activities"
+    profile_type: Optional[str] = None,  # student|teacher|professional
+    offers_tutoring: Optional[bool] = None,
+    psc1: Optional[bool] = None,
+    min_rate: Optional[int] = None,
+    max_rate: Optional[int] = None,
+    verified_only: Optional[bool] = None,
+    available_today: Optional[bool] = None,
+    night_care: Optional[bool] = None,
+    can_travel: Optional[bool] = None,
+    recommended: Optional[bool] = None,
+    verified_plus: Optional[bool] = None,
+    limit: int = 50,
+):
+    q: dict = {"status": "active"}
+    if city:
+        q["city"] = {"$regex": city, "$options": "i"}
+    if language:
+        q["languages.code"] = language
+    if age_group:
+        q["age_specialties"] = age_group
+    if skill:
+        q["skills"] = skill
+    if service:
+        q["services"] = service
+    if profile_type:
+        q["profile_type"] = profile_type
+    if offers_tutoring is True:
+        q["offers_tutoring"] = True
+    if psc1 is True:
+        q["psc1_certified"] = True
+    if verified_only is True:
+        q["student_card_verified"] = True
+    if available_today is True:
+        q["available_today"] = True
+    if night_care is True:
+        q["night_care"] = True
+    if can_travel is True:
+        q["can_travel"] = True
+    if recommended is True:
+        q["recommended_by_jokoo"] = True
+    if verified_plus is True:
+        q["verified_plus"] = True
+    rate_q = {}
+    if min_rate is not None:
+        rate_q["$gte"] = int(min_rate)
+    if max_rate is not None:
+        rate_q["$lte"] = int(max_rate)
+    if rate_q:
+        q["hourly_rate_xof"] = rate_q
+    cur = db.babysitters.find(q, {"_id": 0, "student_card": 0, "emergency_contact": 0}).sort([
+        ("recommended_by_jokoo", -1),
+        ("verified_plus", -1),
+        ("student_card_verified", -1),
+        ("rating", -1),
+    ]).limit(limit)
+    return await cur.to_list(limit)
+
+
+@api.get("/family/babysitters/{bid}")
+async def get_babysitter(bid: str):
+    b = await db.babysitters.find_one({"id": bid}, {"_id": 0, "student_card": 0, "emergency_contact": 0})
+    if not b:
+        raise HTTPException(404, "Étudiant introuvable")
+    return b
+
+
+# --- Admin verification ---
+@api.patch("/admin/family/babysitters/{bid}/verify")
+async def verify_babysitter(bid: str, body: dict, user=Depends(current_user)):
+    if not (user.get("is_admin") or (user.get("staff_role") in {"super_admin", "support", "operator"})):
+        raise HTTPException(403, "Interdit")
+    b = await db.babysitters.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Étudiant introuvable")
+    updates: dict = {"updated_at": now_iso()}
+    for key in ("student_card_verified", "identity_verified", "references_verified", "recommended_by_jokoo"):
+        if key in body:
+            updates[key] = bool(body[key])
+    # Legacy support: "verified"=true means both student card + identity
+    if "verified" in body and "student_card_verified" not in updates:
+        updates["student_card_verified"] = bool(body["verified"])
+        updates["identity_verified"] = bool(body["verified"])
+    # Recompute Verified+
+    merged = {**b, **updates}
+    updates["verified_plus"] = bool(
+        merged.get("identity_verified")
+        and merged.get("references_verified")
+        and merged.get("psc1_certified")
+        and (merged.get("rating") or 0) >= 4.5
+        and (merged.get("reviews_count") or 0) >= 5
+    )
+    await db.babysitters.update_one({"id": bid}, {"$set": updates})
+    return {"ok": True, "verified_plus": updates["verified_plus"]}
+
+
+# --- Bookings ---
+def _duration_hours(start: str, end: str) -> float:
+    def _min(t):
+        h, m = t.split(":")
+        return int(h) * 60 + int(m)
+    diff = _min(end) - _min(start)
+    if diff <= 0:
+        diff += 24 * 60
+    return round(diff / 60.0, 2)
+
+
+@api.post("/family/bookings")
+async def create_babysitting_booking(body: BabysittingBookingIn, user=Depends(current_user)):
+    sitter = await db.babysitters.find_one({"id": body.babysitter_id}, {"_id": 0})
+    if not sitter or sitter.get("status") != "active":
+        raise HTTPException(404, "Étudiant indisponible")
+    if sitter["user_id"] == user["id"]:
+        raise HTTPException(400, "Vous ne pouvez pas vous réserver vous-même")
+    if body.service_type in ("tutoring", "both") and not sitter.get("offers_tutoring"):
+        raise HTTPException(400, "Cet étudiant n'offre pas de tutorat")
+    hours = _duration_hours(body.time_start, body.time_end)
+    if hours < 0.5:
+        raise HTTPException(400, "Durée trop courte")
+    rate = int(sitter.get("hourly_rate_xof") or 0)
+    total = int(round(hours * rate))
+    bid = str(uuid.uuid4())
+    doc = {
+        "id": bid,
+        "parent_id": user["id"],
+        "parent_name": user.get("name") or "Parent",
+        "parent_phone": user.get("phone"),
+        "babysitter_id": sitter["id"],
+        "babysitter_user_id": sitter["user_id"],
+        "babysitter_name": sitter.get("name"),
+        "babysitter_avatar": sitter.get("avatar"),
+        "service_type": body.service_type,
+        "address": body.address.strip(),
+        "city": body.city.strip(),
+        "date": body.date,
+        "time_start": body.time_start,
+        "time_end": body.time_end,
+        "duration_hours": hours,
+        "kids": [k.model_dump() for k in body.kids],
+        "language_focus": body.language_focus,
+        "tutoring_subjects": body.tutoring_subjects,
+        "notes": (body.notes or "").strip(),
+        "emergency_contact": body.emergency_contact.model_dump(),
+        "hourly_rate_xof": rate,
+        "total_xof": total,
+        "status": "pending",
+        "checkin_photo": None,
+        "sos_triggered_at": None,
+        "report_id": None,
+        "paid": False,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.babysitting_bookings.insert_one(doc)
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": sitter["user_id"],
+        "type": "babysitting_request",
+        "title": "Nouvelle mission de babysitting",
+        "body": f"{doc['parent_name']} — {body.date} de {body.time_start} à {body.time_end}",
+        "peer_id": user["id"],
+        "read": False,
+        "created_at": now_iso(),
+    })
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/family/bookings/mine")
+async def my_family_bookings(user=Depends(current_user)):
+    cur = db.babysitting_bookings.find({"parent_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(200)
+
+
+@api.get("/family/bookings/assigned")
+async def assigned_family_bookings(user=Depends(current_user)):
+    cur = db.babysitting_bookings.find({"babysitter_user_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(200)
+
+
+@api.get("/family/bookings/{bid}")
+async def get_family_booking(bid: str, user=Depends(current_user)):
+    b = await db.babysitting_bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if user["id"] not in (b["parent_id"], b["babysitter_user_id"]) and not (user.get("is_admin") or user.get("staff_role")):
+        raise HTTPException(403, "Interdit")
+    return b
+
+
+@api.patch("/family/bookings/{bid}")
+async def update_family_booking(bid: str, body: BabysittingBookingUpdate, user=Depends(current_user)):
+    b = await db.babysitting_bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    is_parent = user["id"] == b["parent_id"]
+    is_sitter = user["id"] == b["babysitter_user_id"]
+    if not (is_parent or is_sitter):
+        raise HTTPException(403, "Interdit")
+    updates: dict = {"updated_at": now_iso()}
+    notif_target = None
+    notif_body = None
+    if body.status:
+        allowed_sitter = {"confirmed", "in_progress", "completed", "cancelled"}
+        allowed_parent = {"cancelled"}
+        cur_s = b.get("status")
+        if cur_s in ("completed", "cancelled"):
+            raise HTTPException(400, f"Réservation déjà en statut '{cur_s}'")
+        if is_sitter and body.status not in allowed_sitter:
+            raise HTTPException(403, "Transition interdite pour l'étudiant")
+        if is_parent and body.status not in allowed_parent:
+            raise HTTPException(403, "Transition interdite pour le parent")
+        updates["status"] = body.status
+        notif_target = b["parent_id"] if is_sitter else b["babysitter_user_id"]
+        label = {
+            "confirmed": "Mission confirmée ✅",
+            "in_progress": "La session a commencé",
+            "completed": "Session terminée",
+            "cancelled": "Session annulée",
+        }.get(body.status, body.status)
+        notif_body = f"{b.get('date')} · {b.get('time_start')}–{b.get('time_end')}"
+        if body.status == "completed":
+            updates["paid"] = True
+    if body.checkin_photo is not None:
+        if not is_sitter:
+            raise HTTPException(403, "Seul l'étudiant peut envoyer le check-in")
+        updates["checkin_photo"] = body.checkin_photo
+    await db.babysitting_bookings.update_one({"id": bid}, {"$set": updates})
+    if notif_target:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": notif_target,
+            "type": "babysitting_update",
+            "title": label if body.status else "Session mise à jour",
+            "body": notif_body or "",
+            "peer_id": user["id"],
+            "read": False,
+            "created_at": now_iso(),
+        })
+    return {"ok": True}
+
+
+@api.post("/family/bookings/{bid}/sos")
+async def trigger_sos(bid: str, user=Depends(current_user)):
+    b = await db.babysitting_bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if user["id"] not in (b["parent_id"], b["babysitter_user_id"]):
+        raise HTTPException(403, "Interdit")
+    now = now_iso()
+    await db.babysitting_bookings.update_one({"id": bid}, {"$set": {"sos_triggered_at": now, "updated_at": now}})
+    # Notify the counterparty AND emergency contact reference
+    counter = b["parent_id"] if user["id"] == b["babysitter_user_id"] else b["babysitter_user_id"]
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": counter,
+        "type": "babysitting_sos",
+        "title": "🚨 Alerte SOS reçue",
+        "body": f"Contactez immédiatement — {b.get('address')} · {b.get('city')}",
+        "peer_id": user["id"],
+        "read": False,
+        "created_at": now,
+    })
+    return {"ok": True, "emergency_contact": b.get("emergency_contact")}
+
+
+@api.post("/family/bookings/{bid}/report")
+async def submit_session_report(bid: str, body: SessionReportIn, user=Depends(current_user)):
+    b = await db.babysitting_bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if user["id"] != b["babysitter_user_id"]:
+        raise HTTPException(403, "Seul l'étudiant peut soumettre le carnet")
+    if b.get("report_id"):
+        raise HTTPException(400, "Carnet déjà soumis")
+    rid = str(uuid.uuid4())
+    doc = {
+        "id": rid,
+        "booking_id": bid,
+        "parent_id": b["parent_id"],
+        "babysitter_id": b["babysitter_id"],
+        "activities": body.activities.strip(),
+        "meals": (body.meals or "").strip(),
+        "mood": body.mood,
+        "notes": (body.notes or "").strip(),
+        "photo": body.photo,
+        "created_at": now_iso(),
+    }
+    await db.babysitting_reports.insert_one(doc)
+    await db.babysitting_bookings.update_one({"id": bid}, {"$set": {"report_id": rid, "status": "completed", "paid": True, "updated_at": now_iso()}})
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": b["parent_id"],
+        "type": "babysitting_report",
+        "title": "Carnet de session prêt 📝",
+        "body": f"{b.get('date')} · {b.get('babysitter_name')}",
+        "peer_id": user["id"],
+        "read": False,
+        "created_at": now_iso(),
+    })
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/family/bookings/{bid}/report")
+async def get_session_report(bid: str, user=Depends(current_user)):
+    b = await db.babysitting_bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if user["id"] not in (b["parent_id"], b["babysitter_user_id"]) and not (user.get("is_admin") or user.get("staff_role")):
+        raise HTTPException(403, "Interdit")
+    r = await db.babysitting_reports.find_one({"booking_id": bid}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Carnet non encore disponible")
+    return r
+
+
 # ---------- seed ----------
 # Chaque prestataire a un mode de tarification distinct :
 # "fixed" = prix ferme par prestation, "from" = prix de départ, "quote" = sur devis.
@@ -2402,6 +2887,177 @@ async def seed():
             "parcel_price_xof": 2500 if accepts_parcels else 0,
             "parcel_max_kg": 15 if accepts_parcels else 0,
             "parcel_payment_mode": "app_or_cash" if accepts_parcels else "app_or_cash",
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        })
+
+    # Seed babysitters (Jokoo Family)
+    await db.babysitters.delete_many({"seeded": True})
+    demo_sitters = [
+        {
+            "email": "aisha.family@jokoo.sn", "password": "Family1234!",
+            "name": "Aïsha Mbaye", "phone": "+221771001100",
+            "avatar": "https://images.pexels.com/photos/1181695/pexels-photo-1181695.jpeg",
+            "bio": "Étudiante en Master de Lettres modernes, passionnée par les enfants. Je propose des ateliers bilingues français-anglais.",
+            "profile_type": "student",
+            "university": "UCAD Dakar", "level": "master", "field_of_study": "Lettres modernes anglais",
+            "city": "Dakar",
+            "languages": [{"code": "fr", "level": "native"}, {"code": "en", "level": "fluent"}, {"code": "wo", "level": "native"}],
+            "age_specialties": ["3-5", "6-10"],
+            "skills": ["languages", "homework", "stories", "art", "educational_games"],
+            "services": ["babysitting", "tutoring", "educational_activities"],
+            "tutoring_subjects": ["Anglais", "Français"],
+            "available_today": True, "night_care": False, "can_travel": True,
+            "hourly_rate_xof": 3000, "psc1_certified": True,
+            "student_card_verified": True, "identity_verified": True, "references_verified": True,
+            "recommended_by_jokoo": True,
+            "rating": 4.9, "reviews_count": 27,
+        },
+        {
+            "email": "moussa.family@jokoo.sn", "password": "Family1234!",
+            "name": "Moussa Diop", "phone": "+221771001101",
+            "avatar": "https://images.pexels.com/photos/1043471/pexels-photo-1043471.jpeg",
+            "bio": "Étudiant en Licence de Mathématiques. J'adore le tutorat pour élèves du collège. Trilingue.",
+            "profile_type": "student",
+            "university": "UGB Saint-Louis", "level": "licence", "field_of_study": "Mathématiques",
+            "city": "Dakar",
+            "languages": [{"code": "fr", "level": "native"}, {"code": "en", "level": "intermediate"}, {"code": "ar", "level": "fluent"}, {"code": "wo", "level": "native"}],
+            "age_specialties": ["6-10", "11-14"],
+            "skills": ["homework", "sport", "outdoor", "school_pickup"],
+            "services": ["tutoring", "school_pickup"],
+            "tutoring_subjects": ["Mathématiques", "Physique", "SVT"],
+            "available_today": False, "night_care": False, "can_travel": True,
+            "hourly_rate_xof": 2500, "psc1_certified": False,
+            "student_card_verified": True, "identity_verified": True, "references_verified": False,
+            "recommended_by_jokoo": False,
+            "rating": 4.7, "reviews_count": 15,
+        },
+        {
+            "email": "fatou.family@jokoo.sn", "password": "Family1234!",
+            "name": "Fatou Sarr", "phone": "+221771001102",
+            "avatar": "https://images.pexels.com/photos/1858175/pexels-photo-1858175.jpeg",
+            "bio": "Étudiante en musicologie. J'apprends aux enfants à chanter et à jouer d'instruments. Douce et créative.",
+            "profile_type": "student",
+            "university": "UCAD Dakar", "level": "licence", "field_of_study": "Musicologie",
+            "city": "Dakar",
+            "languages": [{"code": "fr", "level": "native"}, {"code": "en", "level": "basic"}, {"code": "wo", "level": "native"}],
+            "age_specialties": ["0-2", "3-5"],
+            "skills": ["music", "art", "stories", "cooking", "baby_care"],
+            "services": ["babysitting", "educational_activities"],
+            "tutoring_subjects": [],
+            "available_today": True, "night_care": True, "can_travel": False,
+            "hourly_rate_xof": 2200, "psc1_certified": True,
+            "student_card_verified": True, "identity_verified": True, "references_verified": True,
+            "recommended_by_jokoo": True,
+            "rating": 5.0, "reviews_count": 32,
+        },
+        {
+            "email": "ibrahim.family@jokoo.sn", "password": "Family1234!",
+            "name": "Prof. Ibrahim Ndiaye", "phone": "+221771001103",
+            "avatar": "https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg",
+            "bio": "Professeur agrégé de Physique, doctorant. 10 ans d'expérience en cours particuliers de collège et lycée.",
+            "profile_type": "teacher",
+            "university": "UCAD Dakar", "level": "doctorat", "field_of_study": "Physique appliquée",
+            "city": "Thiès",
+            "languages": [{"code": "fr", "level": "native"}, {"code": "en", "level": "fluent"}, {"code": "ar", "level": "intermediate"}, {"code": "es", "level": "intermediate"}, {"code": "wo", "level": "native"}],
+            "age_specialties": ["11-14"],
+            "skills": ["homework", "languages", "school_pickup", "holiday_care"],
+            "services": ["tutoring", "school_pickup", "holiday_care"],
+            "tutoring_subjects": ["Mathématiques", "Physique", "Chimie", "Anglais"],
+            "available_today": False, "night_care": False, "can_travel": True,
+            "hourly_rate_xof": 4500, "psc1_certified": False,
+            "student_card_verified": True, "identity_verified": True, "references_verified": True,
+            "recommended_by_jokoo": True,
+            "rating": 4.8, "reviews_count": 41,
+        },
+        {
+            "email": "khady.family@jokoo.sn", "password": "Family1234!",
+            "name": "Khady Fall", "phone": "+221771001104",
+            "avatar": "https://images.pexels.com/photos/1181686/pexels-photo-1181686.jpeg",
+            "bio": "Étudiante en Sciences de l'éducation. Pédagogue certifiée PSC1. Bienveillance et énergie.",
+            "profile_type": "student",
+            "university": "UASZ Ziguinchor", "level": "master", "field_of_study": "Sciences de l'éducation",
+            "city": "Dakar",
+            "languages": [{"code": "fr", "level": "native"}, {"code": "en", "level": "fluent"}, {"code": "es", "level": "fluent"}, {"code": "wo", "level": "native"}],
+            "age_specialties": ["0-2", "3-5", "6-10"],
+            "skills": ["languages", "homework", "art", "cooking", "stories", "educational_games", "baby_care", "holiday_care"],
+            "services": ["babysitting", "tutoring", "educational_activities", "holiday_care"],
+            "tutoring_subjects": ["Français", "Anglais", "Espagnol"],
+            "available_today": True, "night_care": True, "can_travel": True,
+            "hourly_rate_xof": 3500, "psc1_certified": True,
+            "student_card_verified": True, "identity_verified": True, "references_verified": True,
+            "recommended_by_jokoo": True,
+            "rating": 4.95, "reviews_count": 58,
+        },
+    ]
+    for s in demo_sitters:
+        # ensure user account
+        u = await db.users.find_one({"email": s["email"]})
+        if not u:
+            uid = str(uuid.uuid4())
+            u = {
+                "id": uid,
+                "email": s["email"],
+                "password_hash": hash_password(s["password"]),
+                "name": s["name"],
+                "role": "client",
+                "phone": s["phone"],
+                "city": s["city"],
+                "avatar": s["avatar"],
+                "is_admin": False,
+                "staff_role": None,
+                "permissions": [],
+                "created_at": now_iso(),
+            }
+            await db.users.insert_one(u)
+        else:
+            uid = u["id"]
+        # Derive back-compat flags
+        offers_baby = "babysitting" in s["services"] or "educational_activities" in s["services"]
+        offers_tuto = "tutoring" in s["services"]
+        # Compute verified_plus
+        verified_plus = bool(
+            s["identity_verified"]
+            and s["references_verified"]
+            and s["psc1_certified"]
+            and s["rating"] >= 4.5
+            and s["reviews_count"] >= 5
+        )
+        await db.babysitters.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": uid,
+            "seeded": True,
+            "name": s["name"],
+            "phone": s["phone"],
+            "avatar": s["avatar"],
+            "bio": s["bio"],
+            "profile_type": s["profile_type"],
+            "university": s["university"],
+            "level": s["level"],
+            "field_of_study": s.get("field_of_study", ""),
+            "city": s["city"],
+            "languages": s["languages"],
+            "age_specialties": s["age_specialties"],
+            "skills": s["skills"],
+            "services": s["services"],
+            "offers_babysitting": offers_baby,
+            "offers_tutoring": offers_tuto,
+            "tutoring_subjects": s["tutoring_subjects"],
+            "available_today": s["available_today"],
+            "night_care": s["night_care"],
+            "can_travel": s["can_travel"],
+            "hourly_rate_xof": s["hourly_rate_xof"],
+            "psc1_certified": s["psc1_certified"],
+            "emergency_contact": {"name": f"Contact de {s['name'].split()[-1]}", "phone": s["phone"]},
+            "student_card": None,
+            "student_card_verified": s["student_card_verified"],
+            "identity_verified": s["identity_verified"],
+            "references_verified": s["references_verified"],
+            "recommended_by_jokoo": s["recommended_by_jokoo"],
+            "verified_plus": verified_plus,
+            "status": "active",
+            "rating": s["rating"],
+            "reviews_count": s["reviews_count"],
             "created_at": now_iso(),
             "updated_at": now_iso(),
         })
