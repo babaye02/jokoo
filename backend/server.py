@@ -1954,6 +1954,57 @@ async def update_report(rid: str, body: dict, user=Depends(require_perm("reports
     return {"ok": True}
 
 
+# ---------- Account deletion (Apple App Store 5.1.1(v)) ----------
+@api.delete("/users/me")
+async def delete_my_account(user=Depends(current_user)):
+    """Suppression de compte en 1 clic — exigence Apple 5.1.1(v) et Google Play.
+    Supprime les données personnelles et anonymise les données historiques.
+    """
+    uid = user["id"]
+    # Delete personal-only collections
+    await db.favorites.delete_many({"user_id": uid})
+    await db.legal_acceptances.delete_many({"user_id": uid})
+    await db.notifications.delete_many({"user_id": uid})
+    await db.otps.delete_many({"user_id": uid})
+    await db.blocked_users.delete_many({"$or": [{"user_id": uid}, {"blocked_id": uid}]})
+    await db.providers.delete_many({"user_id": uid})
+    await db.services.delete_many({"provider_id": uid})
+    await db.babysitters.delete_many({"user_id": uid})
+    # Anonymise historic bookings & messages (conserver l'historique pour l'autre partie)
+    await db.bookings.update_many({"client_id": uid}, {"$set": {"client_name": "[Compte supprimé]", "client_id_deleted": True}})
+    await db.bookings.update_many({"provider_id": uid}, {"$set": {"provider_name": "[Compte supprimé]", "provider_id_deleted": True}})
+    await db.messages.update_many({"from_id": uid}, {"$set": {"from_name": "[Compte supprimé]"}})
+    await db.reviews.update_many({"author_id": uid}, {"$set": {"author_name": "[Compte supprimé]"}})
+    # Finally remove the user account itself
+    await db.users.delete_one({"id": uid})
+    return {"ok": True, "message": "Compte supprimé"}
+
+
+# ---------- Block user (Apple 1.2 UGC requirement) ----------
+@api.post("/users/{peer_id}/block")
+async def block_user(peer_id: str, user=Depends(current_user)):
+    if peer_id == user["id"]:
+        raise HTTPException(400, "Impossible de se bloquer soi-même")
+    await db.blocked_users.update_one(
+        {"user_id": user["id"], "blocked_id": peer_id},
+        {"$set": {"user_id": user["id"], "blocked_id": peer_id, "created_at": now_iso()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.delete("/users/{peer_id}/block")
+async def unblock_user(peer_id: str, user=Depends(current_user)):
+    await db.blocked_users.delete_one({"user_id": user["id"], "blocked_id": peer_id})
+    return {"ok": True}
+
+
+@api.get("/users/me/blocked")
+async def list_blocked(user=Depends(current_user)):
+    cur = db.blocked_users.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
 
 
 # ---------- Mobility · Covoiturage (rides) ----------

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, Pressable } from "react-native";
+import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, Pressable, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -94,6 +94,68 @@ export default function Chat() {
 
   const displayName = peerName || "Conversation";
 
+  const showMenu = () => {
+    if (!id) return;
+    Alert.alert(
+      displayName,
+      "Actions",
+      [
+        {
+          text: "🚩 Signaler cet utilisateur",
+          onPress: () => {
+            Alert.prompt?.(
+              "Motif du signalement",
+              "Décrivez brièvement le problème (harcèlement, spam, contenu inapproprié...)",
+              async (reason: string) => {
+                try {
+                  await api.post("/reports", { target_id: id, target_type: "user", reason });
+                  Alert.alert("Merci", "Signalement transmis à notre équipe. Nous traitons sous 24 h.");
+                } catch (e: any) {
+                  Alert.alert("Erreur", e?.message || "Impossible d'envoyer le signalement.");
+                }
+              },
+            ) || (async () => {
+              // Fallback Android : Alert.prompt indisponible → envoi motif générique
+              try {
+                await api.post("/reports", { target_id: id, target_type: "user", reason: "Signalé depuis chat (motif non spécifié)" });
+                Alert.alert("Merci", "Signalement transmis à notre équipe.");
+              } catch (e: any) {
+                Alert.alert("Erreur", e?.message || "Impossible d'envoyer le signalement.");
+              }
+            })();
+          },
+        },
+        {
+          text: "🚫 Bloquer cet utilisateur",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "Bloquer ?",
+              `${displayName} ne pourra plus vous contacter et vous ne verrez plus ses messages.`,
+              [
+                { text: "Annuler", style: "cancel" },
+                {
+                  text: "Bloquer",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      await api.post(`/users/${id}/block`, {});
+                      Alert.alert("Bloqué", `${displayName} a été bloqué.`);
+                      router.back();
+                    } catch (e: any) {
+                      Alert.alert("Erreur", e?.message || "Impossible de bloquer.");
+                    }
+                  },
+                },
+              ],
+            );
+          },
+        },
+        { text: "Annuler", style: "cancel" },
+      ],
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
       <SafeAreaView edges={["top"]} style={styles.header}>
@@ -107,6 +169,9 @@ export default function Chat() {
             <Txt size="xxs" color={colors.turquoise}>● en ligne</Txt>
           </View>
         </View>
+        <Pressable onPress={showMenu} style={styles.iconBtn} testID="chat-menu" hitSlop={10}>
+          <Ionicons name="ellipsis-vertical" size={20} color={colors.midnight} />
+        </Pressable>
       </SafeAreaView>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={insets.top}>

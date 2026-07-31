@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -39,6 +39,42 @@ export default function Profile() {
   useEffect(() => { load(); }, [load]);
 
   const logout = async () => { await signOut(); router.replace("/login"); };
+
+  const deleteAccount = () => {
+    Alert.alert(
+      "Supprimer mon compte",
+      "Cette action est irréversible. Vos données personnelles seront supprimées immédiatement. Vos réservations historiques seront anonymisées. Continuer ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "Confirmation finale",
+              "Tapez « SUPPRIMER » n'est pas requis, mais confirmez que vous voulez vraiment supprimer votre compte.",
+              [
+                { text: "Annuler", style: "cancel" },
+                {
+                  text: "Oui, supprimer",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      await api.del("/users/me");
+                      await signOut();
+                      router.replace("/login");
+                    } catch (e: any) {
+                      Alert.alert("Erreur", e?.message || "Impossible de supprimer le compte. Réessayez.");
+                    }
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
+  };
 
   if (!user) return null;
 
@@ -129,6 +165,12 @@ export default function Profile() {
               <Ionicons name="log-out-outline" size={20} color={colors.danger} />
             </View>
             <Txt weight="600" color={colors.danger} style={{ flex: 1, marginLeft: 12 }}>Se déconnecter</Txt>
+          </Pressable>
+          <Pressable onPress={deleteAccount} style={styles.row} testID="menu-delete-account">
+            <View style={[styles.iconWrap, { backgroundColor: "#FEE2E2" }]}>
+              <Ionicons name="trash-outline" size={20} color={colors.danger} />
+            </View>
+            <Txt weight="600" color={colors.danger} style={{ flex: 1, marginLeft: 12 }}>Supprimer mon compte</Txt>
           </Pressable>
         </View>
       </ScrollView>
