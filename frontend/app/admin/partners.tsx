@@ -19,6 +19,7 @@ export default function AdminPartners() {
   const [items, setItems] = useState<Partner[]>([]);
   const [editing, setEditing] = useState<EditingPartner | null>(null);
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try { setItems(await api.get<Partner[]>("/admin/partners")); }
@@ -26,11 +27,14 @@ export default function AdminPartners() {
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const openNew = () => setEditing({
-    _new: true, name: "", tagline: "", description: "",
-    logo: null, cover: null, website: "", phone: "", email: "",
-    city: "", category: "", active: true,
-  });
+  const openNew = () => {
+    setErr(null);
+    setEditing({
+      _new: true, name: "", tagline: "", description: "",
+      logo: null, cover: null, website: "", phone: "", email: "",
+      city: "", category: "", active: true,
+    });
+  };
 
   const remove = (p: Partner) => Alert.alert("Supprimer", `Supprimer le partenaire « ${p.name} » ?`, [
     { text: "Annuler", style: "cancel" },
@@ -47,13 +51,19 @@ export default function AdminPartners() {
     setEditing({ ...editing, [kind]: data });
   };
 
+  const nameValid = !!editing?.name?.trim();
+
   const save = async () => {
     if (!editing) return;
-    if (!editing.name?.trim()) return Alert.alert("Nom requis");
+    setErr(null);
+    if (!nameValid) {
+      setErr("Le nom du partenaire est obligatoire.");
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
-        name: editing.name,
+        name: editing.name!.trim(),
         tagline: editing.tagline || "",
         description: editing.description || "",
         logo: editing.logo || null,
@@ -68,9 +78,13 @@ export default function AdminPartners() {
       if (editing._new) await api.post("/admin/partners", payload);
       else await api.patch(`/admin/partners/${editing.id}`, payload);
       setEditing(null);
+      setErr(null);
       load();
-    } catch (e: any) { Alert.alert("Erreur", e.message); }
-    finally { setSaving(false); }
+    } catch (e: any) {
+      setErr(e?.message || "Une erreur est survenue lors de l'enregistrement.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -151,7 +165,20 @@ export default function AdminPartners() {
               <View style={{ width: 40 }} />
             </SafeAreaView>
             <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
-              <Input label="Nom" icon="business-outline" value={editing.name || ""} onChangeText={(v: string) => setEditing({ ...editing, name: v })} testID="partner-name" />
+              <Input
+                label="Nom *"
+                icon="business-outline"
+                placeholder="Ex : Sonatel Orange"
+                value={editing.name || ""}
+                onChangeText={(v: string) => { setEditing({ ...editing, name: v }); if (err) setErr(null); }}
+                testID="partner-name"
+              />
+              {err ? (
+                <View style={styles.errBox}>
+                  <Ionicons name="alert-circle" size={16} color={colors.danger} />
+                  <Txt size="xs" color={colors.danger} style={{ marginLeft: 6, flex: 1 }}>{err}</Txt>
+                </View>
+              ) : null}
               <Input label="Slogan / tagline" icon="text-outline" value={editing.tagline || ""} onChangeText={(v: string) => setEditing({ ...editing, tagline: v })} />
               <Input label="Description" icon="document-text-outline" multiline numberOfLines={5} style={{ height: 120, textAlignVertical: "top", paddingTop: 12 }} value={editing.description || ""} onChangeText={(v: string) => setEditing({ ...editing, description: v })} />
               <Input label="Site web" icon="globe-outline" autoCapitalize="none" keyboardType="url" value={editing.website || ""} onChangeText={(v: string) => setEditing({ ...editing, website: v })} />
@@ -189,7 +216,20 @@ export default function AdminPartners() {
               </View>
             </ScrollView>
             <View style={[styles.bottom, { paddingBottom: 12 + insets.bottom }]}>
-              <Btn title="Enregistrer" onPress={save} loading={saving} fullWidth size="lg" testID="partner-save" />
+              <Btn
+                title="Enregistrer"
+                onPress={save}
+                loading={saving}
+                fullWidth
+                size="lg"
+                disabled={!nameValid || saving}
+                testID="partner-save"
+              />
+              {!nameValid ? (
+                <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 6, textAlign: "center" }}>
+                  {"Remplissez le champ « Nom » pour activer l'enregistrement."}
+                </Txt>
+              ) : null}
             </View>
           </KeyboardAvoidingView>
         </View>
@@ -209,4 +249,11 @@ const styles = StyleSheet.create({
   upload: { padding: 12, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, borderStyle: "dashed", backgroundColor: colors.surface2, alignItems: "center", marginBottom: spacing.md, justifyContent: "center", minHeight: 84 },
   switchRow: { flexDirection: "row", alignItems: "center", padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface2, marginBottom: spacing.md },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0, padding: spacing.xl, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.divider },
+  errBox: {
+    flexDirection: "row", alignItems: "center",
+    padding: 10, borderRadius: radius.md,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1, borderColor: "#FCA5A5",
+    marginBottom: spacing.md, marginTop: -6,
+  },
 });

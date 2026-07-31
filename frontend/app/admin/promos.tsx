@@ -26,11 +26,14 @@ export default function AdminPromos() {
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const openNew = () => setEditing({
-    _new: true, slug: "", title: "", subtitle: "", description: "",
-    cta_label: "En profiter", cta_link_type: "none", cta_link_target: null,
-    image: null, discount_label: "", starts_at: "", ends_at: "", active: true,
-  });
+  const openNew = () => {
+    setErr(null);
+    setEditing({
+      _new: true, slug: "", title: "", subtitle: "", description: "",
+      cta_label: "En profiter", cta_link_type: "none", cta_link_target: null,
+      image: null, discount_label: "", starts_at: "", ends_at: "", active: true,
+    });
+  };
 
   const remove = (p: Promo) => Alert.alert("Supprimer", `Supprimer la promo « ${p.title} » ?`, [
     { text: "Annuler", style: "cancel" },
@@ -46,17 +49,26 @@ export default function AdminPromos() {
     setEditing({ ...editing, image: `data:image/jpeg;base64,${res.assets[0].base64}` });
   };
 
+  const slugValid = !!editing?.slug && /^[a-z0-9-]{2,40}$/.test(editing.slug);
+  const titleValid = !!editing?.title?.trim();
+  const formValid = slugValid && titleValid;
+
   const save = async () => {
     if (!editing) return;
-    if (!editing.slug || !/^[a-z0-9-]{2,40}$/.test(editing.slug)) {
-      return Alert.alert("Slug invalide", "Utilisez uniquement des minuscules, chiffres et tirets (ex : summer-2026).");
+    setErr(null);
+    if (!slugValid) {
+      setErr("Slug invalide : minuscules, chiffres et tirets uniquement (2 à 40 caractères).");
+      return;
     }
-    if (!editing.title?.trim()) return Alert.alert("Titre requis");
+    if (!titleValid) {
+      setErr("Le titre est obligatoire.");
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
-        slug: editing.slug,
-        title: editing.title,
+        slug: editing.slug!,
+        title: editing.title!.trim(),
         subtitle: editing.subtitle || "",
         description: editing.description || "",
         cta_label: editing.cta_label || "En profiter",
@@ -72,9 +84,13 @@ export default function AdminPromos() {
       if (editing._new) await api.post("/admin/promos", payload);
       else await api.patch(`/admin/promos/${editing.id}`, payload);
       setEditing(null);
+      setErr(null);
       load();
-    } catch (e: any) { Alert.alert("Erreur", e.message); }
-    finally { setSaving(false); }
+    } catch (e: any) {
+      setErr(e?.message || "Une erreur est survenue lors de l'enregistrement.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -154,15 +170,27 @@ export default function AdminPromos() {
             </SafeAreaView>
             <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
               <Input
-                label="Slug URL (ex : summer-2026)"
+                label="Slug URL * (ex : summer-2026)"
                 icon="link-outline"
                 placeholder="lettres minuscules, chiffres, tirets"
                 autoCapitalize="none"
                 value={editing.slug || ""}
-                onChangeText={(v: string) => setEditing({ ...editing, slug: v.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+                onChangeText={(v: string) => { setEditing({ ...editing, slug: v.toLowerCase().replace(/[^a-z0-9-]/g, "") }); if (err) setErr(null); }}
                 testID="promo-slug"
               />
-              <Input label="Titre" icon="pricetag-outline" value={editing.title || ""} onChangeText={(v: string) => setEditing({ ...editing, title: v })} testID="promo-title" />
+              <Input
+                label="Titre *"
+                icon="pricetag-outline"
+                value={editing.title || ""}
+                onChangeText={(v: string) => { setEditing({ ...editing, title: v }); if (err) setErr(null); }}
+                testID="promo-title"
+              />
+              {err ? (
+                <View style={styles.errBox}>
+                  <Ionicons name="alert-circle" size={16} color={colors.danger} />
+                  <Txt size="xs" color={colors.danger} style={{ marginLeft: 6, flex: 1 }}>{err}</Txt>
+                </View>
+              ) : null}
               <Input label="Sous-titre" icon="text-outline" value={editing.subtitle || ""} onChangeText={(v: string) => setEditing({ ...editing, subtitle: v })} />
               <Input label="Description" icon="document-text-outline" multiline numberOfLines={5} style={{ height: 120, textAlignVertical: "top", paddingTop: 12 }} value={editing.description || ""} onChangeText={(v: string) => setEditing({ ...editing, description: v })} />
               <Input label='Badge remise (ex : "-20%")' icon="cash-outline" value={editing.discount_label || ""} onChangeText={(v: string) => setEditing({ ...editing, discount_label: v })} />
@@ -212,7 +240,20 @@ export default function AdminPromos() {
               </View>
             </ScrollView>
             <View style={[styles.bottom, { paddingBottom: 12 + insets.bottom }]}>
-              <Btn title="Enregistrer" onPress={save} loading={saving} fullWidth size="lg" testID="promo-save" />
+              <Btn
+                title="Enregistrer"
+                onPress={save}
+                loading={saving}
+                fullWidth
+                size="lg"
+                disabled={!formValid || saving}
+                testID="promo-save"
+              />
+              {!formValid ? (
+                <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 6, textAlign: "center" }}>
+                  {!slugValid ? "Slug invalide (minuscules, chiffres, tirets, 2 à 40 caractères)." : "Le titre est obligatoire."}
+                </Txt>
+              ) : null}
             </View>
           </KeyboardAvoidingView>
         </View>
@@ -239,4 +280,11 @@ const styles = StyleSheet.create({
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0, padding: spacing.xl, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.divider },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   chipActive: { backgroundColor: colors.midnight, borderColor: colors.midnight },
+  errBox: {
+    flexDirection: "row", alignItems: "center",
+    padding: 10, borderRadius: radius.md,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1, borderColor: "#FCA5A5",
+    marginBottom: spacing.md, marginTop: -6,
+  },
 });
