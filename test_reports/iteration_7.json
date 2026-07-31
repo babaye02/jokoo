@@ -1,0 +1,31 @@
+{
+  "summary": "Bug fix validated end-to-end: chat with seeded/demo providers (collection `providers`) now works. Backend regression suite /app/backend/tests/test_chat_provider.py — 6/6 PASS (send-to-provider 200 + to_name enriched from providers, GET /chat/conversations enriches peer_name/peer_avatar/peer_role='prestataire' via providers fallback, GET /chat/{peer_id}/messages returns to_name, empty text -> 400, unknown peer_id -> 404, unauth -> 401). Frontend Expo mobile E2E on http://localhost:3000: login admin@jokoo.sn / Admin1234! -> /provider/972beb65-a398-4ac0-8092-cc413a2fc9e9 (Aminata Sy) -> click provider-chat -> chat screen opens at /chat/{id}?name=Aminata%20Sy -> chat-input filled 'Test chat' -> chat-send tapped -> message appears in turquoise bubble on right side -> back to Messages tab shows conversation 'Aminata Sy' with preview 'Test chat' and 'à l'instant'. Regression on other tabs (Accueil, Recherche, Notifications, Profil via tab bar) all render — no red screens, 0 pageerrors, only pre-existing 'shadow*' / pointerEvents deprecation warnings unrelated to this fix.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_chat_provider.py",
+    "/app/test_reports/pytest/chat_provider_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py send_message (L1055-1095): peer resolution now checks users first then providers — clean. Empty-text validation added (400). Notification only inserted when peer has a real user account (correct, avoids orphan notifs for demo providers).",
+    "server.py conversations (L997-1039): correctly builds umap from users, then falls back to providers for missing peers, with role='prestataire' — matches the fix description and observed frontend behavior.",
+    "chat/[id].tsx: chat-input & chat-send testIDs present. provider/[id].tsx: provider-chat testID present. messages.tsx: conv-{peer_id} testID present.",
+    "No ObjectId (_id) leaks observed in chat responses (all queries use projection {\"_id\": 0})."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (6/6 chat regression tests)", "frontend": "100% E2E chat flow + tabs regression"},
+  "seed_data_creation": "None. Existing seeded providers (17) reused. One test message 'Bonjour test' inserted in Mongo per test run (not cleaned) plus 'Test chat' from frontend E2E — negligible.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Chat with providers is fixed and validated. Run: `EXPO_PUBLIC_BACKEND_URL=https://jokoo-mobile-dev.preview.emergentagent.com python -m pytest /app/backend/tests/test_chat_provider.py -v -n 0` to re-verify. Frontend chat flow testIDs: login-email, login-password, login-submit, provider-chat, chat-input, chat-send, conv-{peer_id}. Aminata Sy provider id = 972beb65-a398-4ac0-8092-cc413a2fc9e9. Frontend Profile tab route is /profile (not /profil).",
+  "rca_of_issue": "Root cause: POST /api/chat/{peer_id}/messages only looked in db.users to validate the destination. Seeded demo providers exist only in db.providers (17 docs) with no matching users row, so any chat initiated from a provider profile returned 404 'Destinataire introuvable'. Fix applied by main agent: (1) send_message falls back to db.providers when user not found, populating to_name from provider doc; (2) conversations endpoint enriches missing peers from db.providers with role='prestataire'; (3) empty text validated -> 400; (4) push-notification only inserted when peer is a real user. Verified via 6 pytest cases + full mobile web flow. No further mitigation needed."
+}

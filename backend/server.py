@@ -1009,10 +1009,20 @@ async def conversations(user=Depends(current_user)):
             peers[peer] = {"peer_id": peer, "last": m, "unread": 0}
         if m["to_id"] == user["id"] and not m.get("read"):
             peers[peer]["unread"] += 1
-    # attach peer info
+    # attach peer info (fallback : providers collection si le peer n'est pas dans users)
     peer_ids = list(peers.keys())
     users = await db.users.find({"id": {"$in": peer_ids}}, {"_id": 0, "password_hash": 0}).to_list(500)
     umap = {u["id"]: u for u in users}
+    missing = [pid for pid in peer_ids if pid not in umap]
+    if missing:
+        provs = await db.providers.find({"id": {"$in": missing}}, {"_id": 0}).to_list(500)
+        for prov in provs:
+            umap[prov["id"]] = {
+                "id": prov["id"],
+                "name": prov.get("name"),
+                "avatar": prov.get("photo") or prov.get("avatar"),
+                "role": "prestataire",
+            }
     out = []
     for pid, data in peers.items():
         u = umap.get(pid, {"id": pid, "name": "Utilisateur", "avatar": None})
@@ -1044,9 +1054,18 @@ async def get_messages(peer_id: str, user=Depends(current_user)):
 
 @api.post("/chat/{peer_id}/messages")
 async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)):
+    # Accept peer as either a real user OR a provider (seeded/demo providers may not have a user doc yet)
     peer = await db.users.find_one({"id": peer_id}, {"_id": 0})
-    if not peer:
-        raise HTTPException(404, "Destinataire introuvable")
+    peer_name = None
+    if peer:
+        peer_name = peer.get("name")
+    else:
+        prov = await db.providers.find_one({"id": peer_id}, {"_id": 0})
+        if not prov:
+            raise HTTPException(404, "Destinataire introuvable")
+        peer_name = prov.get("name")
+    if not (body.text or "").strip():
+        raise HTTPException(400, "Message vide")
     cid = _conv_id(user["id"], peer_id)
     doc = {
         "id": str(uuid.uuid4()),
@@ -1054,22 +1073,25 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
         "from_id": user["id"],
         "from_name": user["name"],
         "to_id": peer_id,
-        "text": body.text,
+        "to_name": peer_name,
+        "text": body.text.strip(),
         "kind": body.kind,
         "read": False,
         "created_at": now_iso(),
     }
     await db.messages.insert_one(doc)
-    await db.notifications.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": peer_id,
-        "type": "message",
-        "title": user["name"],
-        "body": body.text[:80],
-        "peer_id": user["id"],
-        "read": False,
-        "created_at": now_iso(),
-    })
+    # Notifier le destinataire uniquement s'il a un compte utilisateur réel
+    if peer:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": peer_id,
+            "type": "message",
+            "title": user["name"],
+            "body": body.text[:80],
+            "peer_id": user["id"],
+            "read": False,
+            "created_at": now_iso(),
+        })
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
