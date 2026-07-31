@@ -558,8 +558,39 @@ SERVICES_CATALOG = [
 
 
 # ---------- auth ----------
+# --- Rate limiting anti brute-force (in-memory, suffisant pour Play Store MVP) ---
+from collections import defaultdict, deque
+from time import time as _now
+
+_RL_BUCKETS: dict[str, deque] = defaultdict(deque)
+
+
+def _rate_check(bucket_key: str, max_hits: int, window_sec: int) -> None:
+    """Sliding window : lève 429 si trop de tentatives dans la fenêtre."""
+    now = _now()
+    dq = _RL_BUCKETS[bucket_key]
+    while dq and (now - dq[0]) > window_sec:
+        dq.popleft()
+    if len(dq) >= max_hits:
+        retry_after = int(window_sec - (now - dq[0])) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Trop de tentatives. Réessayez dans {retry_after}s.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    dq.append(now)
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 @api.post("/auth/register", response_model=AuthOut)
-async def register(body: RegisterIn):
+async def register(body: RegisterIn, request: Request):
+    _rate_check(f"register:{_client_ip(request)}", max_hits=5, window_sec=3600)
     existing = await db.users.find_one({"email": body.email.lower()})
     if existing:
         raise HTTPException(400, "Email déjà utilisé")
@@ -583,8 +614,13 @@ async def register(body: RegisterIn):
 
 
 @api.post("/auth/login", response_model=AuthOut)
-async def login(body: LoginIn):
-    user = await db.users.find_one({"email": body.email.lower()})
+async def login(body: LoginIn, request: Request):
+    ip = _client_ip(request)
+    email_key = body.email.lower()
+    # Deux buckets : par IP (protège contre attaque massive) + par email+IP (protège compte cible)
+    _rate_check(f"login-ip:{ip}", max_hits=20, window_sec=300)
+    _rate_check(f"login-email:{email_key}:{ip}", max_hits=8, window_sec=300)
+    user = await db.users.find_one({"email": email_key})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(401, "Identifiants invalides")
     token = make_token(user["id"])
@@ -1834,7 +1870,10 @@ async def assisted_register(body: AssistedRegisterIn, user=Depends(require_perm(
 
 
 @api.post("/auth/otp/request")
-async def otp_request(body: OtpRequestIn):
+async def otp_request(body: OtpRequestIn, request: Request):
+    ip = _client_ip(request)
+    _rate_check(f"otp-req-ip:{ip}", max_hits=10, window_sec=3600)
+    _rate_check(f"otp-req-phone:{body.phone}", max_hits=5, window_sec=3600)
     user = await db.users.find_one({"phone": body.phone})
     if not user:
         raise HTTPException(404, "Aucun compte pour ce numéro")
@@ -1855,7 +1894,10 @@ async def otp_request(body: OtpRequestIn):
 
 
 @api.post("/auth/otp/verify", response_model=AuthOut)
-async def otp_verify(body: OtpVerifyIn):
+async def otp_verify(body: OtpVerifyIn, request: Request):
+    ip = _client_ip(request)
+    _rate_check(f"otp-verify-ip:{ip}", max_hits=20, window_sec=3600)
+    _rate_check(f"otp-verify-phone:{body.phone}", max_hits=10, window_sec=3600)
     rec = await db.otps.find_one({"phone": body.phone}, {"_id": 0})
     if not rec or rec["code"] != body.code:
         raise HTTPException(401, "Code OTP invalide")
