@@ -248,7 +248,7 @@ export default function Chat() {
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, paddingBottom: spacing.md, backgroundColor: colors.surface, ...shadow.soft },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
   bubbleRow: { flexDirection: "row" },
   bubble: { maxWidth: "78%", padding: 12, borderRadius: 18 },
   bubbleMine: { backgroundColor: colors.turquoise, borderBottomRightRadius: 4 },
