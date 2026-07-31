@@ -894,7 +894,7 @@ async def _has_confirmed_booking(client_id: str, provider_id: str) -> bool:
     b = await db.bookings.find_one({
         "client_id": client_id,
         "provider_id": provider_id,
-        "status": {"$in": ["confirmed", "in_progress", "completed"]},
+        "status": {"$in": ["accepted", "confirmed", "in_progress", "completed"]},
     })
     return b is not None
 
@@ -2584,6 +2584,8 @@ async def book_ride(rid: str, body: RideBookingIn, user=Depends(current_user)):
         raise HTTPException(404, "Trajet indisponible")
     if r["driver_id"] == user["id"]:
         raise HTTPException(400, "Vous ne pouvez pas réserver votre propre trajet")
+    # Bloquer si le conducteur a des commissions impayées au-delà du seuil
+    await _check_provider_not_blocked(r["driver_id"])
     if body.seats > (r.get("seats_available") or 0):
         raise HTTPException(400, "Places insuffisantes")
     bid = str(uuid.uuid4())
@@ -2981,6 +2983,8 @@ async def create_babysitting_booking(body: BabysittingBookingIn, user=Depends(cu
         raise HTTPException(404, "Étudiant indisponible")
     if sitter["user_id"] == user["id"]:
         raise HTTPException(400, "Vous ne pouvez pas vous réserver vous-même")
+    # Bloquer si l'étudiant a des commissions Jokoo impayées au-delà du seuil
+    await _check_provider_not_blocked(sitter["user_id"])
     if body.service_type in ("tutoring", "both") and not sitter.get("offers_tutoring"):
         raise HTTPException(400, "Cet étudiant n'offre pas de tutorat")
     hours = _duration_hours(body.time_start, body.time_end)
