@@ -87,7 +87,20 @@ export default function AdminAds() {
     start_at: "", end_at: "", active: true, suspended: false,
   });
 
-  const suspend = async (a: Ad) => { await api.patch(`/admin/ads/${a.id}/suspend`); load(); };
+  const suspend = (a: Ad) => {
+    Alert.alert(
+      "Suspendre la publicité",
+      `« ${a.title} » ne sera plus affichée aux utilisateurs. Vous pourrez la réactiver à tout moment.`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Suspendre",
+          style: "destructive",
+          onPress: async () => { await api.patch(`/admin/ads/${a.id}/suspend`); load(); },
+        },
+      ],
+    );
+  };
   const resume  = async (a: Ad) => { await api.patch(`/admin/ads/${a.id}/resume`); load(); };
   const remove = (a: Ad) => {
     Alert.alert("Supprimer", `Supprimer "${a.title}" ?`, [
