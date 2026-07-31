@@ -109,6 +109,16 @@ async def current_user(authorization: Optional[str] = Header(None)) -> dict:
     return user
 
 
+async def optional_user(authorization: Optional[str] = Header(None)) -> Optional[dict]:
+    """Comme current_user mais retourne None si pas de token/token invalide (routes publiques enrichies)."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    try:
+        return await current_user(authorization)
+    except HTTPException:
+        return None
+
+
 async def admin_user(user=Depends(lambda authorization=Header(None): current_user(authorization))) -> dict:
     # thin wrapper — we just re-check the flag from the DB
     return user  # placeholder replaced by dependency below
@@ -117,6 +127,115 @@ async def admin_user(user=Depends(lambda authorization=Header(None): current_use
 def require_admin(user: dict) -> None:
     if not user.get("is_admin") and not user.get("staff_role"):
         raise HTTPException(403, "Accès administrateur requis")
+
+
+# ---------- marketplace protection (anti-contournement) ----------
+import hashlib
+import re
+import unicodedata
+
+# Digit words in French/English/Wolof (basic) for obfuscated numbers
+_DIGIT_WORDS = {
+    "zero": "0", "zéro": "0",
+    "un": "1", "one": "1", "benn": "1",
+    "deux": "2", "two": "2", "ñaar": "2",
+    "trois": "3", "three": "3", "ñett": "3",
+    "quatre": "4", "four": "4", "ñeent": "4",
+    "cinq": "5", "five": "5", "juróom": "5",
+    "six": "6",
+    "sept": "7", "seven": "7",
+    "huit": "8", "eight": "8",
+    "neuf": "9", "nine": "9",
+}
+
+_SOCIAL_KEYWORDS = [
+    "whatsapp", "wa.me", "whats app", "watsap", "wattsap",
+    "telegram", "t.me", "signal", "viber", "wechat",
+    "facebook", "fb.com", "messenger", "m.me",
+    "instagram", "ig", "insta ", "tiktok", "snapchat", "snap",
+    "twitter", "x.com",
+    "gmail", "yahoo", "hotmail", "outlook",
+]
+
+_CONTACT_HINTS = [
+    "contacte moi", "contacte-moi", "contactez moi", "contactez-moi",
+    "appelle moi", "appelle-moi", "appeler moi", "appelez moi",
+    "mon numero", "mon numéro", "my number", "mon whats", "mon insta",
+    "en dehors", "hors app", "hors application", "sans jokoo", "sans passer par",
+    "envoie", "envoyez moi", "send me", "hit me up",
+]
+
+_PHONE_RE = re.compile(
+    r"(?:\+?\d[\s.\-]*){7,}"  # 7+ digits with separators (matches +221 77 123 45 67)
+)
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
+
+MASK = "•••[masqué par Jokoo]"
+
+
+def _normalize_for_scan(s: str) -> str:
+    """NFD-normalize + lowercase for keyword matching."""
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.lower()
+
+
+def _obfuscated_digits_count(text: str) -> int:
+    """Count digit-words (sept, deux, trois...) that might form a hidden phone."""
+    norm = _normalize_for_scan(text)
+    tokens = re.findall(r"[a-z\u00e0-\u00ff]+", norm)
+    return sum(1 for t in tokens if t in _DIGIT_WORDS)
+
+
+def _sanitize_message(text: str) -> tuple[str, list[str]]:
+    """Detect and mask contact-info attempts. Returns (cleaned_text, flags[])."""
+    flags: list[str] = []
+    cleaned = text
+
+    if _EMAIL_RE.search(cleaned):
+        cleaned = _EMAIL_RE.sub(MASK, cleaned)
+        flags.append("email")
+
+    if _URL_RE.search(cleaned):
+        cleaned = _URL_RE.sub(MASK, cleaned)
+        flags.append("url")
+
+    if _PHONE_RE.search(cleaned):
+        cleaned = _PHONE_RE.sub(MASK, cleaned)
+        flags.append("phone")
+
+    norm = _normalize_for_scan(cleaned)
+    if any(k in norm for k in _SOCIAL_KEYWORDS):
+        flags.append("social")
+    if any(k in norm for k in _CONTACT_HINTS):
+        flags.append("hint")
+
+    # Obfuscated: 4+ digit words in the same message => likely a hidden phone
+    if _obfuscated_digits_count(cleaned) >= 4:
+        flags.append("obfuscated-digits")
+        cleaned += "\n\n⚠️ Jokoo a détecté un partage de coordonnées déguisé. Les paiements hors app ne sont pas garantis."
+
+    if flags and MASK not in cleaned:
+        # Add a footer to inform user
+        cleaned += "\n\n⚠️ Certains éléments ont été détectés comme un partage de coordonnées. Utilisez Jokoo pour rester protégé."
+
+    return cleaned, flags
+
+
+# ---------- commissions & wallet config ----------
+COMMISSION_RATES = {
+    "services": 0.12,   # 12% services à domicile
+    "mobility": 0.10,   # 10% covoiturage / livraison
+    "family": 0.15,     # 15% Jokoo Family
+    "default": 0.12,
+}
+COMMISSION_DEBT_THRESHOLD_FCFA = 10000  # blocage au-delà
+
+
+def _commission_for(kind: str, amount: float) -> float:
+    rate = COMMISSION_RATES.get(kind, COMMISSION_RATES["default"])
+    return round(amount * rate, 2)
 
 
 # ---------- rôles & permissions ----------
@@ -761,6 +880,25 @@ def _provider_public(p: dict) -> dict:
     return {k: v for k, v in p.items() if k != "_id"}
 
 
+def _mask_phone(phone: Optional[str]) -> Optional[str]:
+    """Ne montre que les 2 derniers chiffres jusqu'à réservation confirmée."""
+    if not phone:
+        return phone
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) < 4:
+        return "•••"
+    return "•• •• •• " + digits[-2:]
+
+
+async def _has_confirmed_booking(client_id: str, provider_id: str) -> bool:
+    b = await db.bookings.find_one({
+        "client_id": client_id,
+        "provider_id": provider_id,
+        "status": {"$in": ["confirmed", "in_progress", "completed"]},
+    })
+    return b is not None
+
+
 @api.get("/providers")
 async def list_providers(
     service: Optional[str] = None,
@@ -800,11 +938,16 @@ async def list_providers(
         items.sort(key=lambda p: (not sponsored(p), p.get("price_type") == "quote", p.get("price_amount") or 10**12))
     else:
         items.sort(key=lambda p: (not sponsored(p), -p.get("rating", 0)))
+    # Masquer les numéros/emails de la liste publique (anti-contournement)
+    for p in items:
+        if p.get("phone"):
+            p["phone"] = _mask_phone(p["phone"])
+        p.pop("email", None)
     return items
 
 
 @api.get("/providers/{provider_id}")
-async def get_provider(provider_id: str):
+async def get_provider(provider_id: str, user=Depends(optional_user)):
     p = await db.providers.find_one({"id": provider_id}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Prestataire introuvable")
@@ -812,6 +955,18 @@ async def get_provider(provider_id: str):
     services = await db.services.find({"provider_id": provider_id, "active": True}, {"_id": 0}).sort("created_at", 1).to_list(200)
     p["reviews"] = reviews
     p["services"] = services
+    # Masquer coordonnées tant que le client n'a pas de réservation confirmée
+    can_see_contact = False
+    if user:
+        if user["id"] == provider_id or user.get("is_admin") or user.get("staff_role"):
+            can_see_contact = True
+        else:
+            can_see_contact = await _has_confirmed_booking(user["id"], provider_id)
+    if not can_see_contact:
+        if p.get("phone"):
+            p["phone"] = _mask_phone(p["phone"])
+        p.pop("email", None)
+    p["contact_visible"] = can_see_contact
     return p
 
 
@@ -856,6 +1011,9 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
     provider = await db.providers.find_one({"id": body.provider_id}, {"_id": 0})
     if not provider:
         raise HTTPException(404, "Prestataire introuvable")
+
+    # Bloquer si le prestataire a des commissions impayées au-delà du seuil
+    await _check_provider_not_blocked(body.provider_id)
 
     # Si une prestation spécifique est choisie, on prend son tarif ; sinon on retombe sur le profil.
     svc = None
@@ -1102,6 +1260,19 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
         peer_name = prov.get("name")
     if not (body.text or "").strip():
         raise HTTPException(400, "Message vide")
+    # === ANTI-CIRCUMVENTION FILTER === (protect marketplace revenue)
+    original_text = body.text.strip()
+    filtered_text, flags = _sanitize_message(original_text)
+    # Log potential contournement dans une collection dédiée pour le fraud scoring
+    if flags:
+        await db.contact_flags.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "peer_id": peer_id,
+            "flags": flags,
+            "text_hash": hashlib.sha256(original_text.encode()).hexdigest()[:16],
+            "created_at": now_iso(),
+        })
     cid = _conv_id(user["id"], peer_id)
     doc = {
         "id": str(uuid.uuid4()),
@@ -1110,7 +1281,9 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
         "from_name": user["name"],
         "to_id": peer_id,
         "to_name": peer_name,
-        "text": body.text.strip(),
+        "text": filtered_text,
+        "flagged": bool(flags),
+        "flags": flags,
         "kind": body.kind,
         "read": False,
         "created_at": now_iso(),
@@ -1123,12 +1296,224 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
             "user_id": peer_id,
             "type": "message",
             "title": user["name"],
-            "body": body.text[:80],
+            "body": filtered_text[:80],
             "peer_id": user["id"],
             "read": False,
             "created_at": now_iso(),
         })
     return {k: v for k, v in doc.items() if k != "_id"}
+
+
+# ---------- marketplace: wallet, cash payment, admin stats, fraud ----------
+async def _get_wallet(uid: str) -> dict:
+    """Récupère (ou initialise) le portefeuille d'un utilisateur."""
+    w = await db.wallets.find_one({"user_id": uid}, {"_id": 0})
+    if w:
+        return w
+    doc = {
+        "user_id": uid,
+        "balance_available": 0.0,   # gains disponibles (paiements en ligne validés)
+        "balance_pending": 0.0,     # gains en attente de validation
+        "commission_due": 0.0,      # commissions Jokoo à régler (paiements espèces)
+        "commission_paid": 0.0,     # total commissions déjà payées à Jokoo
+        "gross_earnings": 0.0,      # chiffre d'affaires brut
+        "is_blocked_debt": False,   # bloqué pour dette de commission
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.wallets.insert_one(doc)
+    return doc
+
+
+@api.get("/wallet/me")
+async def wallet_me(user=Depends(current_user)):
+    w = await _get_wallet(user["id"])
+    return {k: v for k, v in w.items() if k != "_id"}
+
+
+@api.get("/wallet/history")
+async def wallet_history(user=Depends(current_user), limit: int = 50):
+    cur = db.wallet_transactions.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(limit)
+    return await cur.to_list(limit)
+
+
+@api.post("/bookings/{bid}/cash-payment")
+async def record_cash_payment(bid: str, body: dict, user=Depends(current_user)):
+    """Le prestataire déclare avoir reçu un paiement en espèces.
+    Jokoo calcule la commission due et l'ajoute au wallet en dette.
+    """
+    b = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if b.get("provider_id") != user["id"]:
+        raise HTTPException(403, "Seul le prestataire peut enregistrer un paiement espèces")
+    if b.get("paid_at"):
+        raise HTTPException(400, "Réservation déjà payée")
+    amount = float(body.get("amount") or b.get("amount") or 0)
+    if amount <= 0:
+        raise HTTPException(400, "Montant invalide")
+    kind = body.get("category") or b.get("category") or "default"
+    commission = _commission_for(kind, amount)
+    await db.bookings.update_one(
+        {"id": bid},
+        {"$set": {
+            "paid_at": now_iso(),
+            "paid_method": "cash",
+            "amount_paid": amount,
+            "commission": commission,
+            "commission_status": "due",
+        }},
+    )
+    w = await _get_wallet(user["id"])
+    new_debt = w["commission_due"] + commission
+    is_blocked = new_debt >= COMMISSION_DEBT_THRESHOLD_FCFA
+    await db.wallets.update_one(
+        {"user_id": user["id"]},
+        {"$set": {
+            "commission_due": new_debt,
+            "gross_earnings": w["gross_earnings"] + amount,
+            "is_blocked_debt": is_blocked,
+            "updated_at": now_iso(),
+        }},
+    )
+    await db.wallet_transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "type": "cash_commission_due",
+        "amount": commission,
+        "gross": amount,
+        "booking_id": bid,
+        "created_at": now_iso(),
+    })
+    # Notifier le prestataire
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "type": "commission_due",
+        "title": "Commission Jokoo à régler",
+        "body": f"{commission:.0f} FCFA de commission sur votre paiement espèces. Solde dû : {new_debt:.0f} FCFA.",
+        "read": False,
+        "created_at": now_iso(),
+    })
+    if is_blocked:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "type": "account_blocked",
+            "title": "Compte bloqué",
+            "body": f"Vous avez dépassé le plafond ({COMMISSION_DEBT_THRESHOLD_FCFA} FCFA) de commissions impayées. Réglez pour réactiver.",
+            "read": False,
+            "created_at": now_iso(),
+        })
+    return {"ok": True, "commission": commission, "commission_due_total": new_debt, "blocked": is_blocked}
+
+
+@api.post("/wallet/pay-commission-due")
+async def pay_commission_due(body: dict, user=Depends(current_user)):
+    """Le prestataire règle sa commission due (via Stripe/Wave/OM à l'avenir — pour l'instant on marque payé)."""
+    w = await _get_wallet(user["id"])
+    to_pay = float(body.get("amount") or w["commission_due"])
+    if to_pay <= 0:
+        raise HTTPException(400, "Aucune commission à régler")
+    if to_pay > w["commission_due"]:
+        raise HTTPException(400, "Montant supérieur à la dette")
+    new_due = round(w["commission_due"] - to_pay, 2)
+    await db.wallets.update_one(
+        {"user_id": user["id"]},
+        {"$set": {
+            "commission_due": new_due,
+            "commission_paid": w["commission_paid"] + to_pay,
+            "is_blocked_debt": new_due >= COMMISSION_DEBT_THRESHOLD_FCFA,
+            "updated_at": now_iso(),
+        }},
+    )
+    await db.wallet_transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "type": "commission_paid",
+        "amount": to_pay,
+        "method": body.get("method", "manual"),
+        "created_at": now_iso(),
+    })
+    if new_due < COMMISSION_DEBT_THRESHOLD_FCFA and w["is_blocked_debt"]:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "type": "account_reactivated",
+            "title": "Compte réactivé",
+            "body": "Vos commissions sont à jour. Vous pouvez de nouveau recevoir des réservations.",
+            "read": False,
+            "created_at": now_iso(),
+        })
+    return {"ok": True, "commission_due": new_due, "commission_paid_total": w["commission_paid"] + to_pay}
+
+
+# ---------- Auto-block: hook dans les créations de bookings ----------
+async def _check_provider_not_blocked(provider_id: str) -> None:
+    w = await db.wallets.find_one({"user_id": provider_id}, {"_id": 0})
+    if w and w.get("is_blocked_debt"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Ce prestataire ne peut plus accepter de réservations (commissions impayées > {COMMISSION_DEBT_THRESHOLD_FCFA} FCFA).",
+        )
+
+
+# ---------- Admin: revenue & marketplace stats ----------
+@api.get("/admin/stats/marketplace")
+async def admin_marketplace_stats(user=Depends(current_user)):
+    require_admin(user)
+    # Aggregate totals
+    online_agg = await db.bookings.aggregate([
+        {"$match": {"paid_method": {"$in": ["stripe", "wave", "orange_money"]}}},
+        {"$group": {"_id": None, "gmv": {"$sum": "$amount_paid"}, "commissions": {"$sum": "$commission"}, "count": {"$sum": 1}}},
+    ]).to_list(1)
+    cash_agg = await db.bookings.aggregate([
+        {"$match": {"paid_method": "cash"}},
+        {"$group": {"_id": None, "gmv": {"$sum": "$amount_paid"}, "commissions": {"$sum": "$commission"}, "count": {"$sum": 1}}},
+    ]).to_list(1)
+    wallets_agg = await db.wallets.aggregate([
+        {"$group": {"_id": None,
+                    "total_due": {"$sum": "$commission_due"},
+                    "total_paid": {"$sum": "$commission_paid"},
+                    "blocked_count": {"$sum": {"$cond": ["$is_blocked_debt", 1, 0]}}}},
+    ]).to_list(1)
+    top_providers = await db.wallets.find({}, {"_id": 0}).sort("gross_earnings", -1).limit(10).to_list(10)
+    flags_last_30d = await db.contact_flags.count_documents({})
+    return {
+        "online": online_agg[0] if online_agg else {"gmv": 0, "commissions": 0, "count": 0},
+        "cash": cash_agg[0] if cash_agg else {"gmv": 0, "commissions": 0, "count": 0},
+        "wallets": wallets_agg[0] if wallets_agg else {"total_due": 0, "total_paid": 0, "blocked_count": 0},
+        "top_providers": top_providers,
+        "contact_flags_total": flags_last_30d,
+        "threshold_fcfa": COMMISSION_DEBT_THRESHOLD_FCFA,
+    }
+
+
+# ---------- Fraud detection ----------
+@api.get("/admin/fraud-alerts")
+async def admin_fraud_alerts(user=Depends(current_user), limit: int = 100):
+    require_admin(user)
+    # Suspicious users : ceux avec le plus de contact_flags
+    pipeline = [
+        {"$group": {"_id": "$user_id", "flag_count": {"$sum": 1}, "flags": {"$push": "$flags"}, "last_at": {"$max": "$created_at"}}},
+        {"$sort": {"flag_count": -1}},
+        {"$limit": limit},
+    ]
+    suspects = await db.contact_flags.aggregate(pipeline).to_list(limit)
+    # Enrichir avec le nom
+    ids = [s["_id"] for s in suspects]
+    users = await db.users.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}).to_list(500)
+    umap = {u["id"]: u for u in users}
+    for s in suspects:
+        s["user"] = umap.get(s["_id"], {"name": "[inconnu]", "id": s["_id"]})
+        s["flags"] = list({f for sublist in s["flags"] for f in sublist})
+    # Cancelled-then-contact pattern
+    cancelled_recent = await db.bookings.count_documents({"status": "cancelled"})
+    return {
+        "suspects": suspects,
+        "cancelled_bookings_total": cancelled_recent,
+        "threshold_alert_flags": 3,
+    }
 
 
 # ---------- notifications ----------

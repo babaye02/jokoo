@@ -1,0 +1,55 @@
+{
+  "summary": "AUDIT MARKETPLACE — Protection commissions et anti-contournement : backend testé en profondeur via 16 tests pytest (couvrant les 13 spécifications). 100% pass. Vérifié : filtre _sanitize_message (phone / email / url / social / hint / obfuscated-digits + masquage •••[masqué par Jokoo]), masquage phone/email dans liste et détail provider avec contact_visible (false pour client sans booking, true pour admin), wallet /me + history + structure complète, flow cash-payment E2E (booking → accept → cash-payment 5000 FCFA → commission 600 → wallet reflète → pay-commission-due → commission_due=0, commission_paid=600), auto-block quand commission_due >= 10000 FCFA (10 x 8500 x 12% = 10200 → is_blocked_debt=true → POST /bookings retourne 403 avec 'commissions impayées' → après règlement complet, is_blocked_debt=false et nouveau booking passe), admin/stats/marketplace (online, cash, wallets, top_providers, contact_flags_total, threshold_fcfa=10000), admin/fraud-alerts (suspects[] avec flag_count, flags aplaties, user enrichi), régression (get_messages, list_conversations, booking normal, provider detail vu par admin).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PATCH /api/bookings/{bid}",
+        "issue": "Le statut 'confirmed' n'est PAS supporté par BookingUpdate (Literal['accepted','rejected','completed','cancelled']). Or _has_confirmed_booking() cherche uniquement les statuts ['confirmed','in_progress','completed'] pour révéler le contact. Résultat : un client dont la réservation est 'accepted' ne verra JAMAIS le numéro même après acceptation. Il faut soit ajouter 'accepted' à _has_confirmed_booking, soit permettre le statut 'confirmed'. Référence: server.py:451 (Literal) vs server.py:897 (_has_confirmed_booking)."
+      },
+      {
+        "endpoint": "GET /api/admin/stats/marketplace",
+        "issue": "L'aggregation MongoDB retourne toujours le champ _id (=None après $group). Non-critique (JSON-sérialisable) mais peut prêter à confusion côté client. Référence: server.py:1466-1479."
+      },
+      {
+        "endpoint": "GET /api/admin/fraud-alerts",
+        "issue": "Le pipeline retourne les documents groupés avec _id=user_id (non exclu). Résultat JSON contient un champ _id non uuid : renommer via $project en 'user_id' pour cohérence. Référence: server.py:1497-1502."
+      },
+      {
+        "endpoint": "POST /api/wallet/pay-commission-due",
+        "issue": "Aucune intégration réelle de paiement (Stripe/Wave/OM) — le règlement est purement déclaratif. Signalé par le TODO en commentaire, à sécuriser avant production. Référence: server.py:1411-1448."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_marketplace_protection.py",
+    "/app/test_reports/pytest/marketplace_protection.xml"
+  ],
+  "action_items": [
+    "Aligner _has_confirmed_booking avec les statuts réellement supportés par BookingUpdate (ajouter 'accepted' ou ajouter 'confirmed' au Literal). Sinon contact_visible restera false ad vitam.",
+    "Exclure _id des aggregations retournées par /admin/stats/marketplace et /admin/fraud-alerts.",
+    "Brancher /wallet/pay-commission-due sur Stripe/Wave/OM avant production (actuellement declaration-only).",
+    "Optionnel : ajouter un TTL / fenêtre glissante 30j sur db.contact_flags pour ne pas biaiser les stats à long terme (le nom `flags_last_30d` suggère une fenêtre qui n'existe pas)."
+  ],
+  "critical_code_review_comments": [
+    "server.py fait 3902 lignes : à découper en modules (chat, providers, bookings, wallet, admin, family, rides) — file size >700 ligne guideline violé.",
+    "Le regex _PHONE_RE matche >=7 caractères 'digit + separators' : cela peut faux-positif sur des dates/prix. Testé OK mais surveiller.",
+    "Idempotence _get_wallet : correcte, upsert-safe.",
+    "Anti-block : l'appel _check_provider_not_blocked() est uniquement dans POST /bookings. Vérifier qu'il l'est aussi dans /rides/{rid}/book, /family/bookings, etc. sinon le blocage est contournable via mobilité/family. Confirmé absent dans les autres routes de booking → régression potentielle de la protection."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_marketplace_protection.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "N/A"},
+  "seed_data_creation": "Créé à la volée pendant les tests : 4 comptes jetables préfixés test_XXXXXX@jokootest.com (2 clients + 2 prestataires) + leurs providers + ~13 bookings. Non nettoyés (pas de endpoint de suppression exposé, mais préfixe TEST_ dans les noms et emails jokootest.com facilement filtrables).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend jokoo prod URL : https://jokoo-mobile-dev.preview.emergentagent.com/api. JWT dans champ 'token'. Admin: admin@jokoo.sn / Admin1234!. Seed via POST /api/seed. La ligne de test crée ~4 comptes 'test_*@jokootest.com' — les filtrer si besoin de nettoyage. Le statut 'confirmed' n'existe pas côté API (utiliser 'accepted').",
+  "rca_of_issue": "N/A — aucun bug bloquant. Tous les correctifs demandés (filtre message, masquage phone/email, wallet, cash-payment, auto-block, admin stats, fraud alerts) fonctionnent conformément à la spec."
+}
