@@ -17,6 +17,8 @@ const NAV_ITEMS: {
 }[] = [
   { key: "staff",    title: "Équipe & rôles",          sub: "Gérer les employés et permissions",          icon: "people-outline",         route: "/admin/staff",              superOnly: true },
   { key: "ads",      title: "Publicités",              sub: "Créer, programmer, suivre",                  icon: "megaphone-outline",      route: "/admin/ads",                perm: "ads:read" },
+  { key: "promos",   title: "Offres promo",            sub: "Landing pages /promo/{slug}",                icon: "pricetag-outline",       route: "/admin/promos",             perm: "ads:read" },
+  { key: "partners", title: "Partenaires",             sub: "Annuaire des partenaires Jokoo",             icon: "business-outline",       route: "/admin/partners",           perm: "ads:read" },
   { key: "sponsors", title: "Sponsorisations",         sub: "Valider les campagnes payantes",             icon: "rocket-outline",         route: "/admin/sponsorships",       superOnly: true },
   { key: "assist",   title: "Inscription assistée",    sub: "Créer un compte client/prestataire",         icon: "person-add-outline",     route: "/admin/assisted-register", perm: "operator:create_account" },
   { key: "reports",  title: "Signalements",            sub: "Réclamations et modération",                 icon: "flag-outline",           route: "/admin/reports",            perm: "reports:handle" },

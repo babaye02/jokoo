@@ -154,6 +154,15 @@ export type PrestationSvc = {
 
 export type AdMedia = { kind: "image" | "video"; url: string; thumb?: string };
 
+export type AdLinkType =
+  | "none"
+  | "provider"
+  | "category"
+  | "promo"
+  | "partner"
+  | "external"
+  | "app_route";
+
 export type Ad = {
   id: string;
   type: "image" | "banner" | "video" | "carousel";
@@ -161,6 +170,9 @@ export type Ad = {
   description?: string;
   button_label?: string;
   link?: string | null;
+  link_type?: AdLinkType | null;
+  link_target?: string | null;
+  link_label?: string | null;
   media: AdMedia[];
   placements: string[];
   category_key?: string | null;
@@ -173,6 +185,40 @@ export type Ad = {
   impressions?: number;
   clicks?: number;
   ctr?: number;
+};
+
+export type Promo = {
+  id: string;
+  slug: string;
+  title: string;
+  subtitle?: string;
+  description?: string;
+  cta_label?: string;
+  cta_link_type?: AdLinkType | null;
+  cta_link_target?: string | null;
+  image?: string | null;
+  bg_color?: string | null;
+  discount_label?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  active: boolean;
+  created_at?: string;
+};
+
+export type Partner = {
+  id: string;
+  name: string;
+  tagline?: string;
+  description?: string;
+  logo?: string | null;
+  cover?: string | null;
+  website?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  city?: string | null;
+  category?: string | null;
+  active: boolean;
+  created_at?: string;
 };
 
 export type Sponsorship = {

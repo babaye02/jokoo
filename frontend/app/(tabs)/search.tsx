@@ -24,6 +24,18 @@ export default function Search() {
     api.get<ServiceItem[]>("/services").then(setServices).catch(() => {});
   }, []);
 
+  // Sync état local si l'utilisateur navigue depuis l'accueil avec un ?service=xxx
+  // (le composant reste monté entre les onglets — sans ceci, le filtre ne change pas).
+  useEffect(() => {
+    const s = typeof params.service === "string" ? params.service : "";
+    setService(s);
+  }, [params.service]);
+
+  useEffect(() => {
+    const qParam = typeof params.q === "string" ? params.q : "";
+    if (qParam) setQ(qParam);
+  }, [params.q]);
+
   const doSearch = useMemo(
     () => async () => {
       setLoading(true);

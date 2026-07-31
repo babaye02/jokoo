@@ -1,13 +1,14 @@
 // Admin — CRUD publicités avec support image / bannière / vidéo / carrousel.
 import { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidingView, Platform, TextInput } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidingView, Platform, TextInput, Modal } from "react-native";
 import { Image } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { api, Ad, AdMedia, ServiceItem } from "@/src/api";
+import { api, Ad, AdMedia, AdLinkType, Partner, Promo, Provider, ServiceItem } from "@/src/api";
+import { describeDestination } from "@/src/navigation/adDestination";
 import { Btn, Card, Input, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
@@ -34,11 +35,33 @@ const AUDIENCES = [
   { key: "prestataire", label: "Prestataires uniquement", icon: "briefcase-outline" },
 ] as const;
 
+const LINK_TYPES: { key: AdLinkType; label: string; icon: any; hint: string }[] = [
+  { key: "none",      label: "Aucune destination",  icon: "close-circle-outline",  hint: "Bannière décorative, non cliquable" },
+  { key: "provider",  label: "Fiche prestataire",   icon: "briefcase-outline",     hint: "Sélectionnez un prestataire" },
+  { key: "category",  label: "Catégorie filtrée",   icon: "grid-outline",          hint: "Ouvre la recherche avec un filtre" },
+  { key: "promo",     label: "Offre promo",         icon: "pricetag-outline",      hint: "Page /promo/{slug}" },
+  { key: "partner",   label: "Partenaire",          icon: "business-outline",      hint: "Fiche partenaire Jokoo" },
+  { key: "external",  label: "URL externe",         icon: "globe-outline",         hint: "Ouvre le lien dans le navigateur" },
+  { key: "app_route", label: "Section de l'app",    icon: "apps-outline",          hint: "Route interne (ex : /mobility)" },
+];
+
+const APP_ROUTES = [
+  { key: "/(tabs)",          label: "Accueil" },
+  { key: "/(tabs)/search",   label: "Recherche" },
+  { key: "/(tabs)/messages", label: "Messages" },
+  { key: "/(tabs)/profile",  label: "Profil" },
+  { key: "/mobility",        label: "Mobilité (Covoiturage & Livraison)" },
+  { key: "/family",          label: "Jokoo Family" },
+];
+
 export default function AdminAds() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<Ad[]>([]);
   const [cats, setCats] = useState<ServiceItem[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [promos, setPromos] = useState<Promo[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
   const [editing, setEditing] = useState<EditingAd | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -48,11 +71,18 @@ export default function AdminAds() {
   useFocusEffect(useCallback(() => {
     load();
     api.get<ServiceItem[]>("/services").then(setCats).catch(() => {});
+    api.get<Provider[]>("/providers?limit=200").then(setProviders).catch(() => {});
+    api.get<Promo[]>("/admin/promos").then(setPromos).catch(() => setPromos([]));
+    api.get<Partner[]>("/admin/partners").then(setPartners).catch(() => setPartners([]));
   }, [load]));
 
   const openNew = () => setEditing({
     _new: true, type: "banner", title: "", description: "", button_label: "Voir",
-    link: "", media: [], placements: ["home"], category_key: null,
+    link: "",
+    link_type: "none",
+    link_target: null,
+    link_label: null,
+    media: [], placements: ["home"], category_key: null,
     target_audience: "all", display_mode: "single",
     start_at: "", end_at: "", active: true, suspended: false,
   });
@@ -120,6 +150,9 @@ export default function AdminAds() {
         description: editing.description || "",
         button_label: editing.button_label || "Voir",
         link: editing.link || null,
+        link_type: editing.link_type || "none",
+        link_target: editing.link_target || null,
+        link_label: editing.link_label || null,
         media: (editing.media || []).filter((m) => m.url),
         placements: editing.placements || ["home"],
         category_key: editing.category_key || null,
@@ -192,6 +225,12 @@ export default function AdminAds() {
                     <View key={p} style={styles.chipMini}><Txt size="xxs" weight="600">{p}</Txt></View>
                   ))}
                 </View>
+                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}>
+                  <Ionicons name="navigate-outline" size={12} color={colors.textMuted} />
+                  <Txt size="xxs" color={colors.textMuted} style={{ marginLeft: 4, flex: 1 }} numberOfLines={1}>
+                    {describeDestination({ link_type: a.link_type, link_target: a.link_target, link: a.link, link_label: a.link_label } as any)}
+                  </Txt>
+                </View>
                 <View style={{ flexDirection: "row", marginTop: 12, gap: 16 }}>
                   <Metric icon="eye" value={a.impressions || 0} label="vues" />
                   <Metric icon="hand-left" value={a.clicks || 0} label="clics" />
@@ -225,6 +264,9 @@ export default function AdminAds() {
         save={save}
         saving={saving}
         cats={cats}
+        providers={providers}
+        promos={promos}
+        partners={partners}
         pickMedia={pickMedia}
         addMediaByUrl={addMediaByUrl}
         updateMedia={updateMedia}
@@ -246,7 +288,7 @@ function Metric({ icon, value, label }: any) {
   );
 }
 
-function AdEditor({ editing, setEditing, save, saving, cats, pickMedia, addMediaByUrl, updateMedia, removeMedia, togglePlacement, insets }: any) {
+function AdEditor({ editing, setEditing, save, saving, cats, providers, promos, partners, pickMedia, addMediaByUrl, updateMedia, removeMedia, togglePlacement, insets }: any) {
   return (
     <View style={styles.overlay}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -271,7 +313,16 @@ function AdEditor({ editing, setEditing, save, saving, cats, pickMedia, addMedia
           <Input label="Titre" icon="pricetag-outline" value={editing.title || ""} onChangeText={(v: string) => setEditing({ ...editing, title: v })} testID="ad-title" />
           <Input label="Description" icon="document-text-outline" value={editing.description || ""} onChangeText={(v: string) => setEditing({ ...editing, description: v })} multiline numberOfLines={3} style={{ height: 80, textAlignVertical: "top", paddingTop: 12 }} />
           <Input label="Texte du bouton" icon="link-outline" placeholder="Voir · Découvrir · Profiter" value={editing.button_label || ""} onChangeText={(v: string) => setEditing({ ...editing, button_label: v })} />
-          <Input label="Lien" icon="globe-outline" placeholder="https://... ou category:plombier" autoCapitalize="none" value={editing.link || ""} onChangeText={(v: string) => setEditing({ ...editing, link: v })} />
+
+          {/* Destination (nouveau système de campagne) */}
+          <DestinationPicker
+            editing={editing}
+            setEditing={setEditing}
+            providers={providers}
+            promos={promos}
+            partners={partners}
+            cats={cats}
+          />
 
           {/* Médias */}
           <Txt size="sm" weight="500" color={colors.textMuted} style={{ marginBottom: 6 }}>Médias</Txt>
@@ -455,4 +506,236 @@ const styles = StyleSheet.create({
   radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
   radioActive: { borderColor: colors.turquoise },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.turquoise },
+  dpBlock: { backgroundColor: colors.surface2, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
+  dpBtn: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  dpChoice: { flexDirection: "row", alignItems: "center", padding: 12, borderBottomWidth: 1, borderBottomColor: colors.divider },
+  dpChoiceActive: { backgroundColor: "#F0FBF8" },
+  modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  modalCard: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "75%" },
 });
+
+/**
+ * Destination picker (nouveau système de campagne publicitaire).
+ * Permet à l'admin de choisir OÙ envoyer l'utilisateur lorsqu'il clique sur la bannière,
+ * sans jamais toucher au code : fiche prestataire · catégorie · promo · partenaire · URL externe · section app · aucune.
+ */
+function DestinationPicker({ editing, setEditing, providers, promos, partners, cats }: any) {
+  const [pickerOpen, setPickerOpen] = useState<null | "type" | "provider" | "category" | "promo" | "partner" | "app_route">(null);
+  const currentType: AdLinkType = editing.link_type || "none";
+  const typeMeta = LINK_TYPES.find((t) => t.key === currentType) || LINK_TYPES[0];
+
+  const targetSummary = describeDestination({
+    link_type: editing.link_type,
+    link_target: editing.link_target,
+    link: editing.link,
+    link_label: editing.link_label,
+  } as any);
+
+  const setType = (t: AdLinkType) => {
+    setEditing({ ...editing, link_type: t, link_target: null, link_label: null });
+    setPickerOpen(null);
+    // Si le type impose une saisie libre (external), on garde le sélecteur fermé.
+  };
+
+  const setTarget = (target: string, label?: string) => {
+    setEditing({ ...editing, link_target: target, link_label: label || target });
+    setPickerOpen(null);
+  };
+
+  return (
+    <View style={styles.dpBlock}>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <Ionicons name="rocket-outline" size={16} color={colors.turquoise} />
+        <Txt size="sm" weight="700" style={{ marginLeft: 6 }}>Destination du clic</Txt>
+      </View>
+      <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4, marginBottom: 12 }}>
+        {"Choisissez où l'utilisateur atterrit lorsqu'il tape la bannière."}
+      </Txt>
+
+      {/* 1) Choix du TYPE de destination */}
+      <Pressable style={styles.dpBtn} onPress={() => setPickerOpen("type")} testID="destination-type-btn">
+        <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+          <Ionicons name={typeMeta.icon} size={18} color={colors.midnight} />
+          <View style={{ marginLeft: 10, flex: 1 }}>
+            <Txt size="sm" weight="700">{typeMeta.label}</Txt>
+            <Txt size="xxs" color={colors.textMuted} numberOfLines={1}>{typeMeta.hint}</Txt>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      </Pressable>
+
+      {/* 2) Cible spécifique au type */}
+      {currentType === "provider" ? (
+        <Pressable style={[styles.dpBtn, { marginTop: 8 }]} onPress={() => setPickerOpen("provider")} testID="destination-provider-btn">
+          <Txt size="sm" numberOfLines={1} style={{ flex: 1 }}>
+            {editing.link_label || (editing.link_target ? `Prestataire ${editing.link_target.slice(0, 8)}…` : "Choisir un prestataire…")}
+          </Txt>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
+
+      {currentType === "category" ? (
+        <Pressable style={[styles.dpBtn, { marginTop: 8 }]} onPress={() => setPickerOpen("category")} testID="destination-category-btn">
+          <Txt size="sm" numberOfLines={1} style={{ flex: 1 }}>
+            {editing.link_label || "Choisir une catégorie…"}
+          </Txt>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
+
+      {currentType === "promo" ? (
+        <Pressable style={[styles.dpBtn, { marginTop: 8 }]} onPress={() => setPickerOpen("promo")} testID="destination-promo-btn">
+          <Txt size="sm" numberOfLines={1} style={{ flex: 1 }}>
+            {editing.link_label || (editing.link_target ? `Promo /promo/${editing.link_target}` : "Choisir une offre promo…")}
+          </Txt>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
+
+      {currentType === "partner" ? (
+        <Pressable style={[styles.dpBtn, { marginTop: 8 }]} onPress={() => setPickerOpen("partner")} testID="destination-partner-btn">
+          <Txt size="sm" numberOfLines={1} style={{ flex: 1 }}>
+            {editing.link_label || "Choisir un partenaire…"}
+          </Txt>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
+
+      {currentType === "app_route" ? (
+        <Pressable style={[styles.dpBtn, { marginTop: 8 }]} onPress={() => setPickerOpen("app_route")} testID="destination-approute-btn">
+          <Txt size="sm" numberOfLines={1} style={{ flex: 1 }}>
+            {editing.link_label || "Choisir une section de l'app…"}
+          </Txt>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
+
+      {currentType === "external" ? (
+        <View style={{ marginTop: 8 }}>
+          <TextInput
+            value={editing.link_target || ""}
+            onChangeText={(v) => setEditing({ ...editing, link_target: v, link_label: v })}
+            placeholder="https://jokooservices.com"
+            placeholderTextColor={colors.textSubtle}
+            autoCapitalize="none"
+            keyboardType="url"
+            style={{ backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, height: 44, fontSize: 14, color: colors.text }}
+            testID="destination-external-input"
+          />
+        </View>
+      ) : null}
+
+      {/* Récap */}
+      {currentType !== "none" ? (
+        <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center" }}>
+          <Ionicons name="checkmark-circle" size={14} color={editing.link_target ? colors.turquoise : colors.warning} />
+          <Txt size="xxs" color={colors.textMuted} style={{ marginLeft: 4 }} numberOfLines={1}>
+            {editing.link_target ? targetSummary : "Cible à définir"}
+          </Txt>
+        </View>
+      ) : null}
+
+      {/* --- Bottom sheet picker --- */}
+      <Modal transparent visible={pickerOpen !== null} animationType="slide" onRequestClose={() => setPickerOpen(null)}>
+        <Pressable style={styles.modalWrap} onPress={() => setPickerOpen(null)}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <View style={{ padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.divider, flexDirection: "row", alignItems: "center" }}>
+              <Txt size="lg" weight="700" style={{ flex: 1 }}>
+                {pickerOpen === "type" ? "Type de destination"
+                  : pickerOpen === "provider" ? "Choisir un prestataire"
+                  : pickerOpen === "category" ? "Choisir une catégorie"
+                  : pickerOpen === "promo" ? "Choisir une promo"
+                  : pickerOpen === "partner" ? "Choisir un partenaire"
+                  : pickerOpen === "app_route" ? "Section de l'app"
+                  : ""}
+              </Txt>
+              <Pressable onPress={() => setPickerOpen(null)} style={styles.back}>
+                <Ionicons name="close" size={20} color={colors.midnight} />
+              </Pressable>
+            </View>
+            <ScrollView>
+              {pickerOpen === "type" ? LINK_TYPES.map((t) => (
+                <Pressable key={t.key} onPress={() => setType(t.key)} style={[styles.dpChoice, currentType === t.key && styles.dpChoiceActive]}>
+                  <Ionicons name={t.icon} size={18} color={colors.turquoise} />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Txt size="sm" weight="700">{t.label}</Txt>
+                    <Txt size="xxs" color={colors.textMuted}>{t.hint}</Txt>
+                  </View>
+                  {currentType === t.key ? <Ionicons name="checkmark" size={18} color={colors.turquoise} /> : null}
+                </Pressable>
+              )) : null}
+
+              {pickerOpen === "provider" ? (providers || []).map((p: Provider) => (
+                <Pressable key={p.id} onPress={() => setTarget(p.id, `${p.name} · ${p.service}`)} style={[styles.dpChoice, editing.link_target === p.id && styles.dpChoiceActive]}>
+                  <Ionicons name="briefcase-outline" size={18} color={colors.turquoise} />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Txt size="sm" weight="700">{p.name}</Txt>
+                    <Txt size="xxs" color={colors.textMuted}>{p.service} · {p.city}</Txt>
+                  </View>
+                </Pressable>
+              )) : null}
+
+              {pickerOpen === "category" ? (cats || []).map((c: ServiceItem) => (
+                <Pressable key={c.key} onPress={() => setTarget(c.key, c.label)} style={[styles.dpChoice, editing.link_target === c.key && styles.dpChoiceActive]}>
+                  <Ionicons name="grid-outline" size={18} color={colors.turquoise} />
+                  <Txt size="sm" weight="700" style={{ marginLeft: 10, flex: 1 }}>{c.label}</Txt>
+                </Pressable>
+              )) : null}
+
+              {pickerOpen === "promo" ? (
+                (promos || []).length === 0 ? (
+                  <View style={{ padding: spacing.xl, alignItems: "center" }}>
+                    <Ionicons name="pricetag-outline" size={32} color={colors.textMuted} />
+                    <Txt size="sm" color={colors.textMuted} style={{ marginTop: 8, textAlign: "center" }}>
+                      Aucune promo. Créez-en une dans « Promos » puis revenez.
+                    </Txt>
+                  </View>
+                ) : (
+                  (promos || []).map((p: Promo) => (
+                    <Pressable key={p.id} onPress={() => setTarget(p.slug, p.title)} style={[styles.dpChoice, editing.link_target === p.slug && styles.dpChoiceActive]}>
+                      <Ionicons name="pricetag-outline" size={18} color={colors.turquoise} />
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Txt size="sm" weight="700">{p.title}</Txt>
+                        <Txt size="xxs" color={colors.textMuted}>/promo/{p.slug}</Txt>
+                      </View>
+                    </Pressable>
+                  ))
+                )
+              ) : null}
+
+              {pickerOpen === "partner" ? (
+                (partners || []).length === 0 ? (
+                  <View style={{ padding: spacing.xl, alignItems: "center" }}>
+                    <Ionicons name="business-outline" size={32} color={colors.textMuted} />
+                    <Txt size="sm" color={colors.textMuted} style={{ marginTop: 8, textAlign: "center" }}>
+                      Aucun partenaire. Ajoutez-en dans « Partenaires » puis revenez.
+                    </Txt>
+                  </View>
+                ) : (
+                  (partners || []).map((p: Partner) => (
+                    <Pressable key={p.id} onPress={() => setTarget(p.id, p.name)} style={[styles.dpChoice, editing.link_target === p.id && styles.dpChoiceActive]}>
+                      <Ionicons name="business-outline" size={18} color={colors.turquoise} />
+                      <Txt size="sm" weight="700" style={{ marginLeft: 10, flex: 1 }}>{p.name}</Txt>
+                    </Pressable>
+                  ))
+                )
+              ) : null}
+
+              {pickerOpen === "app_route" ? APP_ROUTES.map((r) => (
+                <Pressable key={r.key} onPress={() => setTarget(r.key, r.label)} style={[styles.dpChoice, editing.link_target === r.key && styles.dpChoiceActive]}>
+                  <Ionicons name="apps-outline" size={18} color={colors.turquoise} />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Txt size="sm" weight="700">{r.label}</Txt>
+                    <Txt size="xxs" color={colors.textMuted}>{r.key}</Txt>
+                  </View>
+                </Pressable>
+              )) : null}
+
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}

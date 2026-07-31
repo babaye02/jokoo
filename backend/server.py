@@ -29,6 +29,7 @@ from emergentintegrations.payments.stripe.checkout import (
 )
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
@@ -367,6 +368,15 @@ class ServiceIn(BaseModel):
 AdType = Literal["image", "banner", "video", "carousel"]
 AdAudience = Literal["all", "client", "prestataire"]
 AdDisplayMode = Literal["single", "carousel_queue"]
+AdLinkType = Literal[
+    "none",         # Bannière décorative — pas de clic
+    "provider",     # link_target = provider_id -> /provider/{id}
+    "category",     # link_target = service_key -> /(tabs)/search?service=xxx
+    "promo",        # link_target = promo slug -> /promo/{slug}
+    "partner",      # link_target = partner_id -> /partner/{id}
+    "external",     # link_target = URL absolue https://…
+    "app_route",    # link_target = route interne ex. "/mobility" ou "/(tabs)/family"
+]
 
 
 class AdMedia(BaseModel):
@@ -380,7 +390,12 @@ class AdIn(BaseModel):
     title: str
     description: Optional[str] = ""
     button_label: Optional[str] = "Voir"
+    # Legacy free-text link (rétro-compat) — décodé côté client en fallback si link_type/target non fournis.
     link: Optional[str] = None
+    # Nouveau système de campagne : destination structurée.
+    link_type: Optional[AdLinkType] = None
+    link_target: Optional[str] = None
+    link_label: Optional[str] = None  # nom lisible pour l'admin (ex. "Aminata Sy - Plombière")
     media: List[AdMedia] = []
     placements: List[Literal["home", "between_lists", "category", "search", "profile"]] = ["home"]
     category_key: Optional[str] = None
@@ -390,6 +405,38 @@ class AdIn(BaseModel):
     end_at: Optional[str] = None
     active: bool = True
     suspended: bool = False
+
+
+class PromoIn(BaseModel):
+    """Offre promotionnelle : landing page accessible via /promo/{slug}."""
+    slug: str = Field(pattern=r"^[a-z0-9-]{2,40}$")
+    title: str = Field(min_length=2, max_length=120)
+    subtitle: Optional[str] = ""
+    description: Optional[str] = ""  # markdown ok
+    cta_label: Optional[str] = "En profiter"
+    cta_link_type: Optional[AdLinkType] = None
+    cta_link_target: Optional[str] = None
+    image: Optional[str] = None  # URL ou base64
+    bg_color: Optional[str] = None
+    discount_label: Optional[str] = None  # ex. "-20%" ou "1er mois offert"
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+    active: bool = True
+
+
+class PartnerIn(BaseModel):
+    """Partenaire commercial référencé — landing dans l'app via /partner/{id}."""
+    name: str = Field(min_length=2, max_length=100)
+    tagline: Optional[str] = ""
+    description: Optional[str] = ""
+    logo: Optional[str] = None
+    cover: Optional[str] = None
+    website: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    city: Optional[str] = None
+    category: Optional[str] = None
+    active: bool = True
 
 
 class AdCampaignIn(BaseModel):
@@ -1734,8 +1781,8 @@ async def pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
         req = CheckoutSessionRequest(
             amount=float(body.amount_xof),
             currency="xof",
-            success_url=f"{APP_URL}/api/payments/success?session_id={{CHECKOUT_SESSION_ID}}&booking_id={body.booking_id}",
-            cancel_url=f"{APP_URL}/api/payments/cancel",
+            success_url=f"{APP_URL}/booking/paid?session_id={{CHECKOUT_SESSION_ID}}&booking_id={body.booking_id}",
+            cancel_url=f"{APP_URL}/booking/cancelled",
             metadata={
                 "booking_id": body.booking_id,
                 "user_id": user["id"],
@@ -1763,8 +1810,8 @@ async def pay_sub(body: CheckoutSubIn, user=Depends(current_user)):
         req = CheckoutSessionRequest(
             amount=15000.0,  # 15 000 F CFA / month
             currency="xof",
-            success_url=f"{APP_URL}/api/payments/success?session_id={{CHECKOUT_SESSION_ID}}&kind=sub",
-            cancel_url=f"{APP_URL}/api/payments/cancel",
+            success_url=f"{APP_URL}/booking/paid?session_id={{CHECKOUT_SESSION_ID}}&kind=sub",
+            cancel_url=f"{APP_URL}/booking/cancelled",
             metadata={"user_id": user["id"], "kind": "subscription"},
         )
         session = await stripe_checkout.create_checkout_session(req)
@@ -1863,13 +1910,17 @@ async def wave_webhook(request: Request):
 
 @api.get("/payments/wave/return")
 async def wave_return(booking_id: Optional[str] = None, user_id: Optional[str] = None, kind: Optional[str] = None):
-    """Landing page after Wave redirect (browser). Just informs user; final state comes via webhook."""
-    return {"ok": True, "booking_id": booking_id, "user_id": user_id, "kind": kind}
+    """Wave redirects the browser here after payment. We redirect the user to the frontend confirmation page."""
+    qs = []
+    if booking_id: qs.append(f"booking_id={booking_id}")
+    if kind: qs.append(f"kind={kind}")
+    qs.append("provider=wave")
+    return RedirectResponse(url=f"{APP_URL}/booking/paid?{'&'.join(qs)}", status_code=302)
 
 
 @api.get("/payments/wave/cancel")
 async def wave_cancel():
-    return {"ok": False, "cancelled": True}
+    return RedirectResponse(url=f"{APP_URL}/booking/cancelled?provider=wave", status_code=302)
 
 
 # ---------- Orange Money Web Payment ----------
@@ -1942,12 +1993,16 @@ async def om_status(pay_token: str, user=Depends(current_user)):
 
 @api.get("/payments/orange/return")
 async def om_return(booking_id: Optional[str] = None, user_id: Optional[str] = None, kind: Optional[str] = None):
-    return {"ok": True, "booking_id": booking_id, "user_id": user_id, "kind": kind}
+    qs = []
+    if booking_id: qs.append(f"booking_id={booking_id}")
+    if kind: qs.append(f"kind={kind}")
+    qs.append("provider=orange")
+    return RedirectResponse(url=f"{APP_URL}/booking/paid?{'&'.join(qs)}", status_code=302)
 
 
 @api.get("/payments/orange/cancel")
 async def om_cancel():
-    return {"ok": False, "cancelled": True}
+    return RedirectResponse(url=f"{APP_URL}/booking/cancelled?provider=orange", status_code=302)
 
 
 @api.post("/payments/orange/notify")
@@ -2176,6 +2231,115 @@ async def admin_ads_stats(user=Depends(require_perm("ads:read"))):
         "total_clicks": sum(a.get("clicks", 0) for a in ads),
         "top": sorted([_with_ctr(a) for a in ads], key=lambda a: a.get("impressions", 0), reverse=True)[:10],
     }
+
+
+# ---------- Promos (offres promotionnelles pilotées par l'admin) ----------
+def _promo_visible(p: dict, now: str) -> bool:
+    if not p.get("active"):
+        return False
+    if p.get("starts_at") and now < p["starts_at"]:
+        return False
+    if p.get("ends_at") and now > p["ends_at"]:
+        return False
+    return True
+
+
+@api.get("/promos")
+async def list_public_promos():
+    """Liste publique des promos actives — utilisée pour peupler l'écran /promo/{slug}."""
+    now = now_iso()
+    items = await db.promos.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return [p for p in items if _promo_visible(p, now)]
+
+
+@api.get("/promos/{slug}")
+async def get_public_promo(slug: str):
+    p = await db.promos.find_one({"slug": slug}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Promo introuvable")
+    if not _promo_visible(p, now_iso()):
+        raise HTTPException(404, "Promo indisponible")
+    return p
+
+
+@api.get("/admin/promos")
+async def admin_list_promos(user=Depends(require_perm("ads:read"))):
+    cur = db.promos.find({}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.post("/admin/promos")
+async def admin_create_promo(body: PromoIn, user=Depends(require_perm("ads:write"))):
+    exists = await db.promos.find_one({"slug": body.slug}, {"_id": 0, "slug": 1})
+    if exists:
+        raise HTTPException(400, "Ce slug existe déjà — choisissez-en un autre")
+    pid = str(uuid.uuid4())
+    doc = {"id": pid, **body.model_dump(), "created_at": now_iso(), "updated_at": now_iso()}
+    await db.promos.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.patch("/admin/promos/{pid}")
+async def admin_update_promo(pid: str, body: PromoIn, user=Depends(require_perm("ads:write"))):
+    # Empêche le changement de slug s'il entre en collision avec un autre.
+    other = await db.promos.find_one({"slug": body.slug, "id": {"$ne": pid}}, {"_id": 0})
+    if other:
+        raise HTTPException(400, "Ce slug est déjà utilisé par une autre promo")
+    await db.promos.update_one(
+        {"id": pid},
+        {"$set": {**body.model_dump(), "updated_at": now_iso()}},
+    )
+    return {"ok": True}
+
+
+@api.delete("/admin/promos/{pid}")
+async def admin_delete_promo(pid: str, user=Depends(require_perm("ads:write"))):
+    await db.promos.delete_one({"id": pid})
+    return {"ok": True}
+
+
+# ---------- Partenaires (annuaire léger géré par l'admin) ----------
+@api.get("/partners")
+async def list_public_partners():
+    cur = db.partners.find({"active": True}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(200)
+
+
+@api.get("/partners/{pid}")
+async def get_public_partner(pid: str):
+    p = await db.partners.find_one({"id": pid, "active": True}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Partenaire introuvable")
+    return p
+
+
+@api.get("/admin/partners")
+async def admin_list_partners(user=Depends(require_perm("ads:read"))):
+    cur = db.partners.find({}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.post("/admin/partners")
+async def admin_create_partner(body: PartnerIn, user=Depends(require_perm("ads:write"))):
+    pid = str(uuid.uuid4())
+    doc = {"id": pid, **body.model_dump(), "created_at": now_iso(), "updated_at": now_iso()}
+    await db.partners.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.patch("/admin/partners/{pid}")
+async def admin_update_partner(pid: str, body: PartnerIn, user=Depends(require_perm("ads:write"))):
+    await db.partners.update_one(
+        {"id": pid},
+        {"$set": {**body.model_dump(), "updated_at": now_iso()}},
+    )
+    return {"ok": True}
+
+
+@api.delete("/admin/partners/{pid}")
+async def admin_delete_partner(pid: str, user=Depends(require_perm("ads:write"))):
+    await db.partners.delete_one({"id": pid})
+    return {"ok": True}
 
 
 # ---------- campagnes payantes (espaces publicitaires vendus) ----------

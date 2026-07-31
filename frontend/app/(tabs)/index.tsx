@@ -8,6 +8,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
 import { api, Provider, ServiceItem, Ad } from "@/src/api";
+import { openAdDestination } from "@/src/navigation/adDestination";
 import { priceLabel } from "@/src/pricing";
 import { Txt, Avatar, Stars, SectionHeader } from "@/src/components/ui";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
@@ -244,16 +245,11 @@ function AdBanner({ ad, compact, testID }: { ad: Ad; compact?: boolean; testID?:
   const player = useVideoPlayer(m?.kind === "video" ? m.url : "", (p) => { p.loop = true; p.muted = true; p.play(); });
   const onPress = () => {
     api.post(`/ads/${ad.id}/click`).catch(() => {});
-    if (!ad.link) return;
-    if (ad.link.startsWith("category:")) {
-      const key = ad.link.split(":")[1];
-      router.push({ pathname: "/(tabs)/search", params: { service: key } });
-    } else if (ad.link.startsWith("provider:")) {
-      const pid = ad.link.split(":")[1];
-      router.push(`/provider/${pid}`);
-    } else if (ad.link.startsWith("app:home")) {
-      router.push("/(tabs)/search");
-    }
+    // Système de campagne : destination structurée (link_type/link_target) avec fallback legacy `link:`.
+    openAdDestination(
+      { link_type: ad.link_type, link_target: ad.link_target, link: ad.link },
+      router,
+    );
   };
   return (
     <Pressable onPress={onPress} style={[styles.promo, compact && { height: 100 }]} testID={testID}>
