@@ -1529,6 +1529,158 @@ async def read_all_notifs(user=Depends(current_user)):
     return {"ok": True}
 
 
+# ---------- Notification preferences (Play/App Store best practice) ----------
+DEFAULT_NOTIF_PREFS = {
+    "new_booking": True,
+    "booking_accepted": True,
+    "booking_confirmed": True,
+    "provider_on_way": True,
+    "payment_received": True,
+    "messages": True,
+    "promotions": True,
+    "reminders": True,
+    "commission_due": True,
+    "sos": True,
+}
+
+
+@api.get("/notifications/preferences")
+async def get_notif_prefs(user=Depends(current_user)):
+    doc = await db.notification_prefs.find_one({"user_id": user["id"]}, {"_id": 0})
+    if not doc:
+        return {"user_id": user["id"], **DEFAULT_NOTIF_PREFS, "channel_push": True, "channel_email": True, "channel_inapp": True}
+    return doc
+
+
+@api.patch("/notifications/preferences")
+async def update_notif_prefs(body: dict, user=Depends(current_user)):
+    allowed = set(DEFAULT_NOTIF_PREFS.keys()) | {"channel_push", "channel_email", "channel_inapp"}
+    updates = {k: bool(v) for k, v in body.items() if k in allowed}
+    if not updates:
+        raise HTTPException(400, "Aucune préférence valide fournie")
+    updates["updated_at"] = now_iso()
+    await db.notification_prefs.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"user_id": user["id"], **updates}},
+        upsert=True,
+    )
+    doc = await db.notification_prefs.find_one({"user_id": user["id"]}, {"_id": 0})
+    return doc
+
+
+# ---------- Push notification tokens (Expo / FCM / APNs) ----------
+@api.post("/notifications/register-token")
+async def register_push_token(body: dict, user=Depends(current_user)):
+    """Enregistre le token de push notif de l'appareil (Expo/FCM/APNs).
+    Le champ platform doit valoir 'ios', 'android' ou 'web'.
+    """
+    token = (body.get("token") or "").strip()
+    platform = body.get("platform", "unknown")
+    if not token:
+        raise HTTPException(400, "token requis")
+    await db.push_tokens.update_one(
+        {"user_id": user["id"], "token": token},
+        {"$set": {
+            "user_id": user["id"],
+            "token": token,
+            "platform": platform,
+            "device_info": body.get("device_info"),
+            "updated_at": now_iso(),
+        }},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.delete("/notifications/register-token")
+async def unregister_push_token(body: dict, user=Depends(current_user)):
+    token = (body.get("token") or "").strip()
+    if token:
+        await db.push_tokens.delete_one({"user_id": user["id"], "token": token})
+    else:
+        await db.push_tokens.delete_many({"user_id": user["id"]})
+    return {"ok": True}
+
+
+# ---------- CRM: Admin dashboard overview ----------
+@api.get("/admin/crm/overview")
+async def admin_crm_overview(user=Depends(current_user)):
+    require_admin(user)
+    now = datetime.now(timezone.utc)
+    since_7d = (now - timedelta(days=7)).isoformat()
+    since_30d = (now - timedelta(days=30)).isoformat()
+
+    total_users = await db.users.count_documents({})
+    total_clients = await db.users.count_documents({"role": "client"})
+    total_providers = await db.users.count_documents({"role": "prestataire"})
+    new_users_7d = await db.users.count_documents({"created_at": {"$gte": since_7d}})
+
+    total_bookings = await db.bookings.count_documents({})
+    bookings_7d = await db.bookings.count_documents({"created_at": {"$gte": since_7d}})
+    completed = await db.bookings.count_documents({"status": "completed"})
+    cancelled = await db.bookings.count_documents({"status": "cancelled"})
+
+    open_reports = await db.reports.count_documents({"status": {"$ne": "resolved"}})
+    total_reports = await db.reports.count_documents({})
+    active_conversations_30d = len(await db.messages.distinct("conv_id", {"created_at": {"$gte": since_30d}}))
+
+    total_messages = await db.messages.count_documents({})
+    flagged_messages = await db.messages.count_documents({"flagged": True})
+
+    recent_users = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1, "created_at": 1}).sort("created_at", -1).limit(10).to_list(10)
+    recent_bookings = await db.bookings.find({}, {"_id": 0}).sort("created_at", -1).limit(10).to_list(10)
+
+    return {
+        "users": {
+            "total": total_users,
+            "clients": total_clients,
+            "providers": total_providers,
+            "new_7d": new_users_7d,
+        },
+        "bookings": {
+            "total": total_bookings,
+            "last_7d": bookings_7d,
+            "completed": completed,
+            "cancelled": cancelled,
+            "conversion_rate": round((completed / total_bookings * 100), 1) if total_bookings else 0,
+        },
+        "support": {
+            "open_reports": open_reports,
+            "total_reports": total_reports,
+        },
+        "messaging": {
+            "total_messages": total_messages,
+            "flagged_messages": flagged_messages,
+            "active_conversations_30d": active_conversations_30d,
+        },
+        "recent_users": recent_users,
+        "recent_bookings": recent_bookings,
+    }
+
+
+@api.get("/admin/crm/users")
+async def admin_list_users(
+    user=Depends(current_user),
+    role: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0,
+):
+    require_admin(user)
+    query: dict = {}
+    if role:
+        query["role"] = role
+    if q:
+        query["$or"] = [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}},
+            {"phone": {"$regex": q, "$options": "i"}},
+        ]
+    total = await db.users.count_documents(query)
+    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return {"total": total, "items": users}
+
+
 # ---------- dashboard (prestataire) ----------
 @api.get("/dashboard")
 async def dashboard(user=Depends(current_user)):

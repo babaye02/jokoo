@@ -1,0 +1,49 @@
+{
+  "summary": "AUDIT pré-publication — nouveaux endpoints backend (notifications preferences, push tokens, admin CRM) testés via 24 tests pytest, 24/24 PASS. Auth admin@jokoo.sn OK. Vérifié : GET /api/notifications/preferences par défaut (13 champs bool + user_id), PATCH partiel + validation body vide/clés inconnues (400 'Aucune préférence valide fournie'), POST/DELETE /api/notifications/register-token (idempotent, plateforme ios/android/web, delete spécifique et global, 400 si token manquant), GET /api/admin/crm/overview (structure users/bookings/support/messaging/recent_users≤10/recent_bookings≤10 avec conversion_rate float), 403 non-admin, GET /api/admin/crm/users (total+items, pagination limit/skip, filtre role=prestataire, recherche q=admin, pas de password_hash ni _id leak). Régression OK : /wallet/me, /notifications, /providers, /chat/{peer}/messages, /admin/stats/marketplace, /admin/fraud-alerts, DELETE /users/me, POST /users/{id}/block. ⚠️ BUG MINEUR détecté sur TEST 2 : GET après PATCH partiel ne fusionne PAS avec les défauts — retourne uniquement les champs modifiés (voir action_items).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/notifications/preferences (après un PATCH partiel)",
+        "issue": "Le GET retourne le document Mongo tel quel après une première écriture, sans fusion avec DEFAULT_NOTIF_PREFS. Concrètement : PATCH {promotions:false, channel_push:false} puis GET → seulement {user_id, channel_push:false, promotions:false, updated_at}. Les 11 autres clés (new_booking, booking_accepted, ...) sont absentes. La spec du TEST 2 exige explicitement 'conserver les autres valeurs par défaut si on re-fetch avec fusion'. Correctif suggéré : renvoyer {user_id, **DEFAULT_NOTIF_PREFS, 'channel_push':True, 'channel_email':True, 'channel_inapp':True, **doc} dans get_notif_prefs et update_notif_prefs. Référence: server.py:1547-1568."
+      },
+      {
+        "endpoint": "DELETE /api/notifications/register-token",
+        "issue": "L'endpoint attend un body dict via `body: dict`. En FastAPI, un DELETE avec body vide ou sans Content-Type peut échouer côté client (certains SDK RN n'envoient pas de body sur DELETE). Fonctionne dans nos tests grâce à `json={}` explicite. Recommandation : accepter `token: Optional[str] = Body(None)` avec fallback query-param `?token=`. Référence: server.py:1595-1602."
+      },
+      {
+        "endpoint": "GET /api/admin/crm/overview",
+        "issue": "recent_bookings n'exclut pas explicitement les champs sensibles (pas de projection restrictive), et n'inclut pas d'expansion client_name/provider_name — l'UI CRM devra faire N requêtes users pour afficher les noms. Optimisation possible via $lookup. Non bloquant."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_notifications_crm.py",
+    "/app/test_reports/pytest/notif_crm.xml"
+  ],
+  "action_items": [
+    "PRIORITÉ HAUTE — Corriger la fusion des défauts dans GET/PATCH /api/notifications/preferences (server.py:1549 et 1567) : retourner {user_id, **DEFAULT_NOTIF_PREFS, 'channel_push':True, 'channel_email':True, 'channel_inapp':True, **doc} pour que les 13 champs soient toujours présents. Sinon l'app mobile plantera sur `prefs.new_booking` (undefined).",
+    "Optionnel : supporter DELETE /api/notifications/register-token avec query-param `?token=` en plus du body (certains clients RN ne supportent pas les body sur DELETE).",
+    "Optionnel : ajouter un $lookup pour enrichir recent_bookings avec client_name/provider_name dans /admin/crm/overview."
+  ],
+  "critical_code_review_comments": [
+    "server.py = 4058 lignes : dépasse largement la limite recommandée de 700. À découper en modules (auth, notifications, admin_crm, chat, wallet, providers, bookings...).",
+    "Les nouveaux endpoints acceptent `body: dict` sans validation Pydantic — TEST 3 passe car la logique interne rejette proprement, mais un modèle Pydantic (`NotifPrefsUpdate`, `PushTokenRegister`) apporterait typage et doc OpenAPI cohérents.",
+    "notification_prefs et push_tokens n'ont pas d'index Mongo unique déclaré côté code (user_id / (user_id, token)) — dépendre uniquement de upsert peut créer des doublons sous forte concurrence."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_notifications_crm.py"
+  ],
+  "success_rate": {"backend": "100% (24/24 tests) — 1 bug mineur documenté hors périmètre pytest", "frontend": "N/A"},
+  "seed_data_creation": "Comptes jetables créés en fixtures (préfixe test_notif_/test_del_/test_block_/test_merge_ @jokootest.com). ~4-5 users + quelques push_tokens laissés en base (nettoyables via filtre email).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Prod URL : https://jokoo-mobile-dev.preview.emergentagent.com/api. Admin admin@jokoo.sn/Admin1234!. Nouveaux endpoints tous fonctionnels sauf le bug de fusion des défauts sur GET notifications/preferences (spec TEST 2). Collections nouvelles : db.notification_prefs (clé user_id) et db.push_tokens (clé user_id+token). Le test_notifications_crm.py est réutilisable en regression.",
+  "rca_of_issue": "Bug fusion défauts : dans get_notif_prefs (server.py:1547) le branche `if not doc: return {...defaults}` n'est activée QUE lorsque aucun document n'existe. Dès le premier PATCH, un document partiel {user_id, promotions:false, updated_at} est créé via upsert. Les GET suivants retournent ce document brut. Fix trivial : `return {'user_id': user['id'], **DEFAULT_NOTIF_PREFS, 'channel_push':True, 'channel_email':True, 'channel_inapp':True, **(doc or {})}`."
+}
