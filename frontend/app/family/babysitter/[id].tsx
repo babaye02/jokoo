@@ -36,7 +36,7 @@ export default function BabysitterDetail() {
           <Ionicons name="chevron-back" size={22} color={colors.midnight} />
         </Pressable>
         <Txt size="lg" weight="700">Profil étudiant</Txt>
-        <Pressable onPress={() => router.push(`/chat/${b.user_id}`)} style={styles.back} testID="sitter-chat">
+        <Pressable onPress={() => router.push({ pathname: "/chat/[id]", params: { id: b.user_id, name: b.name } })} style={styles.back} testID="sitter-chat">
           <Ionicons name="chatbubble-ellipses" size={20} color={colors.midnight} />
         </Pressable>
       </SafeAreaView>
