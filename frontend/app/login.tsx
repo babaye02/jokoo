@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Pressable, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
 import { Btn, ErrorBox, Input, Txt } from "@/src/components/ui";
@@ -12,6 +12,7 @@ type Mode = "email" | "phone";
 
 export default function Login() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ redirect_to?: string }>();
   const { signIn, signInWithOtp, requestOtp } = useAuth();
   const [mode, setMode] = useState<Mode>("email");
   const [email, setEmail] = useState("");
@@ -22,11 +23,18 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const goAfterLogin = () => {
+    const dest = typeof params.redirect_to === "string" && params.redirect_to.startsWith("/")
+      ? params.redirect_to
+      : "/(tabs)";
+    router.replace(dest as any);
+  };
+
   const submitEmail = async () => {
     setErr(null); setLoading(true);
     try {
       await signIn(email.trim().toLowerCase(), password);
-      router.replace("/(tabs)");
+      goAfterLogin();
     } catch (e: any) { setErr(e.message || "Connexion impossible"); }
     finally { setLoading(false); }
   };
@@ -47,7 +55,7 @@ export default function Login() {
     setErr(null); setLoading(true);
     try {
       await signInWithOtp(phone.trim(), otp.trim());
-      router.replace("/(tabs)");
+      goAfterLogin();
     } catch (e: any) { setErr(e.message); }
     finally { setLoading(false); }
   };

@@ -42,22 +42,32 @@ async function request<T = any>(
   init: RequestInit = {},
   auth = true,
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(init.headers as any),
+  const doFetch = async (forceRefreshToken: boolean): Promise<Response> => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(init.headers as any),
+    };
+    if (auth) {
+      if (forceRefreshToken) _memToken = null; // force re-read
+      const t = await resolveToken();
+      if (t) headers["Authorization"] = `Bearer ${t}`;
+    }
+    return fetch(`${API}${path}`, { ...init, headers });
   };
-  if (auth) {
-    const t = await resolveToken();
-    if (t) headers["Authorization"] = `Bearer ${t}`;
+
+  let res = await doFetch(false);
+  // Retry ONCE : si 401 sur une route protégée, on force la relecture du token
+  // (peut se déclencher après un hot-reload qui a vidé la mémoire mais pas le storage).
+  if (res.status === 401 && auth) {
+    res = await doFetch(true);
   }
-  const res = await fetch(`${API}${path}`, { ...init, headers });
+
   const text = await res.text();
   const body = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
   if (!res.ok) {
     const message =
       (body && (body.detail || body.message)) || `HTTP ${res.status}`;
     const err: ApiError = { status: res.status, message: String(message) };
-    // Auto-logout sur 401 pour toute requête protégée : nettoie le token et déclenche le handler global.
     if (res.status === 401 && auth) {
       _memToken = null;
       try { await storage.secureRemove(TOKEN_KEY); } catch {}

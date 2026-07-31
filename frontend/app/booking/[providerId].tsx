@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Provider } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { priceLabel } from "@/src/pricing";
 import { Btn, ErrorBox, Input, Txt } from "@/src/components/ui";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
@@ -29,6 +30,7 @@ export default function BookingScreen() {
   const { providerId, serviceId } = useLocalSearchParams<{ providerId: string; serviceId?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user, loading: authLoading } = useAuth();
   const [p, setP] = useState<Provider | null>(null);
   const [dateIdx, setDateIdx] = useState(1);
   const [time, setTime] = useState("10:00");
@@ -37,6 +39,15 @@ export default function BookingScreen() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const days = nextDays();
+
+  // Auth guard : si pas de session (deep-link, session expirée), on renvoie vers /login
+  // en gardant l'intention "revenir sur cette page de réservation" via redirect_to.
+  useEffect(() => {
+    if (!authLoading && !user) {
+      const target = `/booking/${providerId}${serviceId ? `?serviceId=${serviceId}` : ""}`;
+      router.replace({ pathname: "/login", params: { redirect_to: target } });
+    }
+  }, [authLoading, user, providerId, serviceId, router]);
 
   useEffect(() => {
     if (providerId) api.get<Provider>(`/providers/${providerId}`).then(setP);
@@ -49,6 +60,12 @@ export default function BookingScreen() {
 
   const submit = async () => {
     setErr(null);
+    if (!user) {
+      // Sécurité supplémentaire : ne jamais tenter d'envoyer sans user en mémoire.
+      const target = `/booking/${providerId}${serviceId ? `?serviceId=${serviceId}` : ""}`;
+      router.replace({ pathname: "/login", params: { redirect_to: target } });
+      return;
+    }
     if (!address.trim()) return setErr("Veuillez indiquer une adresse");
     if (!description.trim()) return setErr("Décrivez votre besoin pour permettre au prestataire de répondre");
     setLoading(true);
@@ -70,6 +87,12 @@ export default function BookingScreen() {
         },
       });
     } catch (e: any) {
+      // 401 = session expirée → redirection propre vers /login
+      if (e?.status === 401) {
+        const target = `/booking/${providerId}${serviceId ? `?serviceId=${serviceId}` : ""}`;
+        router.replace({ pathname: "/login", params: { redirect_to: target } });
+        return;
+      }
       setErr(e.message || "Erreur");
     } finally {
       setLoading(false);
