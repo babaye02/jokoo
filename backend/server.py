@@ -1824,7 +1824,25 @@ async def pay_sub(body: CheckoutSubIn, user=Depends(current_user)):
 
 
 @api.get("/payments/status/{session_id}")
-async def payment_status(session_id: str, user=Depends(current_user)):
+async def payment_status(
+    session_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Vérification du statut d'un paiement Stripe.
+
+    Auth optionnelle : le session_id étant un secret Stripe à usage unique,
+    l'endpoint peut être appelé depuis la page de retour /booking/paid sans
+    token (ex. après clearage de la session navigateur). Si un token valide
+    est fourni, on met à jour l'état de l'abonnement du provider connecté.
+    """
+    user: Optional[dict] = None
+    if authorization and authorization.lower().startswith("bearer "):
+        tok = authorization.split(" ", 1)[1]
+        try:
+            payload = jwt.decode(tok, JWT_SECRET, algorithms=[JWT_ALG])
+            user = await db.users.find_one({"id": payload.get("sub")}, {"_id": 0})
+        except Exception:
+            user = None
     try:
         s = await stripe_checkout.get_checkout_status(session_id)
     except Exception as e:
@@ -1836,7 +1854,7 @@ async def payment_status(session_id: str, user=Depends(current_user)):
             {"id": meta["booking_id"]},
             {"$set": {"paid": True, "paid_at": now_iso()}},
         )
-    if paid and meta.get("kind") == "subscription":
+    if paid and meta.get("kind") == "subscription" and user:
         until = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
         await db.providers.update_one(
             {"id": user["id"]},

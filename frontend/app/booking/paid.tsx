@@ -31,7 +31,7 @@ export default function BookingPaid() {
       // Stripe : GET /payments/status/{session_id} confirme le statut.
       if (session_id) {
         try {
-          const r = await api.get<{ paid: boolean; status: string }>(`/payments/status/${session_id}`);
+          const r = await api.get<{ paid: boolean; status: string }>(`/payments/status/${session_id}`, false);
           if (!alive) return;
           if (r.paid) { setStatus("paid"); return; }
           if (tries++ < 6) { timer = setTimeout(poll, 1500); return; }
