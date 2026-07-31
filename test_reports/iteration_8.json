@@ -1,0 +1,32 @@
+{
+  "summary": "Frontend chat UX improvements validated end-to-end on Expo web (390x844). All 7 tests PASS. Login admin@jokoo.sn/Admin1234! -> /provider/972beb65-a398-4ac0-8092-cc413a2fc9e9 (Aminata Sy) -> tap provider-chat -> chat screen opens with 'Aminata Sy' in header (NOT 'Conversation'). chat-input filled, chat-send tapped -> optimistic bubble appears IMMEDIATELY on the right (turquoise, opacity 0.6 with hourglass icon) then stabilises after ~1s (no chat-error banner). Multi-send of 3 rapid messages: all three appear in correct order, no duplicates, no disappearances despite 3s polling. Messages tab lists conversation with real provider name 'Aminata Sy' and last message preview 'Msg C rapid' / 'à l'instant'. Re-opening via conv-{peer_id} correctly restores header 'Aminata Sy' + full history including 'Hello test optimistic'. Babysitter flow (Fatou Sarr, sitter b2ddd023, user a77acfcb): /family/babysitter/{id} -> sitter-chat -> chat opens at /chat/{user_id}, first send succeeds, header updates to 'Fatou Sarr' after first message load, conversation appears in Messages tab. Error handling: /chat/fake-uuid-nonexistent -> send -> chat-error banner 'Ce destinataire n'existe plus.' visible with data-testid='chat-error', input text 'ping to nowhere' restored. Send button disabled state confirmed (opacity 0.5) when input empty or sending. Polling 3s ran throughout multi-send with no overwrite of in-flight optimistic bubbles. Bug is RESOLVED.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "chat/[id].tsx (sitter entry)", "issues": ["When sitter-chat is tapped and no prior messages exist, header briefly shows 'Conversation' until first message roundtrip since name is not passed in params (unlike provider-chat which passes name). Minor UX gap only — resolves after first send. Consider passing sitter name via router.push params in /app/frontend/app/family/babysitter/[id].tsx line 39."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/chat_provider_results.xml (from iteration_7)"
+  ],
+  "action_items": [
+    "Optional (minor UX): in /app/frontend/app/family/babysitter/[id].tsx L39, pass babysitter name via router.push params: router.push({ pathname: '/chat/[id]', params: { id: b.user_id, name: b.name } }) so header shows the sitter name immediately instead of the placeholder 'Conversation' before the first message loads."
+  ],
+  "critical_code_review_comments": [
+    "chat/[id].tsx: optimistic UI correctly implemented — tempId prefix 'temp-', bubble opacity 0.6 + hourglass icon, replaced by server message on success, removed and text restored on error. Send button disabled when !text.trim() || sending. onSubmitEditing='send' wired. err auto-hides after 4s.",
+    "chat/[id].tsx L29-33: peerName auto-fetched from list[0].to_name (mine) or from_name (theirs). Works after first roundtrip; slight delay when entering an empty conversation without name param (see sitter entry above).",
+    "api.ts request(): errors correctly propagate { status, message } so chat screen can branch on 401/404/400 for user-friendly messages.",
+    "messages.tsx: load() still swallows errors silently (catch {}) — acceptable here since it's a polled list, but could log for observability.",
+    "No _id leaks, all bubbles rendered inside Text via Txt component, testIDs present: chat-input, chat-send, chat-back, chat-error, conv-{peer_id}, provider-chat, sitter-chat."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "N/A (frontend-only iteration)", "frontend": "100% (7/7 tests PASS)" },
+  "seed_data_creation": "None. Reused existing seeded provider 'Aminata Sy' (972beb65-a398-4ac0-8092-cc413a2fc9e9) and babysitter 'Fatou Sarr' (sitter b2ddd023..., user a77acfcb...). Added 5 test messages via UI (Hello test optimistic, Msg A/B/C rapid, Hello babysitter test) — negligible.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Chat UX fully validated. TestIDs: login-email, login-password, login-submit, provider-chat, sitter-chat, chat-input, chat-send, chat-back, chat-error, conv-{peer_id}. Aminata Sy provider id=972beb65-a398-4ac0-8092-cc413a2fc9e9. Fatou Sarr sitter id=b2ddd023-39af-45a5-8172-7bba4d25d67e, user_id=a77acfcb-fde8-49f7-8616-7b8a5dc2bcb7. Viewport 390x844.",
+  "rca_of_issue": "Root cause was already fixed in iteration_7 (backend fallback to db.providers). This iteration validated the frontend UX layer that made the previous silent failures now surface — optimistic UI + visible error bar + auto-fetch peer name + disabled send button + Enter-to-send. All flows confirmed working via mobile web preview. No further action required."
+}

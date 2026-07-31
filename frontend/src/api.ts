@@ -177,6 +177,7 @@ export type Message = {
   from_id: string;
   from_name: string;
   to_id: string;
+  to_name?: string;
   text: string;
   kind: "text" | "image" | "location";
   read: boolean;
