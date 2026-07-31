@@ -1547,9 +1547,16 @@ DEFAULT_NOTIF_PREFS = {
 @api.get("/notifications/preferences")
 async def get_notif_prefs(user=Depends(current_user)):
     doc = await db.notification_prefs.find_one({"user_id": user["id"]}, {"_id": 0})
-    if not doc:
-        return {"user_id": user["id"], **DEFAULT_NOTIF_PREFS, "channel_push": True, "channel_email": True, "channel_inapp": True}
-    return doc
+    base = {
+        "user_id": user["id"],
+        **DEFAULT_NOTIF_PREFS,
+        "channel_push": True,
+        "channel_email": True,
+        "channel_inapp": True,
+    }
+    if doc:
+        base.update(doc)
+    return base
 
 
 @api.patch("/notifications/preferences")
@@ -1564,8 +1571,18 @@ async def update_notif_prefs(body: dict, user=Depends(current_user)):
         {"$set": {"user_id": user["id"], **updates}},
         upsert=True,
     )
+    # Retourne la structure fusionnée avec les défauts (évite les KeyError côté client)
     doc = await db.notification_prefs.find_one({"user_id": user["id"]}, {"_id": 0})
-    return doc
+    base = {
+        "user_id": user["id"],
+        **DEFAULT_NOTIF_PREFS,
+        "channel_push": True,
+        "channel_email": True,
+        "channel_inapp": True,
+    }
+    if doc:
+        base.update(doc)
+    return base
 
 
 # ---------- Push notification tokens (Expo / FCM / APNs) ----------
