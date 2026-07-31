@@ -7,6 +7,36 @@ export const TOKEN_KEY = "jokoo_token";
 
 export type ApiError = { status: number; message: string };
 
+// In-memory token cache — évite les race conditions avec SecureStore/AsyncStorage.
+// L'AuthProvider met à jour ce cache après login/register/hydrate/signOut.
+let _memToken: string | null = null;
+
+export function setAuthToken(token: string | null) {
+  _memToken = token && token.length > 0 ? token : null;
+}
+
+export function getAuthTokenMem(): string | null {
+  return _memToken;
+}
+
+// Callback pour rediriger l'utilisateur (branché par _layout au boot).
+let _onUnauthorized: (() => void) | null = null;
+export function registerUnauthorizedHandler(cb: (() => void) | null) {
+  _onUnauthorized = cb;
+}
+
+async function resolveToken(): Promise<string> {
+  if (_memToken) return _memToken;
+  try {
+    const t = await storage.secureGet<string>(TOKEN_KEY, "");
+    if (t) {
+      _memToken = t as string;
+      return t as string;
+    }
+  } catch {}
+  return "";
+}
+
 async function request<T = any>(
   path: string,
   init: RequestInit = {},
@@ -17,7 +47,7 @@ async function request<T = any>(
     ...(init.headers as any),
   };
   if (auth) {
-    const t = await storage.secureGet<string>(TOKEN_KEY, "");
+    const t = await resolveToken();
     if (t) headers["Authorization"] = `Bearer ${t}`;
   }
   const res = await fetch(`${API}${path}`, { ...init, headers });
@@ -27,6 +57,14 @@ async function request<T = any>(
     const message =
       (body && (body.detail || body.message)) || `HTTP ${res.status}`;
     const err: ApiError = { status: res.status, message: String(message) };
+    // Auto-logout sur 401 pour toute requête protégée : nettoie le token et déclenche le handler global.
+    if (res.status === 401 && auth) {
+      _memToken = null;
+      try { await storage.secureRemove(TOKEN_KEY); } catch {}
+      if (_onUnauthorized) {
+        try { _onUnauthorized(); } catch {}
+      }
+    }
     throw err;
   }
   return body as T;

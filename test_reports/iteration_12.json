@@ -1,0 +1,26 @@
+{
+  "summary": "Bug fix validated: 'Missing bearer token' on booking confirmation is resolved. In-memory token cache (setAuthToken/getAuthTokenMem in api.ts) synchronised BEFORE the async storage.secureSet in auth.tsx eliminates the login → first-protected-request race condition. All 6 test scenarios PASS: (1) login → immediate provider → 'Réserver' → 'Confirmer la réservation' → POST /api/bookings carries Authorization Bearer header and returns 200 → success screen displayed; (2) protected GETs (auth/me, notifications, bookings, chat/conversations, favorites, dashboard, services, services/mine) all include Authorization header, zero protected calls missing auth; (3) page refresh restores session via SecureStore fallback, /auth/me re-called with valid Bearer, no redirect to /login; (4) forcing an invalid JWT in storage then triggering a protected call yields 401, unauthorized handler fires, token cleared from mem+storage, auto-redirect to /login; (5) signOut clears mem cache and storage token (null), post-logout unauthenticated POST /bookings correctly returns 401 'Missing bearer token'; (6) public endpoints POST /auth/login and POST /auth/register still work (200).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_12.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "src/api.ts resolveToken(): correct order — mem cache first then SecureStore fallback with cache-fill. 401 handler cleans both stores and invokes registered handler.",
+    "src/auth.tsx: setAuthToken(r.token) is called synchronously BEFORE await storage.secureSet on signIn / signUp / signInWithOtp / signInWithApple / hydrate — race condition eliminated.",
+    "_layout.tsx AuthRedirector: registerUnauthorizedHandler is registered inside a component mounted under AuthProvider; router.replace('/login') correctly wired. Cleanup on unmount also calls registerUnauthorizedHandler(null)."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "seed_data_creation": "None. Used seeded admin@jokoo.sn / Admin1234! and provider id 972beb65-a398-4ac0-8092-cc413a2fc9e9. TEST 6 created a throwaway user via /auth/register.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Booking submit testID = 'booking-submit' (Btn) inside /app/frontend/app/booking/[providerId].tsx. Reserve button on provider page = 'provider-book'. Bottom-tab bookings screen is not routed at /bookings (URL shows 'Unmatched Route' when navigated directly) — use in-app navigation from provider page instead. localStorage.setItem('jokoo_token', ...) requires JSON.stringify(...) to survive storage.secureGet's JSON.parse; to force 401 the mem cache must first be reset via a full page reload after mutating storage.",
+  "rca_of_issue": "Root cause: on web, storage.secureSet (AsyncStorage.setItem) is asynchronous; after signIn resolved server-side, React continued to redirect and mount the next screen which fired its first protected request before storage.secureSet flushed to disk. resolveToken() had no cache, so it read '' and omitted the Authorization header → backend returned 401 'Missing bearer token'. Fix: added synchronous in-memory token cache updated by setAuthToken(r.token) BEFORE the await storage.secureSet in every auth entry point (login/register/OTP/Apple/hydrate). resolveToken() now checks memory first. On 401 for auth=true requests, mem+storage are cleaned and a global handler redirects to /login. Validated via Playwright network interception: POST /api/bookings from freshly-logged-in session carries a Bearer token and returns 200."
+}

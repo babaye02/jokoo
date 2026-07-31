@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { storage } from "@/src/utils/storage";
-import { api, TOKEN_KEY, User } from "@/src/api";
+import { api, TOKEN_KEY, User, setAuthToken } from "@/src/api";
 
 type AuthState = {
   user: User | null;
@@ -26,12 +26,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const t = await storage.secureGet<string>(TOKEN_KEY, "");
     if (t) {
       setToken(t);
+      setAuthToken(t); // sync in-memory cache utilisé par api.ts pour toutes les requêtes
       try {
         const me = await api.get<User>("/auth/me");
         setUser(me);
       } catch {
         await storage.secureRemove(TOKEN_KEY);
         setToken(null);
+        setAuthToken(null);
       }
     }
     setLoading(false);
@@ -41,7 +43,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     const r = await api.post<{ token: string; user: User }>("/auth/login", { email, password }, false);
-    await storage.secureSet(TOKEN_KEY, r.token);
+    setAuthToken(r.token); // 1) sync immédiat en mémoire (évite race avec SecureStore)
+    await storage.secureSet(TOKEN_KEY, r.token); // 2) persistance
     setToken(r.token);
     setUser(r.user);
     return r.user;
@@ -49,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithOtp = async (phone: string, code: string) => {
     const r = await api.post<{ token: string; user: User }>("/auth/otp/verify", { phone, code }, false);
+    setAuthToken(r.token);
     await storage.secureSet(TOKEN_KEY, r.token);
     setToken(r.token);
     setUser(r.user);
@@ -61,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (payload: any) => {
     const r = await api.post<{ token: string; user: User }>("/auth/register", payload, false);
+    setAuthToken(r.token);
     await storage.secureSet(TOKEN_KEY, r.token);
     setToken(r.token);
     setUser(r.user);
@@ -73,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name: name || null,
       email: email || null,
     }, false);
+    setAuthToken(r.token);
     await storage.secureSet(TOKEN_KEY, r.token);
     setToken(r.token);
     setUser(r.user);
@@ -80,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    setAuthToken(null);
     await storage.secureRemove(TOKEN_KEY);
     setToken(null);
     setUser(null);
