@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, Ride, RideBooking } from "@/src/api";
 import { formatXof } from "@/src/pricing";
 import { Txt, Btn } from "@/src/components/ui";
+import { ConfirmDialog } from "@/src/components/ActionSheet";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 type Tab = "driver" | "passenger";
@@ -52,40 +53,23 @@ export default function MyRides() {
     setRefreshing(false);
   };
 
-  const cancelRide = (id: string) => {
-    Alert.alert("Annuler ce trajet ?", "Les passagers seront prévenus.", [
-      { text: "Non", style: "cancel" },
-      {
-        text: "Oui",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await api.patch(`/rides/${id}`, { status: "cancelled" });
-            await load();
-          } catch (e: any) {
-            Alert.alert("Erreur", e.message);
-          }
-        },
-      },
-    ]);
-  };
+  const [confirming, setConfirming] = useState<null | { kind: "ride" | "booking"; id: string }>(null);
 
-  const cancelBooking = (id: string) => {
-    Alert.alert("Annuler la réservation ?", "", [
-      { text: "Non", style: "cancel" },
-      {
-        text: "Oui",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await api.patch(`/rides/bookings/${id}`, { status: "cancelled" });
-            await load();
-          } catch (e: any) {
-            Alert.alert("Erreur", e.message);
-          }
-        },
-      },
-    ]);
+  const cancelRide = (id: string) => setConfirming({ kind: "ride", id });
+  const cancelBooking = (id: string) => setConfirming({ kind: "booking", id });
+  const doCancel = async () => {
+    if (!confirming) return;
+    try {
+      if (confirming.kind === "ride") {
+        await api.patch(`/rides/${confirming.id}`, { status: "cancelled" });
+      } else {
+        await api.patch(`/rides/bookings/${confirming.id}`, { status: "cancelled" });
+      }
+      setConfirming(null);
+      await load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e.message);
+    }
   };
 
   return (
@@ -197,6 +181,16 @@ export default function MyRides() {
           </>
         )}
       </ScrollView>
+
+      <ConfirmDialog
+        visible={confirming !== null}
+        title={confirming?.kind === "ride" ? "Annuler ce trajet ?" : "Annuler la réservation ?"}
+        message={confirming?.kind === "ride" ? "Les passagers seront prévenus automatiquement." : "Vous ne pourrez plus rejoindre ce trajet une fois annulé."}
+        confirmLabel="Oui, annuler"
+        destructive
+        onConfirm={doCancel}
+        onClose={() => setConfirming(null)}
+      />
     </View>
   );
 }

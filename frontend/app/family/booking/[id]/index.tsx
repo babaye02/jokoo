@@ -9,6 +9,7 @@ import { MOOD_META, langMeta } from "@/src/family";
 import { useAuth } from "@/src/auth";
 import { formatXof } from "@/src/pricing";
 import { Btn, Card, Txt } from "@/src/components/ui";
+import { ConfirmDialog } from "@/src/components/ActionSheet";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -69,35 +70,22 @@ export default function FamilyBookingDetail() {
     }
   };
 
-  const triggerSOS = async () => {
-    Alert.alert(
-      "🚨 Déclencher l'alerte SOS ?",
-      "Le contact d'urgence sera affiché et l'autre partie sera notifiée immédiatement.",
-      [
-        { text: "Non", style: "cancel" },
-        {
-          text: "Oui, ALERTER",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const r = await api.post<{ ok: boolean; emergency_contact: any }>(`/family/bookings/${b.id}/sos`, {});
-              const ec = r?.emergency_contact;
-              await load();
-              if (ec?.phone) {
-                Alert.alert(
-                  "🚨 SOS envoyé",
-                  `Appelez immédiatement ${ec.name} au ${ec.phone}`,
-                  [
-                    { text: "Fermer", style: "cancel" },
-                    { text: "📞 Appeler", onPress: () => Linking.openURL(`tel:${ec.phone}`) },
-                  ],
-                );
-              }
-            } catch (e: any) { Alert.alert("Erreur", e.message); }
-          },
-        },
-      ],
-    );
+  const [sosConfirm, setSosConfirm] = useState(false);
+  const [emergencyContact, setEmergencyContact] = useState<{ name?: string; phone?: string } | null>(null);
+
+  const triggerSOS = () => setSosConfirm(true);
+
+  const executeSOS = async () => {
+    if (!b) return;
+    try {
+      const r = await api.post<{ ok: boolean; emergency_contact: any }>(`/family/bookings/${b.id}/sos`, {});
+      const ec = r?.emergency_contact;
+      await load();
+      // Overlay in-app plutôt qu'un Alert.alert (bloqué sur navigateur web).
+      if (ec?.phone) {
+        setEmergencyContact({ name: ec.name, phone: ec.phone });
+      }
+    } catch (e: any) { Alert.alert("Erreur", e.message); }
   };
 
   const canStartSession = isSitter && b.status === "confirmed" && !b.checkin_photo;
@@ -263,6 +251,52 @@ export default function FamilyBookingDetail() {
           <Btn title="Confirmer la mission" icon="checkmark" onPress={() => changeStatus("confirmed")} fullWidth size="lg" />
         ) : null}
       </View>
+
+      <ConfirmDialog
+        visible={sosConfirm}
+        title="🚨 Déclencher l'alerte SOS ?"
+        message="Le contact d'urgence sera affiché et l'autre partie sera notifiée immédiatement."
+        confirmLabel="Oui, ALERTER"
+        cancelLabel="Non"
+        destructive
+        onConfirm={executeSOS}
+        onClose={() => setSosConfirm(false)}
+      />
+
+      {emergencyContact ? (
+        <View style={styles.emergencyOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setEmergencyContact(null)} />
+          <View style={styles.emergencyCard}>
+            <View style={styles.emergencyIcon}>
+              <Ionicons name="warning" size={26} color={colors.white} />
+            </View>
+            <Txt size="xl" weight="700" style={{ textAlign: "center", marginTop: 12 }}>🚨 SOS envoyé</Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ textAlign: "center", marginTop: 6 }}>
+              Appelez immédiatement le contact d&apos;urgence ci-dessous.
+            </Txt>
+            <View style={styles.emergencyContact}>
+              <Ionicons name="call" size={22} color={colors.turquoise} />
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Txt weight="700">{emergencyContact.name || "Contact"}</Txt>
+                <Txt size="sm" color={colors.textMuted}>{emergencyContact.phone}</Txt>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.md }}>
+              <Pressable onPress={() => setEmergencyContact(null)} style={[styles.emgBtn, styles.emgGhost]} testID="emg-close">
+                <Txt weight="700" color={colors.textMuted}>Fermer</Txt>
+              </Pressable>
+              <Pressable
+                onPress={() => { const p = emergencyContact.phone!; setEmergencyContact(null); Linking.openURL(`tel:${p}`); }}
+                style={[styles.emgBtn, { backgroundColor: colors.danger }]}
+                testID="emg-call"
+              >
+                <Ionicons name="call" size={18} color={colors.white} />
+                <Txt weight="700" color={colors.white} style={{ marginLeft: 6 }}>Appeler</Txt>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -293,4 +327,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#EF4444",
     ...shadow.card,
   },
+  emergencyOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
+  emergencyCard: { backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: spacing.xl, paddingBottom: 40 },
+  emergencyIcon: { alignSelf: "center", width: 60, height: 60, borderRadius: 30, backgroundColor: colors.danger, alignItems: "center", justifyContent: "center" },
+  emergencyContact: { flexDirection: "row", alignItems: "center", padding: spacing.md, marginTop: spacing.md, backgroundColor: colors.brandTertiary, borderRadius: radius.md },
+  emgBtn: { flex: 1, height: 52, borderRadius: radius.md, alignItems: "center", justifyContent: "center", flexDirection: "row" },
+  emgGhost: { backgroundColor: colors.surface2 },
 });

@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, FamilyBooking } from "@/src/api";
 import { formatXof } from "@/src/pricing";
 import { Txt, Btn, Avatar } from "@/src/components/ui";
+import { ConfirmDialog } from "@/src/components/ActionSheet";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 type Tab = "parent" | "sitter";
@@ -63,20 +64,16 @@ export default function MyFamilyBookings() {
     setRefreshing(false);
   };
 
-  const cancel = (bid: string) => {
-    Alert.alert("Annuler cette réservation ?", "", [
-      { text: "Non", style: "cancel" },
-      {
-        text: "Oui",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await api.patch(`/family/bookings/${bid}`, { status: "cancelled" });
-            await load();
-          } catch (e: any) { Alert.alert("Erreur", e.message); }
-        },
-      },
-    ]);
+  const [cancelId, setCancelId] = useState<string | null>(null);
+
+  const cancel = (bid: string) => setCancelId(bid);
+  const doCancel = async () => {
+    if (!cancelId) return;
+    try {
+      await api.patch(`/family/bookings/${cancelId}`, { status: "cancelled" });
+      setCancelId(null);
+      await load();
+    } catch (e: any) { Alert.alert("Erreur", e.message); }
   };
 
   const confirm = async (bid: string) => {
@@ -170,6 +167,16 @@ export default function MyFamilyBookings() {
           ))
         )}
       </ScrollView>
+
+      <ConfirmDialog
+        visible={cancelId !== null}
+        title="Annuler cette réservation ?"
+        message="Cette action est définitive. Vous pouvez toujours contacter le prestataire pour discuter."
+        confirmLabel="Oui, annuler"
+        destructive
+        onConfirm={doCancel}
+        onClose={() => setCancelId(null)}
+      />
     </View>
   );
 }

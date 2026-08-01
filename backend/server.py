@@ -1824,6 +1824,78 @@ async def pay_sub(body: CheckoutSubIn, user=Depends(current_user)):
         raise HTTPException(500, f"Paiement indisponible: {e}")
 
 
+@api.get("/payments/mine")
+async def my_payments(user=Depends(current_user)):
+    """Historique de paiement d'un utilisateur : bookings passés avec statut payé/en attente."""
+    # On agrège depuis bookings + rides.bookings + parcels + family.bookings.
+    payments: list = []
+    async for b in db.bookings.find({"client_id": user["id"]}, {"_id": 0}):
+        if b.get("price") or b.get("paid"):
+            payments.append({
+                "id": f"bk-{b['id']}",
+                "amount_xof": b.get("price") or 0,
+                "provider": (b.get("payment_provider") or "stripe"),
+                "status": "paid" if b.get("paid") else b.get("status", "pending"),
+                "created_at": b.get("created_at") or now_iso(),
+                "booking_id": b["id"],
+                "title": f"Réservation service · {b.get('service_key') or ''}".strip(" ·"),
+            })
+    async for r in db.ride_bookings.find({"passenger_id": user["id"]}, {"_id": 0}):
+        payments.append({
+            "id": f"rb-{r['id']}",
+            "amount_xof": r.get("total_price") or 0,
+            "provider": r.get("payment_provider") or "cash",
+            "status": r.get("status", "pending"),
+            "created_at": r.get("created_at") or now_iso(),
+            "booking_id": r["id"],
+            "title": "Covoiturage",
+        })
+    async for p in db.parcels.find({"sender_id": user["id"]}, {"_id": 0}):
+        payments.append({
+            "id": f"pc-{p['id']}",
+            "amount_xof": p.get("price") or 0,
+            "provider": p.get("payment_mode") or "cash",
+            "status": p.get("status", "pending"),
+            "created_at": p.get("created_at") or now_iso(),
+            "booking_id": p["id"],
+            "title": "Livraison colis",
+        })
+    async for fb in db.babysitting_bookings.find({"parent_id": user["id"]}, {"_id": 0}):
+        payments.append({
+            "id": f"fb-{fb['id']}",
+            "amount_xof": fb.get("total_price") or 0,
+            "provider": "cash",
+            "status": fb.get("status", "pending"),
+            "created_at": fb.get("created_at") or now_iso(),
+            "booking_id": fb["id"],
+            "title": "Jokoo Family",
+        })
+    payments.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return payments[:200]
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@api.post("/auth/change-password")
+async def change_password(body: ChangePasswordIn, user=Depends(current_user)):
+    """Change the user's password after verifying the current one."""
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "Utilisateur introuvable")
+    stored = u.get("password_hash")
+    if not stored or not verify_password(body.current_password, stored):
+        raise HTTPException(400, "Mot de passe actuel incorrect")
+    # policy check
+    if body.new_password == body.current_password:
+        raise HTTPException(400, "Le nouveau mot de passe doit être différent de l'actuel")
+    new_hash = hash_password(body.new_password)
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": new_hash, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
 @api.get("/payments/status/{session_id}")
 async def payment_status(
     session_id: str,

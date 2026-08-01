@@ -42,7 +42,8 @@ export default function LegalDocView() {
     try {
       await api.post("/legal/acceptances", { slug: doc.slug, version: doc.version });
       setAccepted(true);
-      Alert.alert("Merci !", "Votre acceptation a été enregistrée.");
+      // Feedback visible pendant 1.2s puis retour, plus fiable que Alert.alert sur navigateur
+      setTimeout(() => router.back(), 1200);
     } catch (e: any) {
       Alert.alert("Erreur", e.message);
     } finally {

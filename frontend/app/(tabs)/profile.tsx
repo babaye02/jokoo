@@ -156,10 +156,10 @@ export default function Profile() {
           {user.is_admin || user.staff_role ? (
             <MenuRow icon="shield-outline" title="Espace administrateur" onPress={() => router.push("/admin")} testID="menu-admin" />
           ) : null}
-          <MenuRow icon="card-outline" title="Paiements" onPress={() => {}} />
-          <MenuRow icon="settings-outline" title="Paramètres" onPress={() => {}} />
-          <MenuRow icon="shield-checkmark-outline" title="Sécurité & confidentialité" onPress={() => {}} />
-          <MenuRow icon="help-circle-outline" title="Aide" onPress={() => {}} />
+          <MenuRow icon="card-outline" title="Paiements" onPress={() => router.push("/profile/payments")} testID="menu-payments" />
+          <MenuRow icon="settings-outline" title="Paramètres" onPress={() => router.push("/profile/settings")} testID="menu-settings" />
+          <MenuRow icon="shield-checkmark-outline" title="Sécurité & confidentialité" onPress={() => router.push("/profile/security")} testID="menu-security" />
+          <MenuRow icon="help-circle-outline" title="Aide" onPress={() => router.push("/profile/help")} testID="menu-help" />
           <Pressable onPress={logout} style={[styles.row, { marginTop: spacing.md }]} testID="menu-logout">
             <View style={[styles.iconWrap, { backgroundColor: "#FEE2E2" }]}>
               <Ionicons name="log-out-outline" size={20} color={colors.danger} />

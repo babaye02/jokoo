@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
 import { api, Message } from "@/src/api";
 import { Avatar, Txt } from "@/src/components/ui";
+import { ActionSheet, ConfirmDialog } from "@/src/components/ActionSheet";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
 
 export default function Chat() {
@@ -18,6 +19,10 @@ export default function Chat() {
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [peerName, setPeerName] = useState<string | null>(nameParam || null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmBlock, setConfirmBlock] = useState(false);
+  const [reportPrompt, setReportPrompt] = useState(false);
+  const [reportReason, setReportReason] = useState("");
   const listRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
@@ -94,66 +99,32 @@ export default function Chat() {
 
   const displayName = peerName || "Conversation";
 
+  const submitReport = async () => {
+    if (!id) return;
+    try {
+      await api.post("/reports", { target_id: id, target_type: "user", reason: reportReason.trim() || "Signalement depuis chat" });
+      setReportPrompt(false);
+      setReportReason("");
+      // Toast in-app plutôt qu'Alert.alert
+      setErr(null);
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Impossible d'envoyer le signalement.");
+    }
+  };
+
+  const doBlock = async () => {
+    if (!id) return;
+    try {
+      await api.post(`/users/${id}/block`, {});
+      router.back();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Impossible de bloquer.");
+    }
+  };
+
   const showMenu = () => {
     if (!id) return;
-    Alert.alert(
-      displayName,
-      "Actions",
-      [
-        {
-          text: "🚩 Signaler cet utilisateur",
-          onPress: () => {
-            Alert.prompt?.(
-              "Motif du signalement",
-              "Décrivez brièvement le problème (harcèlement, spam, contenu inapproprié...)",
-              async (reason: string) => {
-                try {
-                  await api.post("/reports", { target_id: id, target_type: "user", reason });
-                  Alert.alert("Merci", "Signalement transmis à notre équipe. Nous traitons sous 24 h.");
-                } catch (e: any) {
-                  Alert.alert("Erreur", e?.message || "Impossible d'envoyer le signalement.");
-                }
-              },
-            ) || (async () => {
-              // Fallback Android : Alert.prompt indisponible → envoi motif générique
-              try {
-                await api.post("/reports", { target_id: id, target_type: "user", reason: "Signalé depuis chat (motif non spécifié)" });
-                Alert.alert("Merci", "Signalement transmis à notre équipe.");
-              } catch (e: any) {
-                Alert.alert("Erreur", e?.message || "Impossible d'envoyer le signalement.");
-              }
-            })();
-          },
-        },
-        {
-          text: "🚫 Bloquer cet utilisateur",
-          style: "destructive",
-          onPress: () => {
-            Alert.alert(
-              "Bloquer ?",
-              `${displayName} ne pourra plus vous contacter et vous ne verrez plus ses messages.`,
-              [
-                { text: "Annuler", style: "cancel" },
-                {
-                  text: "Bloquer",
-                  style: "destructive",
-                  onPress: async () => {
-                    try {
-                      await api.post(`/users/${id}/block`, {});
-                      Alert.alert("Bloqué", `${displayName} a été bloqué.`);
-                      router.back();
-                    } catch (e: any) {
-                      Alert.alert("Erreur", e?.message || "Impossible de bloquer.");
-                    }
-                  },
-                },
-              ],
-            );
-          },
-        },
-        { text: "Annuler", style: "cancel" },
-      ],
-    );
+    setMenuOpen(true);
   };
 
   return (
@@ -242,6 +213,70 @@ export default function Chat() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      <ActionSheet
+        visible={menuOpen}
+        title={displayName}
+        subtitle="Actions"
+        onClose={() => setMenuOpen(false)}
+        actions={[
+          {
+            id: "report",
+            label: "Signaler cet utilisateur",
+            icon: "flag-outline",
+            hint: "Notre équipe intervient sous 24 h",
+            onPress: () => { setReportReason(""); setReportPrompt(true); },
+          },
+          {
+            id: "block",
+            label: "Bloquer cet utilisateur",
+            icon: "ban-outline",
+            destructive: true,
+            hint: "Vous ne recevrez plus ses messages",
+            onPress: () => setConfirmBlock(true),
+          },
+        ]}
+      />
+
+      <ConfirmDialog
+        visible={confirmBlock}
+        title="Bloquer ?"
+        message={`${displayName} ne pourra plus vous contacter et vous ne verrez plus ses messages.`}
+        confirmLabel="Bloquer"
+        destructive
+        onConfirm={doBlock}
+        onClose={() => setConfirmBlock(false)}
+      />
+
+      {/* Prompt in-app pour le motif du signalement (Alert.prompt n'existe pas sur Android/web) */}
+      {reportPrompt ? (
+        <View style={styles.promptOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setReportPrompt(false)} />
+          <View style={styles.promptCard}>
+            <Txt size="lg" weight="700">Motif du signalement</Txt>
+            <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4 }}>
+              Décrivez le problème (harcèlement, spam, contenu inapproprié…). Optionnel.
+            </Txt>
+            <TextInput
+              value={reportReason}
+              onChangeText={setReportReason}
+              placeholder="Motif…"
+              placeholderTextColor={colors.textSubtle}
+              multiline
+              style={styles.promptInput}
+              testID="report-reason-input"
+            />
+            <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.md }}>
+              <Pressable onPress={() => setReportPrompt(false)} style={[styles.promptBtn, styles.promptGhost]} testID="report-cancel">
+                <Txt weight="700" color={colors.textMuted}>Annuler</Txt>
+              </Pressable>
+              <Pressable onPress={submitReport} style={[styles.promptBtn, { backgroundColor: colors.turquoise }]} testID="report-submit">
+                <Txt weight="700" color={colors.white}>Envoyer</Txt>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -267,4 +302,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     marginBottom: 6,
   },
+  promptOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
+  promptCard: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.xl, paddingBottom: 30 },
+  promptInput: { minHeight: 80, marginTop: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 12, textAlignVertical: "top", fontSize: 14, color: colors.text, backgroundColor: colors.surface2 },
+  promptBtn: { flex: 1, height: 48, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  promptGhost: { backgroundColor: colors.surface2 },
 });
