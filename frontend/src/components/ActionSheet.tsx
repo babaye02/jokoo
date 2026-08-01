@@ -48,8 +48,9 @@ export function ActionSheet({
               key={a.id}
               onPress={async () => {
                 onClose();
-                // Laisse la modale se fermer avant l'action pour éviter les problèmes de focus/keyboard.
-                setTimeout(() => { a.onPress(); }, 100);
+                // Attendre la fin de l'animation de fermeture avant d'exécuter l'action
+                // (évite les problèmes de double modal sur web/Android).
+                setTimeout(() => { a.onPress(); }, 350);
               }}
               style={[
                 styles.row,
@@ -115,7 +116,7 @@ export function ConfirmDialog({
               <Txt weight="700" color={colors.textMuted}>{cancelLabel}</Txt>
             </Pressable>
             <Pressable
-              onPress={async () => { onClose(); setTimeout(() => onConfirm(), 100); }}
+              onPress={async () => { onClose(); setTimeout(() => onConfirm(), 350); }}
               style={[styles.btn, { backgroundColor: destructive ? colors.danger : colors.turquoise }]}
               testID="dialog-confirm"
             >

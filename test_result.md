@@ -231,16 +231,79 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.3"
-  test_sequence: 4
-  run_ui: false
+  version: "1.4"
+  test_sequence: 5
+  run_ui: true
 
 test_plan:
   current_focus:
-    - "Blocked users bidirectional visibility filter"
+    - "AUDIT COMPLET — tous modules"
+    - "Bouton Bloquer dans le chat (fix double-modal + toast in-app)"
   stuck_tasks: []
-  test_all: false
-  test_priority: "high_first"
+  test_all: true
+  test_priority: "critical_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      AUDIT COMPLET DEMANDÉ PAR LE USER — répondre en **français**.
+
+      1) BUG PRIORITAIRE VENANT D'ÊTRE CORRIGÉ (à retester en premier)
+         - "Le bouton Bloquer dans le chat ne fonctionne pas."
+         - Fix appliqué : timeout 100ms → 350ms entre modals dans src/components/ActionSheet.tsx,
+           `Alert.alert` remplacé par bannière/toast in-app dans app/chat/[id].tsx.
+         - Scénario à valider :
+           a) Login `client@jokoo.sn`/`Passw0rd!`, ouvrir une conversation avec `pro@jokoo.sn`.
+           b) Menu (⋮) → "Bloquer cet utilisateur" → confirmer.
+           c) Toast vert "X a été bloqué·e." doit s'afficher, backend doit avoir `blocked_users` +1.
+           d) POST /api/users/{peer_id}/block doit retourner 200.
+           e) Après retour, une nouvelle recherche `/api/providers` NE DOIT PLUS montrer ce prestataire.
+         - Tester en frontend automation (playwright/web preview) + backend.
+
+      2) AUDIT COMPLET — modules à passer en revue :
+         a) Auth (register, login, forgot/reset password, Apple, OTP)
+         b) Providers (search, detail, favorites, phone/email masking)
+         c) Bookings (create, accept/reject, complete-both-sides, cancel, review)
+         d) Reviews (submit, notif, rating recompute)
+         e) Chat (send msg, blocked filter, sanitizer anti-contournement)
+         f) Notifications (list, badges, routing types)
+         g) Mobility · Covoiturage (rides search, book, cancel, seats management)
+         h) Mobility · Colis longue distance (post, statuses)
+         i) Jokoo Family (babysitter search, booking, SOS, carnet)
+         j) Legal Center (documents publiés, acceptation, versioning admin)
+         k) Ads (placement, click tracking, suspension)
+         l) Wallet & commissions (cash-payment, pay-commission-due, blocked_debt threshold)
+         m) Paiements Stripe (checkout booking, subscription, status endpoint) — les webhooks Wave/OM sont MOCKED (clés absentes), ne pas tester paiement bout-en-bout.
+         n) Reports / Signalements (workflow awaiting_reporter → resolved)
+         o) Admin CRM (users list, staff, reset password, marketplace stats, verified+)
+         p) Blocages mutuels (déjà validés en iter24 — smoke test uniquement)
+         q) Suppression de compte
+
+      3) TEST FRONTEND UI (web preview) — captures d'écran des flows critiques :
+         - Accueil / recherche
+         - Ouverture d'un profil prestataire, réservation
+         - Chat + menu Bloquer + toast
+         - Onboarding + splash
+         - Legal Center
+         - Notifs
+         - Dashboard admin (avec `admin@jokoo.sn`)
+         Signaler tout écran vide, bouton mort, navigation cassée, erreur console.
+
+      4) LIVRABLES ATTENDUS dans `/app/test_reports/iteration_25.json` :
+         - Section "critical" : bugs bloquants (auth cassée, paiement KO, blocage app)
+         - Section "major" : bugs fonctionnels sans crash (bouton non réactif, notif manquante)
+         - Section "minor" : UI/UX, textes, doublons
+         - Section "resolved" : ce qui marche
+         - Pour chaque bug : reproduction pas-à-pas, sévérité, fichier suspect (server.py ligne X ou frontend/app/...), correction proposée si évidente.
+
+      5) NE PAS re-tester en détail les items déjà validés (iter23 review notifs, iter23 family carnet, iter24 blocages bidirectionnels) — smoke test rapide suffit.
+
+      6) NE PAS chercher à tester paiements Wave/OM sans clés (MOCKED). Test Stripe possible avec `sk_test_emergent` (échoue en dehors d'Emergent mais suffisant pour vérifier que l'endpoint construit bien la session côté serveur).
+
+      Credentials disponibles dans /app/memory/test_credentials.md.
+      Backend externe : https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com/api/*
+      Frontend preview : accessible sur le port 3000 (utiliser localhost:3000 pour playwright).
+
 
 agent_communication:
   - agent: "main"

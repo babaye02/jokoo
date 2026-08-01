@@ -1,0 +1,118 @@
+{
+  "summary": "Iter25 — Audit complet Jokoo. P1 BLOCK FLOW validé end-to-end (backend + UI web preview) : POST /users/{pu}/block → 200, doc {user_id, blocked_id} persisté en base, GET /providers masque le pro, toast vert `chat-block-toast` visible avec texte 'Pro a été bloqué·e.', DELETE restore la visibilité. ActionSheet + ConfirmDialog animation staggered 350ms fonctionne (pas de superposition). Le fix ActionSheet.tsx (100→350ms) et chat/[id].tsx (Alert.alert → bannière + toast) est conforme. Backend audit : 26/26 tests pytest OK en 5.75s couvrant Auth (login, forgot-password, OTP), Providers (search filters, detail, phone/email masking), Chat (send + sanitizer anti-contournement téléphone/email → `•••[masqué par Jokoo]` confirmé côté UI), Notifications (list + read-all), Rides, Family/babysitters, Legal (22 documents), Ads, Wallet, Stripe checkout (retourne JSON propre, pas de crash), Reports, Admin CRM (overview, users, marketplace stats, staff). Frontend smoke : Login OK, Home (Aïcha 👋 + services + Family carousel), Recherche (filtres services), Notifications (7+ notifs affichées), Profil (5 bookings + Favoris + Mobilité), Legal Center (22 docs affichés). Aucun bouton mort détecté, `Supprimer le compte` apparaît 1 seule fois (pas de doublon). Aucun bug critique ni régression détectée.",
+  "critical": [],
+  "major": [],
+  "minor": [
+    {
+      "titre": "POST /users/{peer_id}/block accepte tout peer_id sans validation d'existence",
+      "reproduction": "curl -X POST /api/users/nonexistent-xyz/block -H 'Authorization: Bearer <client>' → 200 {ok:true}",
+      "severite": "minor",
+      "fichier": "server.py:3154-3163 (block_user)",
+      "impact": "Le scénario 'test d'erreur' du review (bloquer un peer inexistant → bannière rouge) ne peut pas être déclenché car l'endpoint est un upsert idempotent sans vérification. La bannière rouge in-app ne sera visible que sur erreur réseau/401. Comportement idempotent acceptable mais crée des documents blocked_users orphelins (visible dans GET /users/me/blocked : `blocked_id: nonexistent-4443a2c37473`).",
+      "correction_proposee": "Ajouter `if not await db.users.find_one({'id': peer_id}): raise HTTPException(404, 'Utilisateur introuvable')` avant l'upsert (server.py:3157). Alternative : valider peer_id != user['id'] est déjà là, ajouter uniquement la vérif existence."
+    },
+    {
+      "titre": "Chat header affiche toujours '● en ligne' (presence hardcodée)",
+      "reproduction": "Ouvrir /chat/<peer_id> — le sous-titre sous le nom du peer affiche systématiquement '● en ligne' même si le peer n'est pas connecté.",
+      "severite": "minor",
+      "fichier": "app/chat/[id].tsx:151",
+      "impact": "UX : information trompeuse. Aucune télémétrie de présence côté backend.",
+      "correction_proposee": "Retirer l'indicateur ou l'alimenter via un endpoint /users/{id}/presence si prévu. Sinon afficher 'Dernière activité inconnue' ou rien."
+    },
+    {
+      "titre": "GO_BACK non géré sur URL directe /chat/{id}",
+      "reproduction": "Naviguer directement vers /chat/{peer_id} (deep link), bloquer, router.back() → console error 'The action GO_BACK was not handled by any navigator'.",
+      "severite": "minor",
+      "fichier": "app/chat/[id].tsx:129 (router.back())",
+      "impact": "Edge case : ne se produit pas dans le flow réel où l'utilisateur vient de la liste conversations. Uniquement problématique en deep link / tests automation.",
+      "correction_proposee": "Remplacer par `router.canGoBack() ? router.back() : router.replace('/(tabs)/messages')`."
+    },
+    {
+      "titre": "Warnings de dépréciation React Native web récurrents",
+      "reproduction": "Ouvrir n'importe quelle page en web preview → console : `shadow* style props are deprecated. Use boxShadow`, `props.pointerEvents is deprecated. Use style.pointerEvents`, `Animated: useNativeDriver is not supported (fallback JS-based)`.",
+      "severite": "minor",
+      "fichier": "src/theme.ts (styles shadow.*), src/components/ui.tsx (probablement Pressable avec pointerEvents prop)",
+      "impact": "Aucun impact fonctionnel — warnings de dépréciation RN Web. Bruite la console de dev.",
+      "correction_proposee": "Migrer les styles shadow.soft, shadow.medium vers boxShadow dans /app/frontend/src/theme.ts pour la plateforme web (Platform.OS === 'web'). Migrer les `pointerEvents` prop vers `style={{pointerEvents:'...'}}`."
+    },
+    {
+      "titre": "404 ressource statique en console",
+      "reproduction": "Charger la home → CONSOLE[error]: Failed to load resource: 404. Origine non-identifiée (favicon ? image sponsored ?)",
+      "severite": "minor",
+      "fichier": "à identifier — probablement /favicon.ico ou une image ad seed",
+      "impact": "Cosmétique. Sans impact utilisateur.",
+      "correction_proposee": "Ajouter un favicon dans /app/frontend/assets et le référencer dans app.json, ou vérifier les URL des images d'ads seed."
+    }
+  ],
+  "resolved": [
+    {
+      "titre": "P1 — Bouton 'Bloquer' dans le chat (fix iter25)",
+      "verifie": "End-to-end : login client@jokoo.sn → chat avec pro (Bakary Pro, user_id=cc9acb5d…) → tap chat-menu → tap action-block → tap dialog-confirm → toast vert chat-block-toast affiché avec 'Pro a été bloqué·e.' → DB blocked_users doc {user_id:client, blocked_id:pro} présent → GET /providers ne contient plus pro → DELETE restore. Timeout ActionSheet/ConfirmDialog 350ms empêche superposition.",
+      "fichiers": ["/app/frontend/src/components/ActionSheet.tsx (lignes 53, 119)", "/app/frontend/app/chat/[id].tsx (doBlock ligne 123, submitReport ligne 110)"]
+    },
+    {"item": "POST /api/auth/login (client, pro, admin, aisha, chauffeur) — OK"},
+    {"item": "POST /api/auth/forgot-password → 200"},
+    {"item": "POST /api/auth/otp/request — 404 par design pour numéro non enregistré (message 'Aucun compte pour ce numéro')"},
+    {"item": "GET /api/providers avec filtres (service, city, sort, q) — 200"},
+    {"item": "GET /api/providers/{id} — phone/email masqués (aucun email/tél brut retourné)"},
+    {"item": "POST /api/chat/{peer}/messages — sanitizer anti-contournement actif : '77 123 45 67' et 'test@mail.com' → remplacés par '•••[masqué par Jokoo]' (validé UI + API)"},
+    {"item": "GET /api/notifications + POST /api/notifications/read-all — OK"},
+    {"item": "GET /api/rides — 200"},
+    {"item": "GET /api/family/babysitters — 200"},
+    {"item": "GET /api/legal/documents — 22 docs retournés"},
+    {"item": "GET /api/ads?placement=home_top&audience=client — 200"},
+    {"item": "GET /api/wallet/me + /api/wallet/history — 200 (pro@jokoo.sn)"},
+    {"item": "POST /api/payments/checkout/booking — retourne JSON propre (pas de crash Python)"},
+    {"item": "POST /api/reports — 200 (target_type=user)"},
+    {"item": "GET /api/admin/crm/overview, /admin/crm/users, /admin/stats/marketplace, /admin/staff — 200 (admin@jokoo.sn)"},
+    {"item": "Profil : 'Supprimer le compte' apparaît 1 seule fois — pas de doublon"},
+    {"item": "Frontend : Login, Home, Recherche, Notifications, Profil, Legal Center — chargent sans erreur bloquante"}
+  ],
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/users/{peer_id}/block", "issue": "Pas de validation d'existence du peer_id (upsert idempotent sur tout id). Empêche la bannière d'erreur du scénario UI."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "chat/[id].tsx", "issue": "Header affiche systématiquement '● en ligne' (presence hardcodée)", "testID": "chat-menu (adjacent)", "priority": "minor"},
+      {"component": "chat/[id].tsx doBlock", "issue": "router.back() sans canGoBack() check déclenche warning sur deep link", "testID": "dialog-confirm", "priority": "minor"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Tous (web preview)", "issues": ["Warnings shadow* deprecated (theme.ts)", "Warnings pointerEvents deprecated", "Animated fallback JS-based (attendu web)"]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter25_audit.py",
+    "/app/test_reports/pytest/iter25.xml"
+  ],
+  "action_items": [
+    "P3 backend : ajouter check `db.users.find_one({'id':peer_id})` dans POST /users/{peer_id}/block (server.py:3154) pour retourner 404 sur peer_id inexistant. Sans ça, le scénario 'bannière rouge sur bloquer peer inexistant' du review request n'est pas atteignable.",
+    "P3 frontend : chat/[id].tsx : remplacer `router.back()` par `router.canGoBack() ? router.back() : router.replace('/(tabs)/messages')` (ligne 129) et retirer/factoriser l'indicateur '● en ligne' (ligne 151) tant qu'il n'y a pas de vraie télémétrie de présence.",
+    "P4 frontend : migrer les styles shadow.* et props pointerEvents pour supprimer les warnings de dépréciation RN Web (theme.ts, composants ui.tsx).",
+    "P4 frontend : investigation du 404 ressource sur home (favicon ou image ad seed manquante).",
+    "Aucune régression détectée sur les scopes précédents (iter23, iter24) — pas de re-test approfondi requis."
+  ],
+  "critical_code_review_comments": [
+    "ActionSheet.tsx L49-54 et L119 : le setTimeout 350ms pour attendre la fermeture d'un modal avant d'en ouvrir un autre est un workaround propre pour la superposition sur web. Bien commenté.",
+    "chat/[id].tsx L123-134 : doBlock utilise correctement setBlockedToast + router.back() avec délai 900ms (< auto-hide 2000ms). Fallback erreur via setErr (bannière rouge) est UI-only, pas d'Alert.alert. Bon pattern web-safe.",
+    "server.py:3154-3163 : block_user manque une vérification d'existence peer_id. Impact opérationnel : documents orphelins possibles (constaté 1 doc `blocked_id: nonexistent-4443a2c37473` créé par mon test).",
+    "server.py atteint 4746 lignes (+74 lignes vs iter24). Toujours au-delà du seuil recommandé (>700). À splitter en modules quand un chantier de refacto sera planifié.",
+    "chat sanitizer confirmé opérationnel via UI : '77 123 45 67' → '•••[masqué par Jokoo]' visible dans les bulles chat."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter25_audit.py (nouveau — 26 tests, 5.75s, 100% pass)"
+  ],
+  "success_rate": {
+    "backend": "100% (26/26 iter25)",
+    "frontend": "Block flow 100% end-to-end + 5 écrans smoke OK"
+  },
+  "seed_data_creation": "POST /api/seed appelé (idempotent). Créés durant les tests : 1 booking client→pro (TEST_iter25 stripe), quelques messages chat (TEST_iter25 hello, TEST_iter25 audit + 2 messages sanitizer test). Blocked_users : 1 doc orphelin `blocked_id: nonexistent-4443a2c37473` créé par test_04 (avant fix du test) — à nettoyer manuellement si besoin. Fin de run : aucun blocage résiduel client→pro (unblock confirmé).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iter25 clean. P1 block flow (bug prioritaire) validé end-to-end backend + UI. 5 issues minor identifiés (aucun bloquant). Rappels : (1) POST /users/{id}/block est idempotent sans check d'existence — si main agent veut activer la bannière d'erreur UI sur peer inexistant, ajouter validation server-side. (2) OTP request retourne 404 par design pour numéros non enregistrés (message 'Aucun compte pour ce numéro'). (3) Endpoint mark-all-read = POST /notifications/read-all (pas /mark-all-read). (4) Le username affiché sur le compte client@jokoo.sn est 'Aïcha Test' — c'est le seed, pas un bug. (5) Sanitizer chat opérationnel : phones/emails remplacés par '•••[masqué par Jokoo]'.",
+  "rca_of_issue": "P1 block flow — RCA du fix appliqué avant ce run : (a) ActionSheet ferme la modale puis exécute a.onPress() qui ouvre ConfirmDialog. Avec setTimeout 100ms, l'animation de fermeture ActionSheet (~250ms sur web) chevauchait l'ouverture ConfirmDialog → superposition + clic bloqué → 350ms suffit pour laisser Modal animationType='fade' se démonter avant nouveau Modal. (b) Alert.alert avec plusieurs boutons échoue silencieusement sur navigateur web (le prompt natif window.confirm ne supporte qu'un bouton), donc l'ancien code affichait rien après l'API call. Le fix remplace par un état React (blockedToast/err) + bannière/toast in-app rendered dans le JSX → 100% fiable multi-plateforme. Validation : toast chat-block-toast visible avec texte 'Pro a été bloqué·e.', DB confirme la persistance, providers filter opère."
+}

@@ -21,6 +21,7 @@ export default function Chat() {
   const [peerName, setPeerName] = useState<string | null>(nameParam || null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmBlock, setConfirmBlock] = useState(false);
+  const [blockedToast, setBlockedToast] = useState<string | null>(null);
   const [reportPrompt, setReportPrompt] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const listRef = useRef<FlatList>(null);
@@ -55,6 +56,13 @@ export default function Chat() {
     const t = setTimeout(() => setErr(null), 4000);
     return () => clearTimeout(t);
   }, [err]);
+
+  // Auto-hide blocked toast after 2s
+  useEffect(() => {
+    if (!blockedToast) return;
+    const t = setTimeout(() => setBlockedToast(null), 2000);
+    return () => clearTimeout(t);
+  }, [blockedToast]);
 
   const send = async () => {
     const t = text.trim();
@@ -105,10 +113,10 @@ export default function Chat() {
       await api.post("/reports", { target_id: id, target_type: "user", reason: reportReason.trim() || "Signalement depuis chat" });
       setReportPrompt(false);
       setReportReason("");
-      // Toast in-app plutôt qu'Alert.alert
+      setBlockedToast("Signalement envoyé. Notre équipe intervient sous 24 h.");
       setErr(null);
     } catch (e: any) {
-      Alert.alert("Erreur", e?.message || "Impossible d'envoyer le signalement.");
+      setErr(e?.message || "Impossible d'envoyer le signalement.");
     }
   };
 
@@ -116,9 +124,12 @@ export default function Chat() {
     if (!id) return;
     try {
       await api.post(`/users/${id}/block`, {});
-      router.back();
+      setBlockedToast(`${displayName} a été bloqué·e.`);
+      // Retour arrière après un court délai pour laisser voir le toast
+      setTimeout(() => router.back(), 900);
     } catch (e: any) {
-      Alert.alert("Erreur", e?.message || "Impossible de bloquer.");
+      // Alert.alert échoue silencieusement sur navigateur web → on utilise la bannière in-app.
+      setErr(e?.message || "Impossible de bloquer. Vérifiez votre connexion.");
     }
   };
 
@@ -183,6 +194,15 @@ export default function Chat() {
             <Ionicons name="warning" size={16} color={colors.white} />
             <Txt color={colors.white} weight="600" style={{ flex: 1, marginLeft: 8 }} size="sm" testID="chat-error">
               {err}
+            </Txt>
+          </View>
+        ) : null}
+
+        {blockedToast ? (
+          <View style={styles.toastBar} testID="chat-block-toast">
+            <Ionicons name="checkmark-circle" size={16} color={colors.white} />
+            <Txt color={colors.white} weight="700" style={{ flex: 1, marginLeft: 8 }} size="sm">
+              {blockedToast}
             </Txt>
           </View>
         ) : null}
@@ -296,6 +316,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.danger,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    marginHorizontal: spacing.xl,
+    borderRadius: radius.md,
+    marginBottom: 6,
+  },
+  toastBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.turquoise,
     paddingHorizontal: spacing.lg,
     paddingVertical: 10,
     marginHorizontal: spacing.xl,
