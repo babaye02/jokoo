@@ -34,6 +34,14 @@ export default function LegalDocView() {
   useEffect(() => {
     if (!slug) return;
     api.get<LegalDoc>(`/legal/documents/${slug}`).then(setDoc).catch(() => setDoc(null));
+    // Récupère les acceptations du user pour ce slug afin d'afficher l'état correct
+    // ("déjà accepté" vs "à accepter") au retour ultérieur sur la page.
+    api
+      .get<Array<{ slug: string; version: number; accepted_at: string }>>("/legal/acceptances/mine")
+      .then((rows) => {
+        setAccepted(Array.isArray(rows) && rows.some((r) => r.slug === slug));
+      })
+      .catch(() => { /* pas grave, l'utilisateur pourra ré-accepter */ });
   }, [slug]);
 
   const accept = async () => {

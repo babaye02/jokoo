@@ -27,6 +27,8 @@ export default function FamilyBookingDetail() {
   const insets = useSafeAreaInsets();
   const [b, setB] = useState<FamilyBooking | null>(null);
   const [report, setReport] = useState<SessionReport | null>(null);
+  const [sosConfirm, setSosConfirm] = useState(false);
+  const [emergencyContact, setEmergencyContact] = useState<{ name?: string; phone?: string } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -69,9 +71,6 @@ export default function FamilyBookingDetail() {
       } catch (e: any) { Alert.alert("Erreur", e.message); }
     }
   };
-
-  const [sosConfirm, setSosConfirm] = useState(false);
-  const [emergencyContact, setEmergencyContact] = useState<{ name?: string; phone?: string } | null>(null);
 
   const triggerSOS = () => setSosConfirm(true);
 

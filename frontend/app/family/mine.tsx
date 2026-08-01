@@ -56,7 +56,7 @@ export default function MyFamilyBookings() {
       // Auto-sélectionne l'onglet Étudiant(e) si l'utilisateur a des missions assignées
       // (probable baby-sitter / prof), sauf s'il vient de créer une réservation en tant que parent.
       if (a.length > 0 && m.length === 0 && params.just_booked !== "1") {
-        setTab("assigned");
+        setTab("sitter");
       }
     } catch { /* ignore */ }
   }, [params.just_booked]);
