@@ -16,6 +16,7 @@ Endpoints under /api prefix:
 
 import os
 import uuid
+import secrets
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -501,7 +502,7 @@ class BookingUpdate(BaseModel):
 
 
 class ReviewIn(BaseModel):
-    provider_id: str
+    provider_id: Optional[str] = None
     booking_id: Optional[str] = None
     rating: int = Field(ge=1, le=5)
     comment: str = ""
@@ -1119,6 +1120,107 @@ async def list_bookings(user=Depends(current_user)):
     return items
 
 
+@api.post("/bookings/{bid}/confirm-completion")
+async def confirm_completion(bid: str, user=Depends(current_user)):
+    """
+    Confirmation de fin de mission — DEUX parties.
+    Le client ET le prestataire doivent confirmer.
+    Une fois les deux confirmations reçues, le statut passe à `completed`
+    et le client peut laisser un avis.
+    """
+    b = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    is_client = b["client_id"] == user["id"]
+    is_provider = b["provider_id"] == user["id"]
+    if not (is_client or is_provider):
+        raise HTTPException(403, "Vous ne participez pas à cette réservation")
+
+    updates: dict = {"updated_at": now_iso()}
+    role = "client" if is_client else "provider"
+    field = f"{role}_confirmed_at"
+    if b.get(field):
+        return {"ok": True, "already": True, "status": b.get("status")}
+    updates[field] = now_iso()
+
+    both = bool(b.get("client_confirmed_at" if is_provider else "provider_confirmed_at"))
+    if both:
+        updates["status"] = "completed"
+        updates["completed_at"] = now_iso()
+
+    await db.bookings.update_one({"id": bid}, {"$set": updates})
+
+    # Notif autre partie
+    peer_id = b["provider_id"] if is_client else b["client_id"]
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": peer_id,
+        "type": "booking_completed" if both else "booking_completion_requested",
+        "title": "Mission terminée" if both else "Confirmation attendue",
+        "body": "Merci de laisser un avis pour valoriser le prestataire." if both and is_client
+                else ("La mission est officiellement close." if both else "L'autre partie a confirmé la fin de la mission. Confirmez à votre tour."),
+        "booking_id": bid,
+        "read": False,
+        "created_at": now_iso(),
+    })
+    return {"ok": True, "status": "completed" if both else b.get("status"), "both_confirmed": both}
+
+
+# ---------- forgot / reset password (email token, 60 min TTL) ----------
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=6)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordIn):
+    """
+    Génère un token de réinitialisation à usage unique (60 min).
+    Pour ne pas fuiter l'existence d'un email, on renvoie toujours `{ok: true}`.
+    En dev (RESEND_API_KEY absent), le token est retourné dans `dev_token` pour tests manuels.
+    """
+    email = body.email.lower().strip()
+    u = await db.users.find_one({"email": email}, {"_id": 0, "id": 1, "name": 1})
+    dev_token: Optional[str] = None
+    if u:
+        token = secrets.token_urlsafe(24)
+        await db.password_resets.insert_one({
+            "token": token,
+            "user_id": u["id"],
+            "email": email,
+            "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=60)).isoformat(),
+            "used": False,
+            "created_at": now_iso(),
+        })
+        dev_token = token
+        # TODO(prod) : envoyer par email via Resend/Sendgrid le lien /reset-password?token=xxx
+    resp = {"ok": True}
+    if os.environ.get("APP_ENV", "development") != "production":
+        resp["dev_token"] = dev_token  # visible uniquement en dev
+    return resp
+
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordIn):
+    rec = await db.password_resets.find_one({"token": body.token, "used": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(400, "Lien invalide ou déjà utilisé")
+    try:
+        expires_at = datetime.fromisoformat(rec["expires_at"])
+    except Exception:
+        expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(400, "Lien expiré. Recommencez la procédure.")
+    new_hash = hash_password(body.new_password)
+    await db.users.update_one({"id": rec["user_id"]}, {"$set": {"password_hash": new_hash, "updated_at": now_iso()}})
+    await db.password_resets.update_one({"token": body.token}, {"$set": {"used": True, "used_at": now_iso()}})
+    return {"ok": True}
+
+
 @api.patch("/bookings/{bid}")
 async def update_booking(bid: str, body: BookingUpdate, user=Depends(current_user)):
     b = await db.bookings.find_one({"id": bid}, {"_id": 0})
@@ -1179,13 +1281,26 @@ async def update_booking(bid: str, body: BookingUpdate, user=Depends(current_use
 # ---------- reviews ----------
 @api.post("/reviews")
 async def create_review(body: ReviewIn, user=Depends(current_user)):
-    provider = await db.providers.find_one({"id": body.provider_id})
+    # Si booking_id est fourni, on récupère provider_id + on marque la review sur le booking.
+    provider_id = body.provider_id
+    if body.booking_id and not provider_id:
+        b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
+        if not b:
+            raise HTTPException(404, "Réservation introuvable")
+        if b["client_id"] != user["id"]:
+            raise HTTPException(403, "Seul le client peut noter cette réservation")
+        if b.get("review_id"):
+            raise HTTPException(400, "Un avis a déjà été laissé pour cette réservation")
+        provider_id = b["provider_id"]
+    if not provider_id:
+        raise HTTPException(400, "provider_id ou booking_id requis")
+    provider = await db.providers.find_one({"id": provider_id})
     if not provider:
         raise HTTPException(404, "Prestataire introuvable")
     rid = str(uuid.uuid4())
     doc = {
         "id": rid,
-        "provider_id": body.provider_id,
+        "provider_id": provider_id,
         "booking_id": body.booking_id,
         "author_id": user["id"],
         "author_name": user["name"],
@@ -1196,14 +1311,27 @@ async def create_review(body: ReviewIn, user=Depends(current_user)):
         "created_at": now_iso(),
     }
     await db.reviews.insert_one(doc)
+    if body.booking_id:
+        await db.bookings.update_one({"id": body.booking_id}, {"$set": {"review_id": rid}})
     # recompute rating
-    rs = await db.reviews.find({"provider_id": body.provider_id}).to_list(1000)
+    rs = await db.reviews.find({"provider_id": provider_id}).to_list(1000)
     avg = round(sum(r["rating"] for r in rs) / len(rs), 2)
     await db.providers.update_one(
-        {"id": body.provider_id},
+        {"id": provider_id},
         {"$set": {"rating": avg, "reviews_count": len(rs)}},
     )
     return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/bookings/{bid}")
+async def get_booking_detail(bid: str, user=Depends(current_user)):
+    """Récupération d'une réservation par id (client ou prestataire)."""
+    b = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if b["client_id"] != user["id"] and b["provider_id"] != user["id"]:
+        raise HTTPException(403, "Interdit")
+    return b
 
 
 # ---------- favorites ----------

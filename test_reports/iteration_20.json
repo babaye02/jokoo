@@ -1,0 +1,40 @@
+{
+  "summary": "Iter20 — 3 nouveaux flux TOUS VALIDÉS end-to-end. Backend 14/14 pytest (test_iter20_completion_reviews_password.py) : (a) forgot-password renvoie dev_token pour email connu + PAS de token pour email inconnu (anti-leak), (b) reset-password valide avec token 60min TTL + login avec nouveau pwd OK, (c) token réutilisé → 400, token bidon → 400, (d) double confirm-completion (client puis provider) → status=completed + client_confirmed_at/provider_confirmed_at/completed_at persistés + idempotent (already:true), (e) reviews via booking_id → provider rating recalculé + reviews_count++ + booking.review_id set, (f) double review same booking → 400, (g) provider ne peut pas noter son propre booking → 403. Frontend : forgot-password → dev_token affiché (encart jaune MODE DEV) → 'Utiliser ce token maintenant' → reset-password?token=xxx (pré-rempli len=32) → submit → 'Mot de passe mis à jour' → login avec nouveau pwd OK. Restauration password Passw0rd! effectuée en fin de test via même flow. Booking/detail : bouton 'Confirmer la fin de mission' visible + ConfirmDialog in-app (dialog-confirm) → après confirm client, statut card affiche 'Client ✓ / Prestataire En attente'. Après confirm des 2 parties, card 'Laisser un avis' apparaît → /booking/review/{id} → star-5 tactile + commentaire + submit → redirection /booking/detail/{id}?just_reviewed=1 avec card avis disparue (voir screenshots). AUCUN pageerror, AUCUN red-screen. Credentials client@jokoo.sn RESTAURÉES à Passw0rd! (validé par login curl final 200).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter20_completion_reviews_password.py",
+    "/app/test_reports/pytest/iter20.xml"
+  ],
+  "action_items": [
+    "Aucun blocage — les 3 flux (forgot/reset password, double confirm-completion, reviews via booking) sont livrables.",
+    "Amélioration (non bloquante) : la console web affiche 2 warnings répétitifs — 'shadow* style props are deprecated. Use boxShadow' + 'props.pointerEvents is deprecated'. À nettoyer dans src/theme/ et un composant (probablement Card/Btn) pour préparer une future migration RN.",
+    "Rate-limit /auth/login (8 hits / 300s par email+IP) freine fortement les campagnes de test automatisées — envisager de whitelister l'IP du CI/testing agent ou d'exposer un mode 'test' qui contourne la limite quand un header X-Testing est présent (à protéger par un secret d'env)."
+  ],
+  "critical_code_review_comments": [
+    "server.py continue à croître (>4500 lignes probables avec ces 3 nouveaux blocs). À découper en modules (auth/passwords, bookings, reviews, family, mobility, admin) dès qu'une itération sans blocage se présente.",
+    "Bon garde-fou côté /auth/forgot-password : réponse identique {ok:true} pour email connu/inconnu (le dev_token seul diffère, uniquement en dev). Empêche l'enumeration d'utilisateurs.",
+    "Bon garde-fou côté /reviews : contrôle client_id + doublon review_id sur booking. Recalc rating après insert (average sur tous les reviews) — attention perf si un provider accumule >10k reviews (à indexer/agréger côté DB plus tard).",
+    "confirm-completion idempotent (renvoie {already:true} si déjà confirmé) — bonne UX. Notification 'l'autre partie a confirmé' bien routée."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter20_completion_reviews_password.py (nouveau — 14 tests, un seul TestBookingCompletionAndReviews pour partager _bid avec xdist LoadScopeScheduling)"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 iter20)",
+    "frontend": "100% des 3 flux critiques validés (forgot/reset + restauration, double confirm-completion via dialog in-app, review star-5 + submit + redirect)"
+  },
+  "seed_data_creation": "1 booking TEST_UI (531af0ac) créé pour client@jokoo.sn → provider pro@jokoo.sn, marqué accepted puis completed par les 2 parties + reviewé 5 étoiles avec commentaire 'TEST_iter20_ui Excellent'. Provider wallet vérifié non bloqué (commission_due réglé si nécessaire). Password client restauré à Passw0rd! en fin de test (backend + frontend flows validés).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Base saine. Rate-limit login (8/300s par email+IP) : espacer les runs d'au moins 5 min entre 2 campagnes de tests intensives sur les mêmes comptes. Les tests iter20 utilisent xdist LoadScopeScheduling → toutes les méthodes booking+review sont dans TestBookingCompletionAndReviews pour partager _bid sur le même worker. Warnings console 'shadow*' et 'pointerEvents' apparaissent régulièrement (non bloquants mais devraient être nettoyés).",
+  "rca_of_issue": "N/A — aucune régression ni bug détecté. La brève erreur 403 lors du seeding via urllib était due au bot-protection Cloudflare qui bloque le User-Agent 'Python-urllib/x.x'. Résolu en ajoutant User-Agent: Mozilla/5.0. À documenter pour les futurs tests automatisés."
+}

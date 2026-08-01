@@ -101,7 +101,7 @@ export default function Login() {
             <>
               <Input label="Adresse email" icon="mail-outline" placeholder="votre@email.com" keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail} testID="login-email" />
               <Input label="Mot de passe" icon="lock-closed-outline" placeholder="••••••••" secureTextEntry value={password} onChangeText={setPassword} testID="login-password" />
-              <Pressable style={{ alignSelf: "flex-end", marginBottom: spacing.lg }}>
+              <Pressable onPress={() => router.push("/forgot-password" as any)} style={{ alignSelf: "flex-end", marginBottom: spacing.lg }} testID="forgot-link">
                 <Txt size="sm" weight="600" color={colors.turquoise}>Mot de passe oublié ?</Txt>
               </Pressable>
               <Btn title="Se connecter" onPress={submitEmail} loading={loading} fullWidth size="lg" testID="login-submit" />
