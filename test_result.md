@@ -231,17 +231,94 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.4"
-  test_sequence: 5
+  version: "1.5"
+  test_sequence: 6
   run_ui: true
 
 test_plan:
   current_focus:
-    - "AUDIT COMPLET — tous modules"
-    - "Bouton Bloquer dans le chat (fix double-modal + toast in-app)"
+    - "AUDIT COMPLET #2 — vérification post-fixes iter25"
+    - "Chasse aux liens cassés + boutons non fonctionnels"
   stuck_tasks: []
   test_all: true
   test_priority: "critical_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      DEUXIÈME AUDIT DEMANDÉ PAR LE USER — répondre en **français**.
+
+      Objectif : vérifier que TOUS les correctifs iter25 tiennent, puis chercher tout bug critique / lien cassé / bouton non fonctionnel restant.
+
+      ## Correctifs à re-vérifier (iter25)
+      1. **ActionSheet + ConfirmDialog timing 350ms** (src/components/ActionSheet.tsx L47-52, L118)
+         - Toute action déclenchant un ConfirmDialog depuis un ActionSheet doit fonctionner (block, unblock, cancel booking, delete partner, delete ad, delete family session, etc.).
+      2. **Chat block flow** (frontend/app/chat/[id].tsx)
+         - Menu → "Bloquer" → confirm → toast vert `chat-block-toast` visible → retour arrière → prestataire filtré de la recherche.
+         - **Test NEW** : bloquer un peer inexistant côté API doit maintenant renvoyer 404 (validation ajoutée dans server.py L3157-L3164), la bannière rouge doit s'afficher.
+      3. **Header chat** : la mention "● en ligne" hardcodée a été retirée, remplacée par "Contact".
+      4. **router.back() protégé** par canGoBack() côté chat.
+
+      ## Nouveau scope de l'audit #2
+
+      ### A) BOUTONS & LIENS — chasser tout ce qui est mort/cassé
+      Cliquer sur CHAQUE bouton visible dans les écrans clés et vérifier que l'action s'exécute (navigation, API call, feedback UI). Écrans à passer :
+      - Tabs : Home, Search, Chat list, Notifications, Profile
+      - Auth : Login, Register, Forgot password, Reset, OTP, Apple (skip si non testable)
+      - Provider detail → boutons Réserver / Message / Favoris / Signaler
+      - Booking : create → detail → complete → review → paid / cancelled
+      - Chat : send msg, attach photo (si dispo), menu (⋮), retour
+      - Family : babysitters list, detail, booking, SOS, carnet
+      - Mobility : rides list, publish, book, parcel post
+      - Legal Center : liste, doc, accepter
+      - Profile : Settings, Security, Payments, Help, Supprimer le compte
+      - Admin : dashboard, users, staff, ads, campaigns, partners, promos, reports, legal, marketplace stats
+
+      Pour CHAQUE bouton : cliquable ? feedback ? navigation OK ? erreur console ? Signaler tout bouton "mort" (aucune réaction visible).
+
+      ### B) LIENS CASSÉS
+      - Deep links dans le legal (markdown liens externes)
+      - Liens depuis notifications (chaque type → écran cible)
+      - Liens depuis ads (`link_type=provider|category|promo|url`)
+      - Liens depuis home carrousel
+
+      ### C) BACKEND edge-cases NOUVEAUX à sonder
+      Non testés en iter25 :
+      - POST /users/{peer_id}/block avec peer_id bidon → doit être 404 (correctif iter25).
+      - POST /users/{me.id}/block → 400 (déjà OK).
+      - DELETE /users/{peer_id}/block idempotent (2 appels → 200 200).
+      - GET /notifications avec 0 notifs → renvoie []
+      - POST /reviews : booking pas encore completed → doit permettre ou pas ? Vérifier la règle métier attendue.
+      - PATCH /bookings/{bid} : transitions interdites (ex. completed → pending) doivent 400.
+      - POST /bookings avec quote_amount négatif → 400.
+      - Recherche avec limit=0 ou limit>500 → défaut appliqué proprement.
+      - Endpoint /admin/* accédé par un client non-admin → 403.
+
+      ### D) FRONTEND smoke tests (playwright, localhost:3000)
+      - Console browser : signaler warnings ROUGES uniquement (pas les jaunes dépréciés déjà connus).
+      - Écran vide (SafeAreaView noir sans contenu) → screenshot + fichier suspect.
+      - Bouton visible mais non pressable (opacity 0, disabled sans raison, hitSlop absent) → signaler.
+
+      ## LIVRABLE
+
+      Rapport détaillé dans `/app/test_reports/iteration_26.json` :
+      - **critical** : bug bloquant (crash, auth cassée, paiement KO, écran mort)
+      - **major** : bouton non-fonctionnel, lien cassé, notif manquante, régression iter25
+      - **minor** : UI/UX, textes, warnings
+      - **resolved_verified** : correctifs iter25 confirmés OK (block flow, timing, header chat)
+
+      Pour chaque bug : titre, reproduction, sévérité, fichier suspect (chemin + ligne si possible), correction proposée.
+
+      ## Credentials & URLs
+
+      - Voir `/app/memory/test_credentials.md`
+      - Backend externe : `https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com/api/*`
+      - Frontend : `http://localhost:3000`
+
+      Testing type : **backend + frontend complet**. NE PAS mocker.
+
+      Note : Wave/OM restent MOCKED (clés absentes). Stripe `sk_test_emergent` peut échouer, vérifier juste la robustesse serveur.
+
 
 agent_communication:
   - agent: "main"

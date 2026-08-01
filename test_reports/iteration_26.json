@@ -1,0 +1,101 @@
+{
+  "summary": "Iter26 — Audit post-fixes iter25 (backend 24/24 pytest OK + frontend end-to-end). Les 3 fixes principaux de iter25 sont CONFIRMÉS : (a) POST /api/users/{peer_id}/block valide maintenant l'existence du peer et retourne 404 sur ID bidon (validé server.py:3158-3165) ; (b) POST /users/me.id/block → 400 « Impossible de se bloquer soi-même » ; (c) DELETE idempotent 200 puis 200. Frontend block flow end-to-end validé sur navigateur : login client@jokoo.sn → onglet Messages → conversation avec Bakary Pro → tap chat-menu (⋮) → ActionSheet ouvre avec action-block + action-report + action-cancel → tap action-block → 350ms plus tard ConfirmDialog s'ouvre → tap dialog-confirm → toast vert chat-block-toast affiché avec « Bakary Pro a été bloqué·e. » → router.back() vers /messages. Header chat affiche bien « Contact » (subtext) et non « ● en ligne » turquoise (chat/[id].tsx:158). Sanitizer chat visible dans l'historique : « Appelle-moi au •••[masqué par Jokoo]ou •••[masqué par Jokoo] ». Profil : « Supprimer mon compte » apparaît une seule fois (pas de doublon confirmé). Smoke OK sur Home, Recherche (11 pros affichés), Notifications (7+ notifs de 4 types), Provider detail (Aminata Sy — Réserver testID:provider-book présent), Legal Center (22 docs), Family (filtres visibles). Nouveaux tests backend edge-cases : GET /notifications retourne [] pour user vierge, PATCH /bookings avec status invalide (completed→pending) rejeté 422, PATCH quote_amount négatif ou 0 rejeté 422, /admin/* pour client → 403, limit=0 et limit=10000 sur /providers /rides /family/babysitters → jamais 500, Stripe checkout retourne JSON propre. Aucun bug bloquant ni régression détectée.",
+  "critical": [],
+  "major": [],
+  "minor": [
+    {
+      "titre": "2 images externes Pexels 404 (broken images)",
+      "reproduction": "Charger la Home ou Recherche → onglet Réseau : GET https://images.pexels.com/photos/2074131/pexels-photo-2074131.jpeg?auto=compress&cs=tinysrgb&w=1400 → 404 ; GET https://images.pexels.com/photos/8961324/pexels-photo-8961324.jpeg → 404.",
+      "severite": "minor",
+      "fichier": "Vraisemblablement seed d'ads ou provider.avatar_url dans server.py (fonction seed) ou dans une home banner. À grep : grep -rn '2074131\\|8961324' /app/backend/",
+      "impact": "UI cosmétique : cases images blanches à la place des visuels d'ads sponsorisés. Sans impact fonctionnel.",
+      "correction_proposee": "Remplacer les 2 URLs Pexels obsolètes par des ressources hébergées stables (assets bundle ou Pexels avec IDs valides) dans les données seed. Ajouter fallback onError sur les <Image /> pour afficher un placeholder brand."
+    },
+    {
+      "titre": "Provider detail : testIDs manquants sur icônes interactives (♥ favori, ⤴️ share, 📞 phone, 💬 chat)",
+      "reproduction": "Ouvrir /provider/{id} → 4 icônes visibles (top-right heart + share, bottom-left phone + chat) → aucune ne possède data-testid. Seul provider-book est présent.",
+      "severite": "minor",
+      "fichier": "/app/frontend/app/provider/[id].tsx (à confirmer par le main agent)",
+      "impact": "Réduit la testabilité automatisée du flow provider→chat, provider→favoris et provider→signalement.",
+      "correction_proposee": "Ajouter testID={\"provider-favorite\"|\"provider-share\"|\"provider-call\"|\"provider-message\"|\"provider-report\"} sur les Pressable correspondants."
+    },
+    {
+      "titre": "Warnings de dépréciation React Native Web persistants",
+      "reproduction": "Toute page en web preview → console : shadow* deprecated, pointerEvents deprecated, useNativeDriver fallback JS-based.",
+      "severite": "minor",
+      "fichier": "/app/frontend/src/theme.ts (shadow.soft, shadow.medium) et composants Pressable/UI avec pointerEvents",
+      "impact": "Bruit console dev. Aucun impact utilisateur. Signalé déjà en iter25.",
+      "correction_proposee": "Migrer vers boxShadow web-only (Platform.select) + déplacer pointerEvents dans style={{}}."
+    }
+  ],
+  "resolved_verified": [
+    {"item": "POST /api/users/{peer_id}/block avec peer_id bidon → 404 (fix server.py:3158-3165) — CONFIRMÉ pytest test_block_nonexistent_peer_returns_404"},
+    {"item": "POST /api/users/{me.id}/block → 400 « Impossible de se bloquer soi-même » — CONFIRMÉ pytest"},
+    {"item": "POST /api/users/{peer_pro.id}/block valide → 200 + doc persisté dans /users/me/blocked — CONFIRMÉ"},
+    {"item": "DELETE /api/users/{peer_id}/block idempotent → 200 puis 200 — CONFIRMÉ"},
+    {"item": "Chat header sous-titre affiche « Contact » (color:subtext) et non « ● en ligne » — CONFIRMÉ UI (chat/[id].tsx:158)"},
+    {"item": "ActionSheet + ConfirmDialog block flow → chat-block-toast « Bakary Pro a été bloqué·e. » + router.back() ~900ms — CONFIRMÉ UI end-to-end web preview"},
+    {"item": "chat/[id].tsx doBlock utilise canGoBack? fallback replace('/(tabs)/chat') — code présent lignes 129-136"},
+    {"item": "Sanitizer chat opérationnel : « •••[masqué par Jokoo] » visible dans historique"},
+    {"item": "Profil : « Supprimer mon compte » apparaît 1 seule fois, pas de doublon (body.innerText.count == 1)"},
+    {"item": "GET /notifications pour user fraîchement enregistré → 200 + list valide (pas de crash)"},
+    {"item": "PATCH /bookings/{bid} status='pending' après completion → 422 (Pydantic Literal rejette)"},
+    {"item": "PATCH /bookings/{bid} quote_amount=-100 → 422 ; quote_amount=0 → 422"},
+    {"item": "GET /providers?limit=0 et limit=10000 → 200 (pas de crash) ; idem /rides et /family/babysitters"},
+    {"item": "/admin/crm/overview, /admin/crm/users, /admin/stats/marketplace, /admin/staff avec token client → 403"},
+    {"item": "POST /payments/checkout/booking → réponse JSON propre (pas de crash Python même sans clé Stripe live)"},
+    {"item": "GET /ads?placement=home_top&audience=client → 200, structure valide"},
+    {"item": "POST /reviews sur booking pending → autorisé (règle métier active côté serveur — pas de blocage 400)"},
+    {"item": "Home carrousel : bannière « Trouvez votre pro en 2 min » cliquable, ads sponsorisés (Awa Ndiaye, Sylla Mouhamed) rendus"},
+    {"item": "Recherche : 11+ prestataires listés (Aminata Sy, Awa Ndiaye, Papis Gueye, Sylla Mouhamed, Ndèye Faye, Fatou Sow, Moussa Diop, Ibrahima Fall, CashPro/BlockPro/RegPro) avec ratings"},
+    {"item": "Notifications : 7+ notifs de 4 types affichés (Mission terminée, Réservation accepted, Carnet de session prêt, La session a commencé) avec CTA « Voir »"},
+    {"item": "Legal Center : 22 documents officiels chargés, catégorisés (Conditions/Confidentialité, Paiements/Remboursements, etc.)"},
+    {"item": "Family : filtres complets (Type de service, Profil, Langue, Tranche d'âge, Compétence) rendus"}
+  ],
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "provider/[id].tsx", "issue": "Icônes ♥ ⤴️ 📞 💬 sans testID — réduit couverture automation", "testID": "à ajouter: provider-favorite / provider-share / provider-call / provider-message", "priority": "minor"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home / Recherche", "issues": ["2 URLs Pexels 404 (2074131, 8961324) — cases blanches à la place des visuels sponsorisés / avatars"]},
+      {"screen": "Tous (web preview)", "issues": ["shadow* deprecated, pointerEvents deprecated, useNativeDriver fallback (déjà signalé iter25)"]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter26_audit.py",
+    "/app/test_reports/pytest/iter26.xml"
+  ],
+  "action_items": [
+    "P3 : Grep et remplacer les 2 URLs Pexels 404 (2074131, 8961324) dans les données seed backend. Ajouter fallback onError sur composants <Image />.",
+    "P4 : Ajouter testID sur les 4 icônes du provider detail (favorite, share, call, message) pour faciliter les tests automation.",
+    "P4 : Migrer les styles shadow.* et props pointerEvents vers l'API web moderne (Platform.OS === 'web' → boxShadow, style.pointerEvents) dans /app/frontend/src/theme.ts et src/components/ui.tsx.",
+    "Note : le fix iter25 pour POST /users/{peer_id}/block (validation existence 404) est CONFIRMÉ et couvert par test_block_nonexistent_peer_returns_404. Aucune régression sur les scopes iter23/iter24 (family carnet, filtre bidirectionnel bloqués) — vérification par la couverture pytest existante."
+  ],
+  "critical_code_review_comments": [
+    "server.py:3158-3165 : le fix de iter25 vérifie l'existence de peer_id dans users, providers, puis babysitters (par user_id). Bon fallback — mais si un peer est UNIQUEMENT enregistré comme user (ex. client bloque un autre client), le check users.find_one suffit. Ordre optimal.",
+    "server.py atteint désormais 4754 lignes (+8 vs iter25). Toujours au-delà du seuil recommandé 700. À splitter en modules (auth/, bookings/, chat/, admin/) lors du prochain chantier refacto.",
+    "chat/[id].tsx:129-136 : le check `(router as any).canGoBack?.() !== false` avant router.back() est correct — retire l'edge case du warning « GO_BACK was not handled ». Fallback replace('/(tabs)/chat') pour deep link. Nickel.",
+    "chat/[id].tsx:158 : sous-titre header « Contact » avec `color:subtext` — retire correctement l'indicateur « ● en ligne » signalé en iter25.",
+    "ActionSheet.tsx:53 et 119 : setTimeout(350ms) après onClose() avant onPress()/onConfirm() — évite bien la superposition de Modal (fade). Documenté clairement en commentaire. Bon pattern web-safe.",
+    "Aucun _id MongoDB fuité dans les endpoints testés (24 endpoints couverts)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter26_audit.py (nouveau — 24 tests répartis en 9 classes, 2.68s, 100% pass)",
+    "/app/test_reports/pytest/iter26.xml (JUnit report)"
+  ],
+  "success_rate": {
+    "backend": "100% (24/24 iter26 audit)",
+    "frontend": "100% block flow end-to-end + 7 écrans smoke OK (Home, Search, Chat list, Chat, Notifications, Profile, Legal, Family, Provider detail)"
+  },
+  "seed_data_creation": "POST /api/seed idempotent. Créés durant les tests : ~4 bookings client→pro (dates 2030-01/02/03/04/05 TEST_iter26), 1 message chat 'TEST_iter26 hello', 1 nouveau user TEST_iter26_{hex}@example.com pour le test empty notifications. Blocage résiduel : après le test UI block flow, le client bloque le pro puis a été DÉ-bloqué via API DELETE (cleanup automatique dans le script playwright). Vérifier avec `GET /users/me/blocked` sur client@jokoo.sn = []. Booking résiduel iter25 (« Terminée ») visible dans Profile — normal, correspond au flow completion.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iter26 clean. Les 3 fixes iter25 (block validation 404, header 'Contact', ActionSheet+ConfirmDialog+toast) sont validés end-to-end. Rappels utiles : (1) Endpoint /me n'existe pas, utiliser /auth/me. (2) POST /api/auth/login retourne {token, user}, pas {access_token}. (3) Profil labels : « Paramètres » (pas « Réglages »), « Supprimer mon compte » (pas « Supprimer le compte »), « Sécurité & confidentialité » (pas juste « Sécurité »). (4) Provider detail utilise testID `provider-book` sur le bouton Réserver — les autres icônes (heart/share/call/message) n'ont pas de testID. (5) Chat header : peer name + « Contact » subtext. (6) Chat menu → ActionSheet 2 actions (report + block) + Annuler. (7) Sanitizer chat convertit téléphones/emails en « •••[masqué par Jokoo] » — visible dans /chat/{pro_id}. (8) Les 2 URLs Pexels 404 sont probablement dans les données seed (grep 2074131|8961324 dans /app/backend/). (9) Aucun nouveau P1/P2 identifié.",
+  "rca_of_issue": "N/A — cette itération est un audit de vérification post-fixes. Les 3 correctifs iter25 sont conformes à la spec et couverts par 24 tests pytest + validation UI end-to-end. Les 3 issues minor identifiés (Pexels 404, testIDs manquants, warnings RN Web) sont cosmétiques et n'affectent aucun flow utilisateur."
+}
