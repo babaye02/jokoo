@@ -100,9 +100,8 @@ export default function BookFamily() {
         emergency_contact: { name: ecName.trim(), phone: ecPhone.trim() },
       };
       await api.post("/family/bookings", body);
-      Alert.alert("Réservation envoyée", "L'étudiant(e) recevra une notification. Vous serez prévenu(e) dès confirmation.", [
-        { text: "OK", onPress: () => router.replace("/family/mine") },
-      ]);
+      // Redirection immédiate — pas d'Alert.alert (bloqué sur certains navigateurs web)
+      router.replace({ pathname: "/family/mine", params: { just_booked: "1" } });
     } catch (e: any) {
       setErr(e.message || "Erreur");
     } finally {

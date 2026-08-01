@@ -86,11 +86,8 @@ export default function SendParcel() {
         photo,
         payment_mode: paymentMode,
       });
-      Alert.alert(
-        "Demande envoyée",
-        "Le conducteur va examiner votre demande. Vous serez notifié.",
-        [{ text: "OK", onPress: () => router.replace("/mobility/delivery/mine") }],
-      );
+      // Redirection immédiate — pas d'Alert.alert intermédiaire (bloqué par certains navigateurs)
+      router.replace({ pathname: "/mobility/delivery/mine", params: { just_sent: "1" } });
     } catch (e: any) {
       setErr(e.message || "Erreur");
     } finally {

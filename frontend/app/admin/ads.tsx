@@ -83,30 +83,32 @@ export default function AdminAds() {
     link_target: null,
     link_label: null,
     media: [], placements: ["home"], category_key: null,
-    target_audience: "all", display_mode: "single",
+    target_audience: "all", display_mode: "single", display_duration_ms: 5000,
     start_at: "", end_at: "", active: true, suspended: false,
   });
 
-  const suspend = (a: Ad) => {
-    Alert.alert(
-      "Suspendre la publicité",
-      `« ${a.title} » ne sera plus affichée aux utilisateurs. Vous pourrez la réactiver à tout moment.`,
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Suspendre",
-          style: "destructive",
-          onPress: async () => { await api.patch(`/admin/ads/${a.id}/suspend`); load(); },
-        },
-      ],
-    );
-  };
+  const [confirming, setConfirming] = useState<
+    | null
+    | { kind: "suspend" | "delete"; ad: Ad }
+  >(null);
+
+  const suspend = (a: Ad) => setConfirming({ kind: "suspend", ad: a });
   const resume  = async (a: Ad) => { await api.patch(`/admin/ads/${a.id}/resume`); load(); };
-  const remove = (a: Ad) => {
-    Alert.alert("Supprimer", `Supprimer "${a.title}" ?`, [
-      { text: "Annuler", style: "cancel" },
-      { text: "Supprimer", style: "destructive", onPress: async () => { await api.del(`/admin/ads/${a.id}`); load(); } },
-    ]);
+  const remove = (a: Ad) => setConfirming({ kind: "delete", ad: a });
+
+  const executeConfirm = async () => {
+    if (!confirming) return;
+    try {
+      if (confirming.kind === "suspend") {
+        await api.patch(`/admin/ads/${confirming.ad.id}/suspend`);
+      } else {
+        await api.del(`/admin/ads/${confirming.ad.id}`);
+      }
+      setConfirming(null);
+      load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Opération impossible");
+    }
   };
 
   const pickMedia = async (kind: "image" | "video") => {
@@ -171,6 +173,9 @@ export default function AdminAds() {
         category_key: editing.category_key || null,
         target_audience: editing.target_audience || "all",
         display_mode: editing.display_mode || "single",
+        display_duration_ms: typeof editing.display_duration_ms === "number" && editing.display_duration_ms > 0
+          ? Math.max(1500, Math.min(30000, editing.display_duration_ms))
+          : null,
         start_at: editing.start_at || null,
         end_at: editing.end_at || null,
         active: editing.active !== false,
@@ -287,6 +292,38 @@ export default function AdminAds() {
         togglePlacement={togglePlacement}
         insets={insets}
       /> : null}
+
+      {/* Confirmation modale (in-app, plus fiable que Alert.alert sur navigateur web) */}
+      <Modal transparent visible={confirming !== null} animationType="fade" onRequestClose={() => setConfirming(null)}>
+        <Pressable style={styles.confirmOverlay} onPress={() => setConfirming(null)}>
+          <Pressable style={styles.confirmCard} onPress={() => {}}>
+            <View style={styles.confirmIcon}>
+              <Ionicons
+                name={confirming?.kind === "delete" ? "trash" : "pause"}
+                size={22}
+                color={confirming?.kind === "delete" ? colors.danger : colors.warning}
+              />
+            </View>
+            <Txt size="lg" weight="700" style={{ textAlign: "center", marginTop: 12 }}>
+              {confirming?.kind === "delete" ? "Supprimer la publicité ?" : "Suspendre la publicité ?"}
+            </Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ textAlign: "center", marginTop: 6, lineHeight: 20 }}>
+              {confirming?.kind === "delete"
+                ? `« ${confirming.ad.title} » sera supprimée définitivement. Cette action est irréversible.`
+                : `« ${confirming?.ad.title} » ne sera plus affichée aux utilisateurs. Vous pourrez la réactiver à tout moment.`}
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.lg }}>
+              <Btn title="Annuler" variant="ghost" onPress={() => setConfirming(null)} style={{ flex: 1 }} testID="confirm-cancel" />
+              <Btn
+                title={confirming?.kind === "delete" ? "Supprimer" : "Suspendre"}
+                onPress={executeConfirm}
+                style={{ flex: 1, backgroundColor: confirming?.kind === "delete" ? colors.danger : colors.warning }}
+                testID="confirm-ok"
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -416,6 +453,29 @@ function AdEditor({ editing, setEditing, save, saving, cats, providers, promos, 
             </Pressable>
           </View>
 
+          {/* Durée d'affichage dans le carrousel */}
+          <Txt size="sm" weight="500" color={colors.textMuted} style={{ marginBottom: 6 }}>Durée d&apos;affichage (dans le carrousel)</Txt>
+          <Txt size="xxs" color={colors.textSubtle} style={{ marginBottom: 8 }}>
+            Temps affiché avant de passer à la bannière suivante. Effectif dès qu&apos;il y a 2+ bannières sur le même emplacement.
+          </Txt>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: spacing.md }}>
+            {[3000, 5000, 7000, 10000, 15000].map((ms) => {
+              const active = (editing.display_duration_ms || 5000) === ms;
+              return (
+                <Pressable
+                  key={ms}
+                  onPress={() => setEditing({ ...editing, display_duration_ms: ms })}
+                  style={[styles.chip, active && styles.chipActive]}
+                  testID={`ad-duration-${ms}`}
+                >
+                  <Txt weight="600" color={active ? colors.white : colors.midnight}>
+                    {(ms / 1000).toString().replace(".0", "")} s
+                  </Txt>
+                </Pressable>
+              );
+            })}
+          </View>
+
           {/* Emplacements */}
           <Txt size="sm" weight="500" color={colors.textMuted} style={{ marginBottom: 6 }}>Emplacements</Txt>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: spacing.md }}>
@@ -525,6 +585,22 @@ const styles = StyleSheet.create({
   dpChoiceActive: { backgroundColor: "#F0FBF8" },
   modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
   modalCard: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "75%" },
+  confirmOverlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center", justifyContent: "center", padding: spacing.xl,
+  },
+  confirmCard: {
+    width: "100%", maxWidth: 380,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+  },
+  confirmIcon: {
+    alignSelf: "center",
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: colors.surface2,
+    alignItems: "center", justifyContent: "center",
+  },
 });
 
 /**

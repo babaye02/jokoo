@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, FamilyBooking } from "@/src/api";
 import { formatXof } from "@/src/pricing";
@@ -29,10 +29,20 @@ const STATUS_COLOR: Record<string, { bg: string; fg: string }> = {
 export default function MyFamilyBookings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ just_booked?: string }>();
   const [tab, setTab] = useState<Tab>("parent");
   const [mine, setMine] = useState<FamilyBooking[]>([]);
   const [assigned, setAssigned] = useState<FamilyBooking[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [showToast, setShowToast] = useState<boolean>(params.just_booked === "1");
+
+  useEffect(() => {
+    if (params.just_booked === "1") {
+      setShowToast(true);
+      const t = setTimeout(() => setShowToast(false), 4500);
+      return () => clearTimeout(t);
+    }
+  }, [params.just_booked]);
 
   const load = useCallback(async () => {
     try {
@@ -87,6 +97,18 @@ export default function MyFamilyBookings() {
           <Ionicons name="search" size={20} color={colors.white} />
         </Pressable>
       </SafeAreaView>
+
+      {showToast ? (
+        <View style={styles.toast}>
+          <Ionicons name="checkmark-circle" size={18} color={colors.white} />
+          <Txt size="sm" weight="700" color={colors.white} style={{ marginLeft: 8, flex: 1 }}>
+            Réservation envoyée ! L&apos;étudiant(e) recevra une notification.
+          </Txt>
+          <Pressable onPress={() => setShowToast(false)} hitSlop={8}>
+            <Ionicons name="close" size={18} color={colors.white} />
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.tabs}>
         <Pressable onPress={() => setTab("parent")} style={[styles.tabBtn, tab === "parent" && styles.tabBtnActive]} testID="tab-parent">
@@ -243,4 +265,10 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.surface, padding: spacing.lg, borderRadius: radius.lg, ...shadow.card },
   pill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   empty: { alignItems: "center", padding: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg, ...shadow.soft },
+  toast: {
+    flexDirection: "row", alignItems: "center",
+    marginHorizontal: spacing.xl, marginTop: spacing.md,
+    paddingHorizontal: spacing.md, paddingVertical: 12,
+    backgroundColor: colors.success, borderRadius: radius.md, ...shadow.soft,
+  },
 });

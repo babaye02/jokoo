@@ -1,7 +1,7 @@
 // Admin — CRUD des offres promotionnelles Jokoo.
 // Chaque promo est accessible via /promo/{slug} et peut être ciblée par une bannière (link_type=promo).
 import { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidingView, Platform } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidingView, Platform, Modal } from "react-native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,10 +35,13 @@ export default function AdminPromos() {
     });
   };
 
-  const remove = (p: Promo) => Alert.alert("Supprimer", `Supprimer la promo « ${p.title} » ?`, [
-    { text: "Annuler", style: "cancel" },
-    { text: "Supprimer", style: "destructive", onPress: async () => { await api.del(`/admin/promos/${p.id}`); load(); } },
-  ]);
+  const [confirmingDel, setConfirmingDel] = useState<Promo | null>(null);
+  const remove = (p: Promo) => setConfirmingDel(p);
+  const executeDelete = async () => {
+    if (!confirmingDel) return;
+    try { await api.del(`/admin/promos/${confirmingDel.id}`); setConfirmingDel(null); load(); }
+    catch (e: any) { Alert.alert("Erreur", e?.message || "Suppression impossible"); }
+  };
 
   const pickImage = async () => {
     if (!editing) return;
@@ -258,6 +261,26 @@ export default function AdminPromos() {
           </KeyboardAvoidingView>
         </View>
       ) : null}
+
+      <Modal transparent visible={confirmingDel !== null} animationType="fade" onRequestClose={() => setConfirmingDel(null)}>
+        <Pressable style={styles.confirmOverlay} onPress={() => setConfirmingDel(null)}>
+          <Pressable style={styles.confirmCard} onPress={() => {}}>
+            <View style={styles.confirmIcon}>
+              <Ionicons name="trash" size={22} color={colors.danger} />
+            </View>
+            <Txt size="lg" weight="700" style={{ textAlign: "center", marginTop: 12 }}>
+              Supprimer cette promo ?
+            </Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ textAlign: "center", marginTop: 6, lineHeight: 20 }}>
+              {`« ${confirmingDel?.title} » sera supprimée définitivement. Cette action est irréversible.`}
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.lg }}>
+              <Btn title="Annuler" variant="ghost" onPress={() => setConfirmingDel(null)} style={{ flex: 1 }} />
+              <Btn title="Supprimer" onPress={executeDelete} style={{ flex: 1, backgroundColor: colors.danger }} testID="promo-delete-confirm" />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -287,4 +310,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#FCA5A5",
     marginBottom: spacing.md, marginTop: -6,
   },
+  confirmOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: spacing.xl },
+  confirmCard: { width: "100%", maxWidth: 380, backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.xl },
+  confirmIcon: { alignSelf: "center", width: 52, height: 52, borderRadius: 26, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
 });

@@ -401,6 +401,7 @@ class AdIn(BaseModel):
     category_key: Optional[str] = None
     target_audience: AdAudience = "all"
     display_mode: AdDisplayMode = "single"
+    display_duration_ms: Optional[int] = None  # durée d'affichage dans un carrousel (ms). Défaut : 5000
     start_at: Optional[str] = None  # ISO 8601 with time
     end_at: Optional[str] = None
     active: bool = True

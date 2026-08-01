@@ -178,6 +178,7 @@ export type Ad = {
   category_key?: string | null;
   target_audience?: "all" | "client" | "prestataire";
   display_mode?: "single" | "carousel_queue";
+  display_duration_ms?: number | null;
   start_at?: string | null;
   end_at?: string | null;
   active: boolean;

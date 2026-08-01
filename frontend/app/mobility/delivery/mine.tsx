@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Parcel } from "@/src/api";
 import { formatXof } from "@/src/pricing";
@@ -31,10 +31,20 @@ const STATUS_COLOR: Record<string, { bg: string; fg: string }> = {
 export default function MyParcels() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ just_sent?: string }>();
   const [tab, setTab] = useState<Tab>("sent");
   const [sent, setSent] = useState<Parcel[]>([]);
   const [received, setReceived] = useState<Parcel[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [showToast, setShowToast] = useState<boolean>(params.just_sent === "1");
+
+  useEffect(() => {
+    if (params.just_sent === "1") {
+      setShowToast(true);
+      const t = setTimeout(() => setShowToast(false), 4500);
+      return () => clearTimeout(t);
+    }
+  }, [params.just_sent]);
 
   const load = useCallback(async () => {
     try {
@@ -87,6 +97,18 @@ export default function MyParcels() {
           <Ionicons name="search" size={20} color={colors.white} />
         </Pressable>
       </SafeAreaView>
+
+      {showToast ? (
+        <View style={styles.toast}>
+          <Ionicons name="checkmark-circle" size={18} color={colors.white} />
+          <Txt size="sm" weight="700" color={colors.white} style={{ marginLeft: 8, flex: 1 }}>
+            Demande envoyée ! Le conducteur va l&apos;examiner.
+          </Txt>
+          <Pressable onPress={() => setShowToast(false)} hitSlop={8}>
+            <Ionicons name="close" size={18} color={colors.white} />
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.tabs}>
         <Pressable onPress={() => setTab("sent")} style={[styles.tabBtn, tab === "sent" && styles.tabBtnActive]} testID="ptab-sent">
@@ -304,4 +326,10 @@ const styles = StyleSheet.create({
   pill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   rowDivider: { height: 1, backgroundColor: colors.divider, marginVertical: spacing.md },
   empty: { alignItems: "center", padding: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg, ...shadow.soft },
+  toast: {
+    flexDirection: "row", alignItems: "center",
+    marginHorizontal: spacing.xl, marginTop: spacing.md,
+    paddingHorizontal: spacing.md, paddingVertical: 12,
+    backgroundColor: colors.success, borderRadius: radius.md, ...shadow.soft,
+  },
 });

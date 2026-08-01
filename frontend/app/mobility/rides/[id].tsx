@@ -45,9 +45,8 @@ export default function RideDetail() {
     setBusy(true);
     try {
       await api.post(`/rides/${ride.id}/book`, { seats });
-      Alert.alert("Réservation confirmée", `${seats} place(s) réservée(s) — ${formatXof(total)}`, [
-        { text: "OK", onPress: () => router.replace("/mobility/rides/mine") },
-      ]);
+      // Redirection immédiate — pas d'Alert.alert (bloqué sur navigateur web)
+      router.replace({ pathname: "/mobility/rides/mine", params: { just_booked: "1" } });
     } catch (e: any) {
       setErr(e.message || "Erreur");
     } finally {

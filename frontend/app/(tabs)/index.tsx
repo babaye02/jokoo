@@ -208,15 +208,26 @@ export default function Home() {
 }
 
 function AdCarousel({ ads, testIDPrefix }: { ads: Ad[]; testIDPrefix: string }) {
-  // Fait défiler auto toutes les 5s les ads dont display_mode="carousel_queue",
-  // OU s'il y a plusieurs ads pour cet emplacement.
+  // Fait défiler automatiquement les bannières. Chaque bannière peut définir
+  // sa propre durée d'affichage via `display_duration_ms` (défaut : 5000 ms).
+  // Le carrousel s'active dès qu'il y a plus d'une bannière ou si l'admin a
+  // explicitement demandé le mode `carousel_queue`.
   const shouldRotate = ads.length > 1 || ads.some((a) => a.display_mode === "carousel_queue");
   const [idx, setIdx] = useState(0);
+
   useEffect(() => {
-    if (!shouldRotate) return;
-    const t = setInterval(() => setIdx((i) => (i + 1) % ads.length), 5000);
-    return () => clearInterval(t);
-  }, [ads.length, shouldRotate]);
+    if (!shouldRotate || ads.length === 0) return;
+    const current = ads[idx % ads.length];
+    // Clamp entre 1.5s (impossible de lire plus vite) et 30s (au-delà, ce n'est plus un carrousel).
+    const raw = current?.display_duration_ms;
+    const duration = typeof raw === "number" && raw > 0
+      ? Math.max(1500, Math.min(30000, raw))
+      : 5000;
+    const t = setTimeout(() => setIdx((i) => (i + 1) % ads.length), duration);
+    return () => clearTimeout(t);
+  }, [ads, idx, shouldRotate]);
+
+  if (ads.length === 0) return null;
   const cur = ads[idx % ads.length];
   return (
     <View>
@@ -224,14 +235,20 @@ function AdCarousel({ ads, testIDPrefix }: { ads: Ad[]; testIDPrefix: string }) 
       {shouldRotate ? (
         <View style={{ flexDirection: "row", justifyContent: "center", marginTop: 6 }}>
           {ads.map((_, i) => (
-            <View
+            <Pressable
               key={i}
-              style={{
-                width: i === idx ? 16 : 6, height: 6, borderRadius: 3,
-                backgroundColor: i === idx ? colors.turquoise : colors.borderStrong,
-                marginHorizontal: 3,
-              }}
-            />
+              onPress={() => setIdx(i)}
+              hitSlop={6}
+              accessibilityLabel={`Bannière ${i + 1} sur ${ads.length}`}
+            >
+              <View
+                style={{
+                  width: i === idx ? 16 : 6, height: 6, borderRadius: 3,
+                  backgroundColor: i === idx ? colors.turquoise : colors.borderStrong,
+                  marginHorizontal: 3,
+                }}
+              />
+            </Pressable>
           ))}
         </View>
       ) : null}

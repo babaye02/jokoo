@@ -50,9 +50,8 @@ export default function SubmitReport() {
         notes: notes.trim(),
         photo,
       });
-      Alert.alert("Carnet envoyé", "Le parent recevra le compte-rendu de la session. Merci !", [
-        { text: "OK", onPress: () => router.replace(`/family/booking/${id}`) },
-      ]);
+      // Redirection immédiate (Alert.alert avec callback bloqué sur navigateur web)
+      router.replace({ pathname: `/family/booking/${id}` as any, params: { just_reported: "1" } });
     } catch (e: any) {
       setErr(e.message || "Erreur");
     } finally {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Ride, RideBooking } from "@/src/api";
 import { formatXof } from "@/src/pricing";
@@ -13,11 +13,21 @@ type Tab = "driver" | "passenger";
 export default function MyRides() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ just_booked?: string }>();
   const [tab, setTab] = useState<Tab>("passenger");
   const [rides, setRides] = useState<Ride[]>([]);
   const [bookings, setBookings] = useState<RideBooking[]>([]);
   const [received, setReceived] = useState<RideBooking[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [showToast, setShowToast] = useState<boolean>(params.just_booked === "1");
+
+  useEffect(() => {
+    if (params.just_booked === "1") {
+      setShowToast(true);
+      const t = setTimeout(() => setShowToast(false), 4500);
+      return () => clearTimeout(t);
+    }
+  }, [params.just_booked]);
 
   const load = useCallback(async () => {
     try {
@@ -89,6 +99,18 @@ export default function MyRides() {
           <Ionicons name="add" size={22} color={colors.white} />
         </Pressable>
       </SafeAreaView>
+
+      {showToast ? (
+        <View style={styles.toast}>
+          <Ionicons name="checkmark-circle" size={18} color={colors.white} />
+          <Txt size="sm" weight="700" color={colors.white} style={{ marginLeft: 8, flex: 1 }}>
+            Réservation confirmée !
+          </Txt>
+          <Pressable onPress={() => setShowToast(false)} hitSlop={8}>
+            <Ionicons name="close" size={18} color={colors.white} />
+          </Pressable>
+        </View>
+      ) : null}
 
       {/* Tabs */}
       <View style={styles.tabs}>
@@ -301,4 +323,10 @@ const styles = StyleSheet.create({
   rowDivider: { height: 1, backgroundColor: colors.divider, marginVertical: spacing.md },
   ghostBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#FEE2E2" },
   empty: { alignItems: "center", padding: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg, ...shadow.soft },
+  toast: {
+    flexDirection: "row", alignItems: "center",
+    marginHorizontal: spacing.xl, marginTop: spacing.md,
+    paddingHorizontal: spacing.md, paddingVertical: 12,
+    backgroundColor: colors.success, borderRadius: radius.md, ...shadow.soft,
+  },
 });

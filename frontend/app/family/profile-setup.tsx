@@ -112,9 +112,8 @@ export default function ProfileSetup() {
         hourly_rate_xof: rn,
         psc1_certified: psc1,
       });
-      Alert.alert("Profil enregistré", "Vous êtes désormais visible dans Jokoo Family !", [
-        { text: "OK", onPress: () => router.replace("/family") },
-      ]);
+      // Redirection immédiate — pas d'Alert.alert (bloqué sur navigateur web)
+      router.replace({ pathname: "/family", params: { just_profile: "1" } });
     } catch (e: any) {
       setErr(e.message || "Erreur");
     } finally {

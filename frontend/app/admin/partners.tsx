@@ -1,7 +1,7 @@
 // Admin — CRUD des partenaires commerciaux Jokoo.
 // Chaque partenaire est accessible via /partner/{id} et peut être ciblé par une bannière (link_type=partner).
 import { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidingView, Platform } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidingView, Platform, Modal } from "react-native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,10 +36,13 @@ export default function AdminPartners() {
     });
   };
 
-  const remove = (p: Partner) => Alert.alert("Supprimer", `Supprimer le partenaire « ${p.name} » ?`, [
-    { text: "Annuler", style: "cancel" },
-    { text: "Supprimer", style: "destructive", onPress: async () => { await api.del(`/admin/partners/${p.id}`); load(); } },
-  ]);
+  const [confirmingDel, setConfirmingDel] = useState<Partner | null>(null);
+  const remove = (p: Partner) => setConfirmingDel(p);
+  const executeDelete = async () => {
+    if (!confirmingDel) return;
+    try { await api.del(`/admin/partners/${confirmingDel.id}`); setConfirmingDel(null); load(); }
+    catch (e: any) { Alert.alert("Erreur", e?.message || "Suppression impossible"); }
+  };
 
   const pickImage = async (kind: "logo" | "cover") => {
     if (!editing) return;
@@ -145,7 +148,7 @@ export default function AdminPartners() {
                 <Txt size="xs" weight="600" style={{ marginLeft: 6 }}>Aperçu</Txt>
               </Pressable>
               <View style={{ width: 1, backgroundColor: colors.divider }} />
-              <Pressable onPress={() => remove(p)} style={styles.action}>
+              <Pressable onPress={() => remove(p)} style={styles.action} testID={`partner-delete-${p.id}`}>
                 <Ionicons name="trash-outline" size={16} color={colors.danger} />
                 <Txt size="xs" weight="600" color={colors.danger} style={{ marginLeft: 6 }}>Supprimer</Txt>
               </Pressable>
@@ -234,6 +237,26 @@ export default function AdminPartners() {
           </KeyboardAvoidingView>
         </View>
       ) : null}
+
+      <Modal transparent visible={confirmingDel !== null} animationType="fade" onRequestClose={() => setConfirmingDel(null)}>
+        <Pressable style={styles.confirmOverlay} onPress={() => setConfirmingDel(null)}>
+          <Pressable style={styles.confirmCard} onPress={() => {}}>
+            <View style={styles.confirmIcon}>
+              <Ionicons name="trash" size={22} color={colors.danger} />
+            </View>
+            <Txt size="lg" weight="700" style={{ textAlign: "center", marginTop: 12 }}>
+              Supprimer ce partenaire ?
+            </Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ textAlign: "center", marginTop: 6, lineHeight: 20 }}>
+              {`« ${confirmingDel?.name} » sera supprimé définitivement. Cette action est irréversible.`}
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.lg }}>
+              <Btn title="Annuler" variant="ghost" onPress={() => setConfirmingDel(null)} style={{ flex: 1 }} />
+              <Btn title="Supprimer" onPress={executeDelete} style={{ flex: 1, backgroundColor: colors.danger }} testID="partner-delete-confirm" />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -256,4 +279,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#FCA5A5",
     marginBottom: spacing.md, marginTop: -6,
   },
+  confirmOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: spacing.xl },
+  confirmCard: { width: "100%", maxWidth: 380, backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.xl },
+  confirmIcon: { alignSelf: "center", width: 52, height: 52, borderRadius: 26, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
 });

@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 16 validée : backend 5/5 pytest verts + frontend 2/2 flows E2E (covoiturage + family profile) verts. Aucun window.alert/window.confirm natif capturé sur les flows testés (dialog handler = 0). (a) POST /api/rides/{rid}/book — payload {seats: 1} avec auth client sur un ride seats_available>0 → 200 avec booking retourné, seats_available décrémenté (vérif GET /api/rides/{id}), booking apparaît dans GET /api/rides/bookings/mine. Missing auth → 401/403. (b) POST /api/family/profile — payload FamilyProfileIn valide (bio unique + student + UCAD + licence + Dakar + [fr native] + [3-5,6-10] + [babysitting] + 2500 XOF) → 200 avec profile complet retourné (id présent, pas de _id, status=active, verified_plus calculé). Le profil apparaît immédiatement dans GET /api/family/babysitters?limit=200 (match par bio unique). GET /api/family/profile/me → exists=true. (c) Régression POST /api/rides/{rid}/parcel (auth client, long-distance ride) → 200 avec parcel id. (d) Frontend covoiturage E2E : login client@jokoo.sn → /mobility/rides/{id} → cliquer 'Réserver — 3 000 F' (testID ride-book) → redirection immédiate vers /mobility/rides/mine?just_booked=1 avec toast vert 'Réservation confirmée !' visible (screenshot). Aucun window.alert. (e) Frontend family profile-setup E2E : login client → /family/profile-setup → remplir ps-bio + ps-uni=UCAD + ps-city=Dakar + ps-age-3-5 (services babysitting déjà par défaut, type student par défaut, level licence par défaut, langue fr par défaut, rate 2500 par défaut) → cliquer ps-submit → redirection immédiate vers /family?just_profile=1 avec toast vert 'Profil enregistré ! Vous êtes visible dans Jokoo Family.' visible (screenshot). Aucun window.alert. Le pattern iter15 (POST 200 → router.replace + params just_xxx=1 → toast local à la destination) est correctement étendu à ces 3 flows (rides/[id], family/profile-setup, family/booking/[id]/report). Note : report.tsx n'a pas été retesté E2E car il nécessite qu'un booking family soit accepté par le sitter puis démarré — le code source suit exactement le même pattern router.replace + just_reported=1 (voir report.tsx:54).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter16_ride_book_family_profile.py",
+    "/app/test_reports/pytest/iter16.xml",
+    "/app/test_reports/iteration_16.json"
+  ],
+  "action_items": [
+    "Aucun bug bloquant. Iteration 16 prête à livrer.",
+    "Suggestion (non-bloquant) : rides/[id].tsx:62 (cancelRide) et rides/mine.tsx:56,73 (cancelRide + cancelBooking) utilisent encore Alert.alert avec callback destructive — même risque de blocage sur navigateur web. Si ces flows doivent tourner en web, appliquer le même pattern Modal in-app (testID confirm-ok/confirm-cancel) que sur /admin/ads déjà en place."
+  ],
+  "critical_code_review_comments": [
+    "app/mobility/rides/[id].tsx:47-54 — book() : await api.post → router.replace({pathname:'/mobility/rides/mine', params:{just_booked:'1'}}) immédiat + setBusy(false) dans finally. Aucun Alert.alert bloquant. Correct.",
+    "app/mobility/rides/mine.tsx:16-30 — useLocalSearchParams.just_booked + useState(params.just_booked==='1') + useEffect setTimeout 4500ms pour hide. Toast rendu conditionnellement lignes 103-113. Bien.",
+    "app/mobility/rides/mine.tsx:56 et 73 — cancelRide et cancelBooking utilisent encore Alert.alert avec callbacks destructive (Alert.alert 'Erreur' aussi en catch). RISQUE : ces flows peuvent également bloquer sur web. À migrer vers Modal in-app pour cohérence.",
+    "app/family/profile-setup.tsx:84-122 — validation client complète (bio min 10, university, city, ≥1 langue, ≥1 âge, ≥1 service, rate ≥500) puis POST /family/profile → router.replace({pathname:'/family', params:{just_profile:'1'}}) + setBusy(false) dans finally. Correct.",
+    "app/family/index.tsx:17,30-38 — useLocalSearchParams.just_profile + toast conditionnel 5s. Bien.",
+    "app/family/booking/[id]/report.tsx:41-60 — submit() valide activities.length≥3, POST /family/bookings/{id}/report puis router.replace immédiat vers /family/booking/{id}?just_reported=1. Pattern identique aux 2 autres flows. Correct.",
+    "app/family/booking/[id]/report.tsx:30 — Alert.alert 'Permission requise' pour la galerie photo : c'est un Alert SANS callback bloquant (juste info), donc acceptable même sur web. Non bloquant.",
+    "backend/server.py:3149-3207 (upsert_babysitter_profile) — exclut correctement _id à la sortie ({k:v for k,v in doc.items() if k!='_id'}), calcule verified_plus server-side, back-compat offers_babysitting/offers_tutoring depuis services. Idempotent (update si existing, insert sinon). Bien.",
+    "backend/server.py:2932 POST /rides/{rid}/book — non re-lu ici mais pytest test_book_ride_returns_200_and_persists valide : 200 + booking retourné + seats_available décrémenté + booking listable via /rides/bookings/mine."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter16_ride_book_family_profile.py (nouveau, 5 tests pytest)"
+  ],
+  "success_rate": {
+    "backend": "100% (5/5 : ride book create+persist, ride book 401, family profile upsert+search, family profile 401/422, parcel regression 200)",
+    "frontend": "100% (2/2 : covoiturage login→ride detail→ride-book→/mobility/rides/mine?just_booked=1 avec toast + family profile-setup remplissage→ps-submit→/family?just_profile=1 avec toast — 0 window.alert/confirm capturé)"
+  },
+  "seed_data_creation": "Créés pendant les tests pytest (préfixés TEST_) : 2 rides (TEST_Dakar→TEST_Thies, TEST_Dakar→TEST_StLouis), 1 ride booking client (1 seat, 3000 XOF), 1 parcel request (TEST_iter16 colis, 3kg), 1 profil babysitter mis à jour pour client@jokoo.sn (bio unique TEST_iter16, UCAD, Dakar, 2500 XOF, student, [fr native], [3-5,6-10], [babysitting]). Créés côté frontend : 1 ride booking supplémentaire sur ride seed a938824a via UI. Impact production : nul, toutes les données TEST_ sont préfixées et laissées en base pour re-tests futurs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "TestIDs à retenir pour iter16 : ride-book (bouton principal de /mobility/rides/[id]), tab-passenger / tab-driver (mine.tsx), ps-bio / ps-uni / ps-city / ps-age-{code} / ps-svc-{code} / ps-pt-{student|teacher|professional} / ps-lvl-{code} / ps-lang-{code} / ps-skill-{code} / ps-rate / ps-psc1 / ps-submit. Routes : /login (pas /auth/login), /mobility/rides, /mobility/rides/[id], /mobility/rides/mine, /family, /family/profile-setup, /family/booking/[id]/report. Le pattern à respecter partout : POST 200 → router.replace({pathname, params:{just_xxx:'1'}}) immédiat + toast local sur la destination + setBusy(false) dans finally. Éviter Alert.alert avec onPress callback destructive (bloqué sur navigateur web). À noter : rides/mine.tsx utilise encore Alert.alert dans cancelRide/cancelBooking — à migrer si ces actions doivent tourner en web. Rides seed disponibles via GET /api/rides (id a938824a-57c2-4606-ba61-a61b13c7cc6b Dakar→Saint-Louis 5000 XOF). Backend base URL : EXPO_PUBLIC_BACKEND_URL (https://jokoo-mobile-dev.preview.emergentagent.com).",
+  "rca_of_issue": "N/A — iteration 16 est une extension du pattern iter15. Les 3 flows (book ride, family profile-setup, family booking report) ont été correctement migrés vers 'router.replace immédiat + toast local'. Vérification E2E confirme : (1) POST 200 côté backend, (2) redirect URL contient bien le param just_xxx=1, (3) toast vert visible sur la destination, (4) zéro capture de window.alert/confirm natif. Aucune régression observée sur les endpoints existants."
+}
