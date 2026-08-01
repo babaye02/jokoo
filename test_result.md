@@ -158,18 +158,37 @@ frontend:
 
   - task: "Review notification (review_received) delivered to provider"
     implemented: true
-    working: "NA"
+    working: true
     file: "backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: |
           POST /api/reviews now supports booking_id-only (resolves provider from booking), stamps booking.review_id, and inserts a notification of type `review_received` targeted at `user_id=provider_id` with `booking_id` and `review_id`. Ratings recomputed on providers doc.
+      - working: true
+        agent: "testing"
+        comment: "iteration_23 PASS (22/22) — booking_id-only OK, tiers 403, dupe 400, notif livrée au prestataire, rating recomputé."
 
   - task: "Family session notebook (carnet) delivered to parent"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          POST /api/family/bookings/{bid}/report creates a babysitting_reports doc, sets booking.report_id + status=completed + paid=true, and inserts a notification of type `babysitting_report` targeted at parent with `family_booking_id`. GET /api/family/bookings/{bid}/report returns 200 for parent/sitter/admin, else 403; 404 if not yet submitted.
+      - working: true
+        agent: "testing"
+        comment: "iteration_23 PASS (22/22) — parent 200 / babysitter 200 / admin 200 / tiers 403 / 404 avant soumission / 404 sur id bidon. Notif livrée correctement au parent."
+
+  - task: "Blocked users bidirectional visibility filter"
     implemented: true
     working: "NA"
     file: "backend/server.py"
@@ -180,7 +199,21 @@ frontend:
       - working: "NA"
         agent: "main"
         comment: |
-          POST /api/family/bookings/{bid}/report creates a babysitting_reports doc, sets booking.report_id + status=completed + paid=true, and inserts a notification of type `babysitting_report` targeted at parent with `family_booking_id`. GET /api/family/bookings/{bid}/report returns 200 for parent/sitter/admin, else 403; 404 if not yet submitted.
+          Added `_blocked_ids(user_id)` and `_is_pair_blocked(a, b)` helpers using the `blocked_users` collection.
+          Applied bidirectional filtering to:
+          • GET /api/providers — list excludes providers where either party blocked the other.
+          • GET /api/providers/{id} — 404 if pair blocked.
+          • POST /api/bookings — 403 if pair blocked.
+          • GET /api/rides — list excludes rides where driver is blocked either way.
+          • GET /api/rides/{rid} — 404 if pair blocked.
+          • POST /api/rides/{rid}/book — 403 if pair blocked.
+          • POST /api/rides/{rid}/parcel — 403 if pair blocked.
+          • GET /api/family/babysitters — list excludes babysitters blocked either way.
+          • GET /api/family/babysitters/{bid} — 404 if pair blocked.
+          • POST /api/family/bookings — 403 if pair blocked.
+          • GET /api/chat/{peer_id}/messages — returns [] if pair blocked.
+          • POST /api/chat/{peer_id}/messages — 403 if pair blocked.
+          • GET /api/chat/conversations — hides peers where mutually blocked.
 
 frontend:
   - task: "Notification routing for review_received + babysitting_report"
@@ -198,15 +231,13 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.2"
-  test_sequence: 3
+  version: "1.3"
+  test_sequence: 4
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Review notification (review_received) delivered to provider"
-    - "Family session notebook (carnet) delivered to parent"
-    - "Notification routing for review_received + babysitting_report"
+    - "Blocked users bidirectional visibility filter"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -214,26 +245,42 @@ test_plan:
 agent_communication:
   - agent: "main"
     message: |
-      Please validate two P0 flows just fixed:
+      Nouveau correctif P1 à valider — **backend uniquement** :
 
-      1) Review notification pour le prestataire
-         - Login client → POST /api/reviews avec `{booking_id, rating, comment}` (sans provider_id).
-         - Backend doit :
-           • Résoudre provider_id depuis le booking (403 si le client ne possède pas la réservation).
-           • Marquer booking.review_id et refuser un 2e avis (400).
-           • Insérer une notification `review_received` avec `user_id=provider_id`, `booking_id`, `review_id`.
-           • Recompute providers.rating + providers.reviews_count.
-         - Login prestataire → GET /api/notifications doit contenir `review_received` non lue.
+      **Filtre bidirectionnel des utilisateurs bloqués** (helpers `_blocked_ids` / `_is_pair_blocked`).
 
-      2) Carnet de session Famille pour le parent
-         - Login babysitter (student) → POST /api/family/bookings/{bid}/report.
-         - Backend doit :
-           • Créer le report, set booking.report_id + status=completed + paid=true.
-           • Insérer notif `babysitting_report` avec `user_id=parent_id`, `family_booking_id`.
-         - Login parent → GET /api/family/bookings/{bid}/report doit renvoyer le carnet.
-         - Login parent → GET /api/notifications doit contenir `babysitting_report`.
+      Scénario de base : deux comptes A et B.
+        - A block B → POST /api/users/{B.id}/block
+        - B est totalement invisible pour A, et A est totalement invisible pour B.
+        - Les autres utilisateurs (C) continuent de voir A et B normalement.
 
-      Credentials: admin@jokoo.sn / Admin1234!, client@jokoo.sn / Passw0rd!, pro@jokoo.sn / Passw0rd!,
-      aisha.family@jokoo.sn / Family1234! (babysitter/étudiante).
+      Endpoints à vérifier (bidirectionnel) :
+      1. GET /api/providers → A ne voit plus B dans la liste (et vice-versa). C voit toujours les deux.
+      2. GET /api/providers/{id} → 404 si pair bloqué.
+      3. POST /api/bookings → 403 si tentative entre A et B.
+      4. GET /api/rides → A ne voit plus les trajets de B.
+      5. GET /api/rides/{id} → 404 si driver bloqué (dans les deux sens).
+      6. POST /api/rides/{id}/book → 403 si pair bloqué.
+      7. POST /api/rides/{id}/parcel → 403 si pair bloqué.
+      8. GET /api/family/babysitters → B (sitter) invisible pour A si block. Filtre bidirectionnel.
+      9. GET /api/family/babysitters/{id} → 404 si pair bloqué.
+      10. POST /api/family/bookings → 403 si pair bloqué.
+      11. GET /api/chat/{B.id}/messages (côté A) → [] si bloqué.
+      12. POST /api/chat/{B.id}/messages → 403 si bloqué.
+      13. GET /api/chat/conversations → la conversation A-B disparaît des deux côtés après block.
 
-      Skip frontend UI testing — backend-only pour cette itération (les routes frontend sont déjà en place et branchées sur ces endpoints).
+      Après DELETE /api/users/{B.id}/block (unblock), tout doit redevenir visible.
+
+      Setup pour tests :
+        - Utiliser deux comptes clients/prestataires (par ex. créer un compte client bis + `pro@jokoo.sn`).
+        - Pour rides : `chauffeur@jokoo.sn` / `Driver1234!` a 4 trajets seedés — bloquer ce user rendra les 4 invisibles.
+        - Pour family : `aisha.family@jokoo.sn` / `Family1234!` est une baby-sitter — bloquer ce user rendra son profil invisible.
+
+      Credentials : admin@jokoo.sn / Admin1234!, client@jokoo.sn / Passw0rd!, pro@jokoo.sn / Passw0rd!, chauffeur@jokoo.sn / Driver1234!, aisha.family@jokoo.sn / Family1234!.
+
+      Backend URL externe : https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com/api/*
+
+      Rapport à écrire dans /app/test_reports/iteration_24.json.
+
+      **Skip frontend** — pas de UI ajoutée ; les endpoints existants sont maintenant tous filtrés.
+      **Ne pas re-tester** les flows validés dans iteration_23.json (reviews, family notebook).

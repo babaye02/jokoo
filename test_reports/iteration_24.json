@@ -1,0 +1,55 @@
+{
+  "summary": "Iter24 — Filtre bidirectionnel des utilisateurs bloqués (P1 backend) : 42/42 tests OK en 9.7s couvrant les 13 endpoints demandés dans les 2 sens (A bloque B ET B bloque A produisent le même effet). Les helpers `_blocked_ids` (~L3179) et `_is_pair_blocked` (~L3196) fonctionnent correctement : (1) GET /providers exclut le prestataire bloqué (dans les 2 sens) et un tiers voit toujours tout ; (2) GET /providers/{id} → 404 bidirectionnel, 200 pour tiers ; (3) POST /bookings → 403 bidirectionnel ; (4) GET /rides masque les trajets du driver bloqué (2 sens) ; (5) GET /rides/{rid} → 404 bidirectionnel ; (6) POST /rides/{rid}/book → 403 bidirectionnel ; (7) POST /rides/{rid}/parcel → 403 bidirectionnel ; (8) GET /family/babysitters masque le sitter bloqué (2 sens) ; (9) GET /family/babysitters/{bid} → 404 bidirectionnel ; (10) POST /family/bookings → 403 bidirectionnel ; (11) GET /chat/{peer_id}/messages → [] (200, pas d'erreur) dans les 2 sens ; (12) POST /chat/{peer_id}/messages → 403 dans les 2 sens ; (13) GET /chat/conversations exclut la conversation avec pair bloqué des 2 côtés. DELETE /users/{id}/block restaure immédiatement la visibilité, les conversations et les messages historiques.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter24_blocked_bidirectional.py",
+    "/app/test_reports/pytest/iter24.xml"
+  ],
+  "endpoints_verdict": [
+    {"id": 1, "endpoint": "GET /api/providers", "verdict": "PASS", "notes": "?limit=200 nécessaire pour voir >20 providers. Filtrage confirmé (client→pro, pro→client). Tiers moussa voit pro."},
+    {"id": 2, "endpoint": "GET /api/providers/{id}", "verdict": "PASS", "notes": "404 bidirectionnel + 200 tiers + 200 après unblock."},
+    {"id": 3, "endpoint": "POST /api/bookings", "verdict": "PASS", "notes": "baseline 200, blocked 403 (2 sens). Payload requis: provider_id/date/time/address/description."},
+    {"id": 4, "endpoint": "GET /api/rides", "verdict": "PASS", "notes": "Filtrage driver_id via $nin. Tiers voit tous les trajets driver."},
+    {"id": 5, "endpoint": "GET /api/rides/{rid}", "verdict": "PASS", "notes": "404 bidirectionnel après _is_pair_blocked(user, r.driver_id)."},
+    {"id": 6, "endpoint": "POST /api/rides/{rid}/book", "verdict": "PASS", "notes": "403 avant vérif places. Utiliser ride avec seats_available>0 pour éviter 400."},
+    {"id": 7, "endpoint": "POST /api/rides/{rid}/parcel", "verdict": "PASS", "notes": "403 bidirectionnel sur trajet longue distance avec accepts_parcels=true."},
+    {"id": 8, "endpoint": "GET /api/family/babysitters", "verdict": "PASS", "notes": "Filtre par user_id du sitter. Bidirectionnel OK."},
+    {"id": 9, "endpoint": "GET /api/family/babysitters/{bid}", "verdict": "PASS", "notes": "404 bidirectionnel."},
+    {"id": 10, "endpoint": "POST /api/family/bookings", "verdict": "PASS", "notes": "403 bidirectionnel. Payload requis: kids[].name + emergency_contact."},
+    {"id": 11, "endpoint": "GET /api/chat/{peer_id}/messages", "verdict": "PASS", "notes": "Retourne [] (pas 403/404) — bon comportement UX. Bidirectionnel OK. Après unblock, l'historique revient."},
+    {"id": 12, "endpoint": "POST /api/chat/{peer_id}/messages", "verdict": "PASS", "notes": "403 bidirectionnel. Vérifié dans les 2 sens (client→pro et pro→client)."},
+    {"id": 13, "endpoint": "GET /api/chat/conversations", "verdict": "PASS", "notes": "peer_id du bloqué absent des 2 côtés. Réapparait après unblock."}
+  ],
+  "action_items": [
+    "Aucun correctif backend requis — le filtre bidirectionnel P1 fonctionne conformément à la spec sur les 13 endpoints (42/42 tests OK).",
+    "Note pour les prochains tests parallèles pytest-xdist : les tests iter24 utilisent des blocs partagés entre classes ; désactiver xdist (`-o addopts=''`) ou isoler chaque scénario avec des comptes ad hoc /api/auth/register si on veut du parallèle propre."
+  ],
+  "critical_code_review_comments": [
+    "server.py:3178-3206 — `_blocked_ids` fait un $or sur {user_id, blocked_id} et retourne un `set` symétrique (dédoublonné, self-exclu). `_is_pair_blocked` fait un find_one avec $or (user_id,blocked_id) — coût O(1) index recommandé sur `blocked_users` (composite {user_id:1, blocked_id:1} + inverse). À prévoir si volume >10k blocages.",
+    "Ordre des checks dans POST /rides/{rid}/book (server.py:3403+) : status → own → is_pair_blocked → _check_provider_not_blocked → seats. Bon ordre (403 précède 400 places insuffisantes).",
+    "GET /chat/{peer_id}/messages renvoie [] au lieu de 403/404 — choix UX pertinent : masque l'existence de la conversation sans casser le front qui appelle systématiquement le endpoint à l'ouverture. Cohérent avec provider/ride detail qui font 404 (pour masquer l'existence côté détail public).",
+    "GET /providers a un limit par défaut faible (=20) — non lié à iter24 mais à surveiller côté UX si la liste des 28 seeded providers grandit.",
+    "Aucune fuite _id dans les collections `blocked_users`, `messages`, `rides`, `providers`, `babysitters`, `bookings` retournées par les endpoints filtrés (toutes les projections utilisent {_id:0})."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter24_blocked_bidirectional.py (nouveau — 42 tests répartis en 11 classes, 1 module-scope seed, 5 auths, fixtures sitter_profile + driver_ride)"
+  ],
+  "success_rate": {
+    "backend": "100% (42/42 iter24 endpoints × 2 directions)",
+    "frontend": "N/A — backend-only demandé"
+  },
+  "seed_data_creation": "POST /api/seed idempotent (28 providers, 16 sitters, 4 rides chauffeur). Créé pendant les tests: 1 booking client→pro (baseline TEST_iter24), 1 message chat client↔pro (TEST_iter24_...). Aucun blocage résiduel en fin de run (test_cleanup vérifie que list_blocked=[] pour les 5 comptes).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter24 clean. Rappels : (1) Lancer les tests SANS pytest-xdist parallèle sur ce fichier : `pytest -o addopts='' test_iter24_blocked_bidirectional.py`. Les blocs partagés entre classes créent des races si -n auto. (2) GET /providers a un `limit` par défaut de 20, utiliser ?limit=200 pour lister tous les prestataires. (3) BookingIn attend `description` (pas `notes`), BabysittingBookingIn.kids[].name (pas first_name) + emergency_contact obligatoire, ParcelIn utilise pickup_address/dropoff_address (pas drop_address). (4) POST /rides/{rid}/book : ordre des checks : status → own → is_pair_blocked → _check_provider_not_blocked → seats. Utiliser un trajet avec seats_available>0 pour tester le 403. (5) GET /chat/{peer_id}/messages retourne [] (200) si bloqué — pas d'erreur, comportement UX intentionnel. (6) Les 13 endpoints sont couverts + unblock restore. Rien à re-tester si aucun nouveau P1 sur le filtre bloqués n'est ajouté.",
+  "rca_of_issue": "N/A — le correctif P1 est conforme. Faux positifs initiaux (13/42 échecs premier run) causés uniquement par : (a) payloads Pydantic invalides côté test (BookingIn.description, BabysittingKid.name, ParcelIn.pickup_address/dropoff_address, BabysittingBookingIn.emergency_contact) ; (b) trajet driver avec seats_available=0 → 400 avant de tester le 403 ; (c) pytest-xdist parallèle : les fixtures `_cleanup_all_blocks` de classes concurrentes nettoyaient les blocs actifs d'autres tests. Fix : payloads corrigés + fixture driver_ride filtre seats_available>0 + exécution séquentielle. Aucun bug backend."
+}

@@ -956,6 +956,7 @@ async def list_providers(
     q: Optional[str] = None,
     sort: Optional[str] = None,  # "rating" | "price"
     limit: int = 50,
+    user=Depends(optional_user),
 ):
     query: dict = {}
     if service:
@@ -974,6 +975,10 @@ async def list_providers(
             {"service": {"$regex": q, "$options": "i"}},
             {"description": {"$regex": q, "$options": "i"}},
         ]
+    # Exclure les prestataires bloqués (mutuellement) via l'utilisateur courant.
+    blocked = await _blocked_ids(user["id"] if user else None)
+    if blocked:
+        query["id"] = {"$nin": list(blocked)}
     cursor = db.providers.find(query, {"_id": 0}).limit(limit)
     items = await cursor.to_list(length=limit)
     # Les prestataires sponsorisés (sponsored_until dans le futur) sont mis en tête.
@@ -997,6 +1002,9 @@ async def list_providers(
 
 @api.get("/providers/{provider_id}")
 async def get_provider(provider_id: str, user=Depends(optional_user)):
+    # Filtre bloqués : 404 si l'un des deux a bloqué l'autre (masquer l'existence).
+    if user and await _is_pair_blocked(user["id"], provider_id):
+        raise HTTPException(404, "Prestataire introuvable")
     p = await db.providers.find_one({"id": provider_id}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Prestataire introuvable")
@@ -1060,6 +1068,10 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
     provider = await db.providers.find_one({"id": body.provider_id}, {"_id": 0})
     if not provider:
         raise HTTPException(404, "Prestataire introuvable")
+
+    # Blocage mutuel : interdire la réservation entre deux utilisateurs bloqués.
+    if await _is_pair_blocked(user["id"], body.provider_id):
+        raise HTTPException(403, "Réservation impossible : l'un de vous a bloqué l'autre.")
 
     # Bloquer si le prestataire a des commissions impayées au-delà du seuil
     await _check_provider_not_blocked(body.provider_id)
@@ -1385,9 +1397,13 @@ async def conversations(user=Depends(current_user)):
         {"_id": 0},
     ).sort("created_at", -1)
     msgs = await cur.to_list(1000)
+    # Exclure les conversations avec des pairs bloqués (mutuellement).
+    blocked = await _blocked_ids(user["id"])
     peers: dict = {}
     for m in msgs:
         peer = m["to_id"] if m["from_id"] == user["id"] else m["from_id"]
+        if peer in blocked:
+            continue
         if peer not in peers:
             peers[peer] = {"peer_id": peer, "last": m, "unread": 0}
         if m["to_id"] == user["id"] and not m.get("read"):
@@ -1424,6 +1440,10 @@ async def conversations(user=Depends(current_user)):
 
 @api.get("/chat/{peer_id}/messages")
 async def get_messages(peer_id: str, user=Depends(current_user)):
+    # Si l'un des deux a bloqué l'autre, on renvoie une conversation vide
+    # (pas d'erreur, la liste des conversations gère l'affichage bloqué séparément).
+    if await _is_pair_blocked(user["id"], peer_id):
+        return []
     cid = _conv_id(user["id"], peer_id)
     cur = db.messages.find({"conv_id": cid}, {"_id": 0}).sort("created_at", 1)
     msgs = await cur.to_list(1000)
@@ -1437,6 +1457,9 @@ async def get_messages(peer_id: str, user=Depends(current_user)):
 
 @api.post("/chat/{peer_id}/messages")
 async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)):
+    # Interdire l'envoi si blocage mutuel (dans les deux sens).
+    if await _is_pair_blocked(user["id"], peer_id):
+        raise HTTPException(403, "Impossible d'envoyer un message : vous ou l'autre partie l'avez bloqué·e.")
     # Accept peer as either a real user OR a provider (seeded/demo providers may not have a user doc yet)
     peer = await db.users.find_one({"id": peer_id}, {"_id": 0})
     peer_name = None
@@ -3152,6 +3175,37 @@ async def list_blocked(user=Depends(current_user)):
     return await cur.to_list(500)
 
 
+# ---------- Block helpers (visibility & interaction filters) ----------
+async def _blocked_ids(user_id: Optional[str]) -> set[str]:
+    """Retourne l'ensemble des user_ids que `user_id` a bloqué OU qui l'ont bloqué.
+    Utilisé pour filtrer profils, recherche, chat, réservations. Vide si non authentifié.
+    """
+    if not user_id:
+        return set()
+    out: set[str] = set()
+    async for d in db.blocked_users.find(
+        {"$or": [{"user_id": user_id}, {"blocked_id": user_id}]},
+        {"_id": 0, "user_id": 1, "blocked_id": 1},
+    ):
+        peer = d["blocked_id"] if d["user_id"] == user_id else d["user_id"]
+        if peer and peer != user_id:
+            out.add(peer)
+    return out
+
+
+async def _is_pair_blocked(a: Optional[str], b: Optional[str]) -> bool:
+    """True si a a bloqué b OU b a bloqué a."""
+    if not a or not b or a == b:
+        return False
+    doc = await db.blocked_users.find_one({
+        "$or": [
+            {"user_id": a, "blocked_id": b},
+            {"user_id": b, "blocked_id": a},
+        ]
+    }, {"_id": 1})
+    return bool(doc)
+
+
 
 
 # ---------- Mobility · Covoiturage (rides) ----------
@@ -3220,6 +3274,7 @@ async def search_rides(
     distance_type: Optional[str] = None,
     accepts_parcels: Optional[bool] = None,
     limit: int = 50,
+    user=Depends(optional_user),
 ):
     q: dict = {"status": "active"}
     if from_city:
@@ -3243,6 +3298,10 @@ async def search_rides(
     if accepts_parcels is True:
         q["accepts_parcels"] = True
         q["distance_type"] = "long"
+    # Exclure les trajets dont le conducteur est bloqué (dans les deux sens).
+    blocked = await _blocked_ids(user["id"] if user else None)
+    if blocked:
+        q["driver_id"] = {"$nin": list(blocked)}
     cur = db.rides.find(q, {"_id": 0}).sort([("date", 1), ("time", 1)]).limit(limit)
     return await cur.to_list(limit)
 
@@ -3287,9 +3346,11 @@ async def received_ride_bookings(user=Depends(current_user)):
 
 
 @api.get("/rides/{rid}")
-async def get_ride(rid: str):
+async def get_ride(rid: str, user=Depends(optional_user)):
     r = await db.rides.find_one({"id": rid}, {"_id": 0})
     if not r:
+        raise HTTPException(404, "Trajet introuvable")
+    if user and await _is_pair_blocked(user["id"], r.get("driver_id")):
         raise HTTPException(404, "Trajet introuvable")
     return r
 
@@ -3346,6 +3407,8 @@ async def book_ride(rid: str, body: RideBookingIn, user=Depends(current_user)):
         raise HTTPException(404, "Trajet indisponible")
     if r["driver_id"] == user["id"]:
         raise HTTPException(400, "Vous ne pouvez pas réserver votre propre trajet")
+    if await _is_pair_blocked(user["id"], r["driver_id"]):
+        raise HTTPException(403, "Réservation impossible : l'un de vous a bloqué l'autre.")
     # Bloquer si le conducteur a des commissions impayées au-delà du seuil
     await _check_provider_not_blocked(r["driver_id"])
     if body.seats > (r.get("seats_available") or 0):
@@ -3414,6 +3477,8 @@ async def create_parcel_request(rid: str, body: ParcelIn, user=Depends(current_u
         raise HTTPException(400, "Ce trajet n'accepte pas de colis longue distance")
     if r["driver_id"] == user["id"]:
         raise HTTPException(400, "Vous ne pouvez pas envoyer un colis sur votre propre trajet")
+    if await _is_pair_blocked(user["id"], r["driver_id"]):
+        raise HTTPException(403, "Envoi impossible : l'un de vous a bloqué l'autre.")
     if body.weight_kg > (r.get("parcel_max_kg") or 0):
         raise HTTPException(400, f"Poids maximum autorisé : {r.get('parcel_max_kg')} kg")
     payment_mode_allowed = r.get("parcel_payment_mode") or "app_or_cash"
@@ -3644,6 +3709,7 @@ async def search_babysitters(
     recommended: Optional[bool] = None,
     verified_plus: Optional[bool] = None,
     limit: int = 50,
+    user=Depends(optional_user),
 ):
     q: dict = {"status": "active"}
     if city:
@@ -3681,6 +3747,10 @@ async def search_babysitters(
         rate_q["$lte"] = int(max_rate)
     if rate_q:
         q["hourly_rate_xof"] = rate_q
+    # Exclure les baby-sitters bloqués (par user_id).
+    blocked = await _blocked_ids(user["id"] if user else None)
+    if blocked:
+        q["user_id"] = {"$nin": list(blocked)}
     cur = db.babysitters.find(q, {"_id": 0, "student_card": 0, "emergency_contact": 0}).sort([
         ("recommended_by_jokoo", -1),
         ("verified_plus", -1),
@@ -3691,9 +3761,11 @@ async def search_babysitters(
 
 
 @api.get("/family/babysitters/{bid}")
-async def get_babysitter(bid: str):
+async def get_babysitter(bid: str, user=Depends(optional_user)):
     b = await db.babysitters.find_one({"id": bid}, {"_id": 0, "student_card": 0, "emergency_contact": 0})
     if not b:
+        raise HTTPException(404, "Étudiant introuvable")
+    if user and await _is_pair_blocked(user["id"], b.get("user_id")):
         raise HTTPException(404, "Étudiant introuvable")
     return b
 
@@ -3745,6 +3817,8 @@ async def create_babysitting_booking(body: BabysittingBookingIn, user=Depends(cu
         raise HTTPException(404, "Étudiant indisponible")
     if sitter["user_id"] == user["id"]:
         raise HTTPException(400, "Vous ne pouvez pas vous réserver vous-même")
+    if await _is_pair_blocked(user["id"], sitter["user_id"]):
+        raise HTTPException(403, "Réservation impossible : l'un de vous a bloqué l'autre.")
     # Bloquer si l'étudiant a des commissions Jokoo impayées au-delà du seuil
     await _check_provider_not_blocked(sitter["user_id"])
     if body.service_type in ("tutoring", "both") and not sitter.get("offers_tutoring"):
