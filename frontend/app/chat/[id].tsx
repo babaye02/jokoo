@@ -126,7 +126,14 @@ export default function Chat() {
       await api.post(`/users/${id}/block`, {});
       setBlockedToast(`${displayName} a été bloqué·e.`);
       // Retour arrière après un court délai pour laisser voir le toast
-      setTimeout(() => router.back(), 900);
+      setTimeout(() => {
+        // Utilise dismiss si canGoBack() est faux (deep link direct)
+        if ((router as any).canGoBack?.() !== false) {
+          router.back();
+        } else {
+          router.replace("/(tabs)/chat");
+        }
+      }, 900);
     } catch (e: any) {
       // Alert.alert échoue silencieusement sur navigateur web → on utilise la bannière in-app.
       setErr(e?.message || "Impossible de bloquer. Vérifiez votre connexion.");
@@ -148,7 +155,7 @@ export default function Chat() {
           <Avatar name={displayName} size={40} />
           <View style={{ marginLeft: 10 }}>
             <Txt weight="700">{displayName}</Txt>
-            <Txt size="xxs" color={colors.turquoise}>● en ligne</Txt>
+            <Txt size="xxs" color={colors.subtext}>Contact</Txt>
           </View>
         </View>
         <Pressable onPress={showMenu} style={styles.iconBtn} testID="chat-menu" hitSlop={10}>

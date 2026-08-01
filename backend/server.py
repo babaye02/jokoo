@@ -3155,6 +3155,14 @@ async def delete_my_account(user=Depends(current_user)):
 async def block_user(peer_id: str, user=Depends(current_user)):
     if peer_id == user["id"]:
         raise HTTPException(400, "Impossible de se bloquer soi-même")
+    # Vérifier que la cible existe (soit user, soit provider, soit babysitter)
+    exists = await db.users.find_one({"id": peer_id}, {"_id": 1})
+    if not exists:
+        exists = await db.providers.find_one({"id": peer_id}, {"_id": 1})
+    if not exists:
+        exists = await db.babysitters.find_one({"user_id": peer_id}, {"_id": 1})
+    if not exists:
+        raise HTTPException(404, "Utilisateur introuvable")
     await db.blocked_users.update_one(
         {"user_id": user["id"], "blocked_id": peer_id},
         {"$set": {"user_id": user["id"], "blocked_id": peer_id, "created_at": now_iso()}},
