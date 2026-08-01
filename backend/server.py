@@ -1577,6 +1577,13 @@ async def read_all_notifs(user=Depends(current_user)):
     return {"ok": True}
 
 
+@api.post("/notifications/{nid}/read")
+async def read_one_notif(nid: str, user=Depends(current_user)):
+    """Marque une notification comme lue (utilisé au clic sur un item)."""
+    await db.notifications.update_one({"id": nid, "user_id": user["id"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
 # ---------- Notification preferences (Play/App Store best practice) ----------
 DEFAULT_NOTIF_PREFS = {
     "new_booking": True,
@@ -2733,9 +2740,29 @@ async def reset_user_password(uid: str, body: PasswordResetIn, user=Depends(requ
 
 # ---------- signalements / réclamations (support) ----------
 @api.get("/admin/reports")
-async def list_reports(user=Depends(require_perm("reports:handle"))):
-    cur = db.reports.find({}, {"_id": 0}).sort("created_at", -1)
+async def list_reports(status_filter: Optional[str] = None, user=Depends(require_perm("reports:handle"))):
+    """Liste des signalements. Filtre optionnel par statut : open|investigating|resolved|dismissed|escalated."""
+    q: dict = {}
+    if status_filter and status_filter != "all":
+        q["status"] = status_filter
+    cur = db.reports.find(q, {"_id": 0}).sort("created_at", -1)
     return await cur.to_list(500)
+
+
+@api.get("/admin/reports/stats")
+async def reports_stats(user=Depends(require_perm("reports:handle"))):
+    """Aperçu synthétique pour le hub Signalements."""
+    pipeline = [{"$group": {"_id": "$status", "n": {"$sum": 1}}}]
+    counts = {c["_id"]: c["n"] async for c in db.reports.aggregate(pipeline)}
+    total = sum(counts.values())
+    return {
+        "total": total,
+        "open": counts.get("open", 0),
+        "investigating": counts.get("investigating", 0),
+        "resolved": counts.get("resolved", 0),
+        "dismissed": counts.get("dismissed", 0),
+        "escalated": counts.get("escalated", 0),
+    }
 
 
 @api.post("/reports")
@@ -2748,19 +2775,109 @@ async def create_report(body: dict, user=Depends(current_user)):
         "target_type": body.get("target_type", "provider"),
         "reason": body.get("reason", ""),
         "status": "open",
+        "priority": body.get("priority", "normal"),  # normal | high | urgent
+        "history": [{
+            "at": now_iso(),
+            "by_id": user["id"],
+            "by_name": user["name"],
+            "action": "created",
+            "note": "Signalement créé",
+        }],
         "created_at": now_iso(),
+        "updated_at": now_iso(),
     }
     await db.reports.insert_one(doc)
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
+VALID_REPORT_STATUS = {"open", "investigating", "resolved", "dismissed", "escalated"}
+
+
 @api.patch("/admin/reports/{rid}")
 async def update_report(rid: str, body: dict, user=Depends(require_perm("reports:handle"))):
+    """Met à jour un signalement.
+
+    Payload : `{status?, note?, priority?, assigned_to?}`
+    Toute action alimente l'historique (timeline visible côté admin).
+    """
+    existing = await db.reports.find_one({"id": rid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Signalement introuvable")
+
+    new_status = body.get("status")
+    if new_status and new_status not in VALID_REPORT_STATUS:
+        raise HTTPException(400, f"Statut invalide. Utilisez : {sorted(VALID_REPORT_STATUS)}")
+
+    updates: dict = {"updated_at": now_iso()}
+    history_entries = []
+
+    if new_status and new_status != existing.get("status"):
+        updates["status"] = new_status
+        if new_status in ("resolved", "dismissed"):
+            updates["resolved_by"] = user["id"]
+            updates["resolved_by_name"] = user["name"]
+            updates["resolved_at"] = now_iso()
+        history_entries.append({
+            "at": now_iso(),
+            "by_id": user["id"],
+            "by_name": user["name"],
+            "action": "status_changed",
+            "from": existing.get("status", "open"),
+            "to": new_status,
+            "note": body.get("note") or "",
+        })
+
+    new_priority = body.get("priority")
+    if new_priority and new_priority != existing.get("priority"):
+        if new_priority not in {"normal", "high", "urgent"}:
+            raise HTTPException(400, "Priorité invalide (normal|high|urgent)")
+        updates["priority"] = new_priority
+        history_entries.append({
+            "at": now_iso(),
+            "by_id": user["id"],
+            "by_name": user["name"],
+            "action": "priority_changed",
+            "from": existing.get("priority", "normal"),
+            "to": new_priority,
+        })
+
+    assign_to = body.get("assigned_to")
+    if assign_to is not None and assign_to != existing.get("assigned_to"):
+        assignee = await db.users.find_one({"id": assign_to}, {"_id": 0, "name": 1}) if assign_to else None
+        updates["assigned_to"] = assign_to
+        updates["assigned_to_name"] = assignee.get("name") if assignee else None
+        history_entries.append({
+            "at": now_iso(),
+            "by_id": user["id"],
+            "by_name": user["name"],
+            "action": "assigned",
+            "to": assignee.get("name") if assignee else "—",
+        })
+
+    note = (body.get("note") or "").strip()
+    # Note « pure » (sans changement de status) : on l'ajoute quand même à l'historique
+    if note and not new_status:
+        history_entries.append({
+            "at": now_iso(),
+            "by_id": user["id"],
+            "by_name": user["name"],
+            "action": "note",
+            "note": note,
+        })
+
+    if not history_entries:
+        # Rien à faire → on renvoie une erreur claire (l'admin voulait probablement sauver mais rien n'a bougé)
+        raise HTTPException(400, "Aucune modification détectée. Modifiez le statut, la priorité ou ajoutez une note.")
+
     await db.reports.update_one(
         {"id": rid},
-        {"$set": {"status": body.get("status", "resolved"), "resolved_by": user["id"], "resolved_at": now_iso()}},
+        {
+            "$set": updates,
+            "$push": {"history": {"$each": history_entries}},
+        },
     )
-    return {"ok": True}
+    fresh = await db.reports.find_one({"id": rid}, {"_id": 0})
+    return fresh
 
 
 # ---------- Account deletion (Apple App Store 5.1.1(v)) ----------
@@ -3456,6 +3573,7 @@ async def create_babysitting_booking(body: BabysittingBookingIn, user=Depends(cu
         "title": "Nouvelle mission de babysitting",
         "body": f"{doc['parent_name']} — {body.date} de {body.time_start} à {body.time_end}",
         "peer_id": user["id"],
+        "family_booking_id": doc["id"],
         "read": False,
         "created_at": now_iso(),
     })
@@ -3530,6 +3648,7 @@ async def update_family_booking(bid: str, body: BabysittingBookingUpdate, user=D
             "title": label if body.status else "Session mise à jour",
             "body": notif_body or "",
             "peer_id": user["id"],
+            "family_booking_id": bid,
             "read": False,
             "created_at": now_iso(),
         })
@@ -3554,6 +3673,7 @@ async def trigger_sos(bid: str, user=Depends(current_user)):
         "title": "🚨 Alerte SOS reçue",
         "body": f"Contactez immédiatement — {b.get('address')} · {b.get('city')}",
         "peer_id": user["id"],
+        "family_booking_id": bid,
         "read": False,
         "created_at": now,
     })

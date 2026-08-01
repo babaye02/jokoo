@@ -1,0 +1,62 @@
+{
+  "summary": "Iter18 — backend tests 13/13 PASS (notifs /read, /admin/reports CRUD + stats + filter + history + resolved_by, family_booking_id sur nouveaux bookings). Frontend admin reports OK (stats bar, filtres, modal editor, timeline, save). CRITICAL bug détecté : cliquer une notif babysitting_request navigue bien vers /family/booking/{id} + POST /notifications/{id}/read 200, MAIS l'écran cible crashe avec un red-screen React 'Rendered more hooks than during the previous render' — Rules of Hooks violées dans /app/frontend/app/family/booking/[id]/index.tsx (useState après early return). Bug type-safety mineur dans /family/mine.tsx (setTab('assigned') alors que type=parent|sitter).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "FamilyBookingDetail",
+        "issue": "CRITICAL — Rules of Hooks violées : useState(sosConfirm) et useState(emergencyContact) déclarés APRÈS l'early return `if (!b) return ...` (ligne 44). Résultat : red-screen 'Rendered more hooks than during the previous render' dès qu'on ouvre /family/booking/{id} depuis une notif babysitting cliquée. Reference: /app/frontend/app/family/booking/[id]/index.tsx:44,73,74",
+        "testID": "n/a",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "MyFamilyBookings (auto-tab Étudiant)",
+        "issue": "setTab('assigned') utilisé alors que le type Tab = 'parent' | 'sitter'. L'auto-sélection Étudiant ne surligne donc jamais correctement l'onglet 'sitter'. Fix: remplacer par setTab('sitter'). Reference: /app/frontend/app/family/mine.tsx:12,59",
+        "testID": "tab-sitter",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Notification babysitting → détail mission",
+        "issue": "Le POST /notifications/{id}/read répond 200 et la navigation part vers /family/booking/{id}, mais l'écran destination crashe (red-screen hooks). L'utilisateur ne peut jamais consulter la mission depuis la notif.",
+        "affected_testIDs": ["notif-<id>"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "FamilyBookingDetail",
+        "issue": "Warning console : 'shadow*' style props deprecated (utiliser boxShadow) + 'props.pointerEvents is deprecated' + Animated.useNativeDriver non supporté sur web. Non bloquant mais à nettoyer."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter18_notifs_reports.py",
+    "/app/test_reports/pytest/iter18.xml"
+  ],
+  "action_items": [
+    "URGENT — Corriger /app/frontend/app/family/booking/[id]/index.tsx : remonter les useState(sosConfirm) et useState(emergencyContact) AVANT le early return `if (!b) return ...`. Sans ce fix, cliquer une notification babysitting_request produit un red-screen.",
+    "Corriger /app/frontend/app/family/mine.tsx ligne 59 : remplacer setTab('assigned') par setTab('sitter') (le type Tab = 'parent' | 'sitter', 'assigned' n'existe pas).",
+    "Optionnel : nettoyer les warnings shadow*/pointerEvents deprecated sur les écrans concernés."
+  ],
+  "critical_code_review_comments": [
+    "server.py atteint 4450 lignes — dépasse largement le seuil recommandé (>700). À découper en modules (auth, admin, family, mobility, reports…) lors d'une future itération.",
+    "PATCH /admin/reports/{rid} accepte `body: dict` non typé — ok pour flexibilité, mais un Pydantic ReportUpdateIn améliorerait la validation et l'auto-doc."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter18_notifs_reports.py (nouveau)"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13)",
+    "frontend": "60% — reports admin OK, notification click route OK, mais destination screen crash"
+  },
+  "seed_data_creation": "Plusieurs signalements TEST_iter18 créés côté client via POST /reports (traçables par reason='TEST_iter18 …'). Une réservation famille TEST_iter18 route créée entre client et Aïsha.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Après fix du hooks violation dans /app/frontend/app/family/booking/[id]/index.tsx, re-tester : login aisha.family@jokoo.sn → onglet Notifications → cliquer une notif babysitting_request → vérifier que l'écran /family/booking/{id} affiche les détails de la mission SANS red-screen. Vérifier également que l'onglet Étudiant(e) est bien pré-sélectionné après le fix setTab('sitter').",
+  "rca_of_issue": "Cause racine du red-screen sur clic notif babysitting : `FamilyBookingDetail` déclare des useState (sosConfirm ligne 73, emergencyContact ligne 74) APRÈS un early return `if (!b) return <View/>;` (ligne 44). Au 1er render, b=null → seuls les hooks 1..N sont appelés puis return. Au 2e render, b devient non-null → les hooks additionnels 73/74 s'exécutent, changeant l'ordre → React lève 'Rendered more hooks than during the previous render'. Reproduction : login Aïsha → /notifications → cliquer notif type=babysitting_* (qui contient family_booking_id désormais) → navigation vers /family/booking/{id} → red-screen. Mitigation : déplacer les 2 useState + l'appel à setEmergencyContact au-dessus du `if (!b)` guard, avant tout return conditionnel."
+}
