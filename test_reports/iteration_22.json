@@ -1,0 +1,42 @@
+{
+  "summary": "Iter22 — workflow signalements enrichi validé end-to-end. Backend : 12/12 pytest (test_iter22_reports_workflow.py) → (a) POST /api/reports crée un signalement avec history[0].action='created' et target_type='user' persisté, (b) PATCH /api/admin/reports/{rid} avec status='awaiting_reporter_confirm' + note passe le statut à awaiting_reporter_confirm ET pousse une notif type='report_awaiting_confirm' au client auteur avec report_id (validé via GET /api/notifications client), (c) GET /api/admin/reports renvoie author_phone, author_email, target_name, target_phone hydratés (jointure users côté back), (d) POST /api/reports/{rid}/confirm-resolution {resolved:true, note} par le client auteur : 200 status='resolved', flag resolved_by_reporter=true visible dans /admin/reports?status_filter=resolved, history entrée 'reporter_confirmed', notif support type='report_confirmed', (e) rebond {resolved:false, note} : 200 status='open', history 'reporter_rejected', notif support 'report_reopened', (f) sécurité 403 quand un autre user que l'auteur tente de confirmer, (g) 400 quand le report n'est pas en awaiting_reporter_confirm, (h) 400 sur status invalide 'foo' dans PATCH, (i) régression open → investigating → resolved direct fonctionne toujours (resolved_by / resolved_at renseignés), (j) régression logins client/pro/support OK. Frontend (viewport 390x844, support@jokoo.sn) : /admin/reports → ouverture de report → boutons rep-chat-author, rep-chat-target, rep-call-author tous visibles (author_phone présent dans la hydratation) ; clic rep-chat-author → navigation vérifiée vers /chat/{author_id} sans crash ; sélection chip status-awaiting_reporter_confirm + saisie note + tap report-save → PATCH 200 (status change to awaiting_reporter_confirm submitted) ; réouverture du report → bandeau bleu 'En attente de confirmation du déclarant. Il pourra clore ou rouvrir le signalement depuis sa notification.' visible (count=1) et pill de statut 'CONFIRMATION...' affichée. Aucun pageerror ni red-screen observé.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_reports_workflow.py",
+    "/app/test_reports/pytest/iter22.xml"
+  ],
+  "action_items": [
+    "Rien à corriger côté iter22 — spec conforme.",
+    "Observation UX secondaire (facultative) : quand status='awaiting_reporter_confirm', la chip 'Confirmation…' du sélecteur est active dans l'éditeur admin ; il n'y a pas d'indication explicite qu'il faut attendre le client. Le bandeau bleu joue déjà ce rôle donc c'est acceptable.",
+    "Le doublon 'Supprimer mon compte' relevé en iter21 (Alert.alert sur /profile vs ConfirmDialog sur /profile/security) reste ouvert — non lié à iter22."
+  ],
+  "critical_code_review_comments": [
+    "server.py continue de grossir (>4670 lignes). Le nouveau endpoint /reports/{rid}/confirm-resolution est propre : vérifie auteur (403), état awaiting_reporter_confirm (400), push history + notif support cohérent avec le PATCH admin.",
+    "GET /api/admin/reports fait la jointure users en batch (find $in) — bonne pratique, une seule requête peu importe le nombre de reports.",
+    "Petit point d'attention : dans reporter_confirm_resolution, le champ 'resolver' est trouvé via r.get('resolved_by') OR le dernier by_id de l'history. Cela pointera vers le support qui a set awaiting_reporter_confirm — c'est le comportement attendu. À noter : si le support A propose la résolution puis le support B ajoute une note (action='note') puis le client rejette, la notif partira vers B et non A. Improvement futur possible : stocker un champ 'awaiting_confirm_by' au moment du switch de statut pour cibler précisément le support qui a proposé la clôture.",
+    "Frontend admin/reports.tsx (504 lignes) : le composant est encore raisonnable. Bandeau awaiting rendu correctement conditionnellement.",
+    "onClose() puis setTimeout(200)+router.push pour rep-chat-author/target : contournement propre pour éviter le racecondition modal → navigation Expo Router (validé E2E).",
+    "Pas de fuite _id : /admin/reports fait bien find({}, {'_id': 0}) et users_map exclut aussi _id."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter22_reports_workflow.py (nouveau — 12 tests répartis en 7 classes couvrant creation, awaiting flow, hydration, resolved confirmation, rejection rebond, sécurité 403 + 400 wrong-state + 400 invalid-status, direct-resolve regression, login regression)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 iter22)",
+    "frontend": "100% (5/5 assertions : rep-chat-author visible, rep-chat-target visible, status-awaiting_reporter_confirm chip visible, navigation /chat/{author_id} réussie, bandeau bleu awaiting affiché après re-ouverture)"
+  },
+  "seed_data_creation": "Multiples reports TEST_iter22 créés par le client contre le prestataire (target_type='user') via /api/reports — status final variable (resolved, open, awaiting_reporter_confirm). Aucun compte critique modifié. Notifications TEST_iter22 générées côté client (report_awaiting_confirm) et côté support (report_confirmed, report_reopened) — restent en base, non nettoyées, sans impact.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter22 clean. Le workflow signalements est désormais : open → investigating → awaiting_reporter_confirm → (client valide → resolved) OU (client rejette → open). Ne pas oublier que le seul auteur du signalement peut appeler POST /reports/{rid}/confirm-resolution, et que le report doit être exactement en awaiting_reporter_confirm sinon 400. Les notifs générées (report_awaiting_confirm côté auteur, report_confirmed/report_reopened côté support) portent report_id — routeForNotif frontend peut être enrichi pour ouvrir /admin/reports?rid=... si besoin. Rate-limit /auth/login toujours actif — espacer les runs si nombreux logins parallèles.",
+  "rca_of_issue": "N/A — feature nominale, aucun bug détecté."
+}

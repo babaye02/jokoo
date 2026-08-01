@@ -2882,12 +2882,30 @@ async def reset_user_password(uid: str, body: PasswordResetIn, user=Depends(requ
 # ---------- signalements / réclamations (support) ----------
 @api.get("/admin/reports")
 async def list_reports(status_filter: Optional[str] = None, user=Depends(require_perm("reports:handle"))):
-    """Liste des signalements. Filtre optionnel par statut : open|investigating|resolved|dismissed|escalated."""
+    """Liste des signalements. Filtre optionnel par statut : open|investigating|awaiting_reporter_confirm|resolved|dismissed|escalated."""
     q: dict = {}
     if status_filter and status_filter != "all":
         q["status"] = status_filter
-    cur = db.reports.find(q, {"_id": 0}).sort("created_at", -1)
-    return await cur.to_list(500)
+    items = await db.reports.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Hydratation légère : nom + téléphone de l'auteur et de la cible (si user)
+    user_ids = set()
+    for r in items:
+        if r.get("author_id"): user_ids.add(r["author_id"])
+        if r.get("target_type") == "user" and r.get("target_id"): user_ids.add(r["target_id"])
+    users_map: dict = {}
+    if user_ids:
+        async for u in db.users.find({"id": {"$in": list(user_ids)}}, {"_id": 0, "id": 1, "name": 1, "phone": 1, "email": 1}):
+            users_map[u["id"]] = u
+    for r in items:
+        au = users_map.get(r.get("author_id"))
+        if au:
+            r["author_phone"] = au.get("phone")
+            r["author_email"] = au.get("email")
+        tu = users_map.get(r.get("target_id")) if r.get("target_type") == "user" else None
+        if tu:
+            r["target_name"] = tu.get("name")
+            r["target_phone"] = tu.get("phone")
+    return items
 
 
 @api.get("/admin/reports/stats")
@@ -2931,7 +2949,56 @@ async def create_report(body: dict, user=Depends(current_user)):
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
-VALID_REPORT_STATUS = {"open", "investigating", "resolved", "dismissed", "escalated"}
+@api.post("/reports/{rid}/confirm-resolution")
+async def reporter_confirm_resolution(rid: str, body: dict, user=Depends(current_user)):
+    """
+    Le déclarant confirme (ou non) la résolution proposée par le support.
+    Body : `{ resolved: bool, note?: str }`.
+    - resolved=True → status = resolved (fin de la boucle)
+    - resolved=False → status = open + note pour rebond côté support
+    """
+    r = await db.reports.find_one({"id": rid}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Signalement introuvable")
+    if r.get("author_id") != user["id"]:
+        raise HTTPException(403, "Seul le déclarant peut confirmer")
+    if r.get("status") != "awaiting_reporter_confirm":
+        raise HTTPException(400, "Ce signalement n'attend pas de confirmation")
+    resolved = bool(body.get("resolved"))
+    note = (body.get("note") or "").strip()
+    new_status = "resolved" if resolved else "open"
+    entry = {
+        "at": now_iso(),
+        "by_id": user["id"],
+        "by_name": user["name"],
+        "action": "reporter_confirmed" if resolved else "reporter_rejected",
+        "note": note,
+    }
+    updates = {"status": new_status, "updated_at": now_iso()}
+    if resolved:
+        updates["resolved_by_reporter"] = True
+        updates["resolved_at"] = now_iso()
+    await db.reports.update_one(
+        {"id": rid},
+        {"$set": updates, "$push": {"history": entry}},
+    )
+    # Notif support qui a demandé la confirmation (si connu)
+    resolver = r.get("resolved_by") or (r.get("history") or [{}])[-1].get("by_id")
+    if resolver:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": resolver,
+            "type": "report_confirmed" if resolved else "report_reopened",
+            "title": "Signalement clos par le déclarant" if resolved else "Signalement rouvert par le déclarant",
+            "body": note or ("Le déclarant confirme la résolution." if resolved else "Le déclarant estime que le problème n'est pas résolu."),
+            "report_id": rid,
+            "read": False,
+            "created_at": now_iso(),
+        })
+    return {"ok": True, "status": new_status}
+
+
+VALID_REPORT_STATUS = {"open", "investigating", "awaiting_reporter_confirm", "resolved", "dismissed", "escalated"}
 
 
 @api.patch("/admin/reports/{rid}")
@@ -2958,6 +3025,19 @@ async def update_report(rid: str, body: dict, user=Depends(require_perm("reports
             updates["resolved_by"] = user["id"]
             updates["resolved_by_name"] = user["name"]
             updates["resolved_at"] = now_iso()
+        if new_status == "awaiting_reporter_confirm":
+            # Notif au déclarant pour qu'il valide (ou pas) la résolution proposée
+            await db.notifications.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": existing.get("author_id"),
+                "type": "report_awaiting_confirm",
+                "title": "Votre signalement a été traité",
+                "body": "L'équipe support propose de clore. Merci de confirmer si votre problème est résolu.",
+                "peer_id": user["id"],
+                "report_id": rid,
+                "read": False,
+                "created_at": now_iso(),
+            })
         history_entries.append({
             "at": now_iso(),
             "by_id": user["id"],

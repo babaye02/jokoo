@@ -4,7 +4,7 @@
 // Chaque changement de statut, priorité, assignation ou note est journalisé
 // dans `history[]` (visible dans la timeline de chaque signalement).
 import { useCallback, useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, TextInput, Modal } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, TextInput, Modal, Linking } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,7 +12,7 @@ import { api } from "@/src/api";
 import { Btn, Card, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
-type ReportStatus = "open" | "investigating" | "resolved" | "dismissed" | "escalated";
+type ReportStatus = "open" | "investigating" | "awaiting_reporter_confirm" | "resolved" | "dismissed" | "escalated";
 type ReportPriority = "normal" | "high" | "urgent";
 
 type HistoryEntry = {
@@ -26,8 +26,13 @@ type HistoryEntry = {
 
 type Report = {
   id: string;
+  author_id?: string;
   author_name: string;
+  author_phone?: string;
+  author_email?: string;
   target_id?: string;
+  target_name?: string;
+  target_phone?: string;
   target_type?: string;
   reason: string;
   status: ReportStatus;
@@ -36,6 +41,7 @@ type Report = {
   assigned_to_name?: string | null;
   resolved_by_name?: string;
   resolved_at?: string;
+  resolved_by_reporter?: boolean;
   history?: HistoryEntry[];
   created_at: string;
   updated_at?: string;
@@ -51,11 +57,12 @@ type Stats = {
 };
 
 const STATUS_META: Record<ReportStatus, { label: string; color: string; bg: string; icon: any }> = {
-  open:          { label: "Ouvert",       color: "#DC2626", bg: "#FEE2E2", icon: "alert-circle" },
-  investigating: { label: "En cours",     color: "#D97706", bg: "#FEF3C7", icon: "hourglass" },
-  resolved:      { label: "Résolu",       color: "#16A34A", bg: "#DCFCE7", icon: "checkmark-circle" },
-  dismissed:     { label: "Rejeté",       color: "#6B7280", bg: "#F3F4F6", icon: "close-circle" },
-  escalated:     { label: "Escaladé",     color: "#7C3AED", bg: "#EDE9FE", icon: "arrow-up-circle" },
+  open:                       { label: "Ouvert",           color: "#DC2626", bg: "#FEE2E2", icon: "alert-circle" },
+  investigating:              { label: "En cours",         color: "#D97706", bg: "#FEF3C7", icon: "hourglass" },
+  awaiting_reporter_confirm:  { label: "Confirmation…",    color: "#0EA5E9", bg: "#E0F2FE", icon: "help-buoy" },
+  resolved:                   { label: "Résolu",           color: "#16A34A", bg: "#DCFCE7", icon: "checkmark-circle" },
+  dismissed:                  { label: "Rejeté",           color: "#6B7280", bg: "#F3F4F6", icon: "close-circle" },
+  escalated:                  { label: "Escaladé",         color: "#7C3AED", bg: "#EDE9FE", icon: "arrow-up-circle" },
 };
 
 const PRIORITY_META: Record<ReportPriority, { label: string; color: string; bg: string }> = {
@@ -212,6 +219,7 @@ function StatCard({ label, value, tone }: { label: string; value: number; tone: 
 }
 
 function ReportEditor({ report, onClose, onSaved }: { report: Report | null; onClose: () => void; onSaved: () => void }) {
+  const editorRouter = useRouter();
   const [newStatus, setNewStatus] = useState<ReportStatus | null>(null);
   const [newPriority, setNewPriority] = useState<ReportPriority | null>(null);
   const [note, setNote] = useState("");
@@ -283,6 +291,49 @@ function ReportEditor({ report, onClose, onSaved }: { report: Report | null; onC
               <Txt size="sm" style={{ marginTop: spacing.md, lineHeight: 22 }}>{report.reason || "—"}</Txt>
               {report.target_id ? (
                 <Txt size="xxs" color={colors.textSubtle} style={{ marginTop: 8 }}>ID cible : {report.target_id}</Txt>
+              ) : null}
+
+              {/* Actions de contact — support peut chatter/appeler l'auteur et la cible */}
+              <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.md, flexWrap: "wrap" }}>
+                {report.author_id ? (
+                  <Pressable
+                    onPress={() => { onClose(); setTimeout(() => editorRouter.push(`/chat/${report.author_id}` as any), 200); }}
+                    style={styles.contactBtn}
+                    testID="rep-chat-author"
+                  >
+                    <Ionicons name="chatbubbles-outline" size={14} color={colors.turquoise} />
+                    <Txt size="xs" weight="700" style={{ marginLeft: 4 }}>Chatter avec l&apos;auteur</Txt>
+                  </Pressable>
+                ) : null}
+                {report.author_phone ? (
+                  <Pressable
+                    onPress={() => Linking.openURL(`tel:${report.author_phone}`).catch(() => {})}
+                    style={styles.contactBtn}
+                    testID="rep-call-author"
+                  >
+                    <Ionicons name="call-outline" size={14} color={colors.turquoise} />
+                    <Txt size="xs" weight="700" style={{ marginLeft: 4 }}>Appeler auteur</Txt>
+                  </Pressable>
+                ) : null}
+                {report.target_type === "user" && report.target_id ? (
+                  <Pressable
+                    onPress={() => { onClose(); setTimeout(() => editorRouter.push(`/chat/${report.target_id}` as any), 200); }}
+                    style={styles.contactBtn}
+                    testID="rep-chat-target"
+                  >
+                    <Ionicons name="chatbubbles-outline" size={14} color={colors.turquoise} />
+                    <Txt size="xs" weight="700" style={{ marginLeft: 4 }}>Chatter avec la cible</Txt>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {report.status === "awaiting_reporter_confirm" ? (
+                <View style={styles.awaitingBox}>
+                  <Ionicons name="hourglass" size={14} color="#0369A1" />
+                  <Txt size="xxs" color="#0369A1" style={{ marginLeft: 6, flex: 1 }}>
+                    {"En attente de confirmation du déclarant. Il pourra clore ou rouvrir le signalement depuis sa notification."}
+                  </Txt>
+                </View>
               ) : null}
             </Card>
 
@@ -432,6 +483,17 @@ const styles = StyleSheet.create({
   },
   historyItem: { flexDirection: "row", gap: 12, marginBottom: 12 },
   historyDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.turquoise, marginTop: 4 },
+  contactBtn: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999,
+    backgroundColor: colors.brandTertiary, borderWidth: 1, borderColor: colors.turquoise,
+  },
+  awaitingBox: {
+    flexDirection: "row", alignItems: "center",
+    padding: 10, borderRadius: radius.md,
+    backgroundColor: "#E0F2FE", borderWidth: 1, borderColor: "#7DD3FC",
+    marginTop: spacing.md,
+  },
   bottom: {
     position: "absolute", left: 0, right: 0, bottom: 0,
     padding: spacing.xl,
