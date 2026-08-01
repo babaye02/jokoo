@@ -1,0 +1,40 @@
+{
+  "summary": "Iter23 — 2 correctifs P0 validés backend-only end-to-end. 22/22 pytest OK (test_iter23_notif_review_family_report.py, 3.1s). (A) POST /api/reviews : client envoie {booking_id, rating:5, comment} SANS provider_id → 200, backend résout provider_id depuis le booking (pro@jokoo.sn user_id), doc reviews inséré, bookings.review_id set, providers.rating + providers.reviews_count recomputés (>=1, rating>0). Notif review_received présente dans GET /api/notifications du prestataire avec user_id=provider_id, booking_id, review_id, read=false — validé après login pro@jokoo.sn. Sécurité : un tiers non-client (aisha.family) → 403 ; double review sur même booking → 400 (message 'Un avis a déjà été laissé…'). (B) POST /api/family/bookings/{bid}/report : parent (client@jokoo.sn) crée booking sur Aïsha, sitter passe confirmed puis in_progress, POST /report par aisha.family → 200 doc babysitting_reports inséré, family booking mis à jour status=completed + paid=true + report_id set. Notif babysitting_report livrée au parent (user_id=parent_id, family_booking_id, read=false) — validé via GET /api/notifications parent. ACL GET /report : parent 200, babysitter 200, admin 200, other_sitter (moussa.family) 403, id bidon 404, avant soumission 404. Sécurité POST /report : parent 403, autre babysitter 403, double soumission 400. Aucune fuite _id (reviews, reports, notifications). Aucune régression Auth/Rides/Legal (non re-testés).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter23_notif_review_family_report.py",
+    "/app/test_reports/pytest/iter23.xml"
+  ],
+  "action_items": [
+    "Rien à corriger côté iter23 — les 2 fixes P0 sont conformes à la spec.",
+    "Aucune régression détectée sur les endpoints connexes (bookings dual-confirm, family bookings state machine, GET /notifications) sollicités par les tests iter23."
+  ],
+  "critical_code_review_comments": [
+    "create_review (server.py:1283) — bonne résolution booking_id → provider_id + garde 403 (client != auteur) + garde 400 (review_id déjà set) + notif review_received portant review_id/booking_id/user_id=provider_id. Le return utilise {k:v for k,v in doc.items() if k!='_id'} donc pas de fuite ObjectId. Point mineur : le rating recompute charge to_list(1000) — acceptable en dev, à surveiller si un prestataire dépasse 1000 avis (utiliser un agg $group $avg + $count).",
+    "submit_session_report (server.py:3905) — garde 403 exclusive à b['babysitter_user_id'] (bonne granularité), garde 400 si report_id déjà set, notif babysitting_report avec user_id=parent_id + family_booking_id, mise à jour atomique status=completed + paid=true + report_id + updated_at. Return exclut _id explicitement.",
+    "get_session_report (server.py:3943) — ACL correcte : {parent_id, babysitter_user_id} ∪ admins ; 404 avant soumission ; 404 sur id bidon. Pas de fuite _id (find_one avec projection {'_id':0}).",
+    "server.py atteint 4672 lignes — pas nouveau, déjà signalé dans iter22. Non bloquant pour iter23.",
+    "Rate-limit /auth/login toujours actif : le test suite espace 5 logins uniques (module scope) — pas de 429 observé."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter23_notif_review_family_report.py (nouveau — 22 tests répartis en 2 classes : TestReviewNotification (8 tests : setup booking+accept, double-confirm completion, stranger 403, review sans provider_id 200, booking.review_id, dupe 400, provider rating recompute, notif review_received livrée) et TestSessionReportNotification (14 tests : setup family booking, sitter confirmed→in_progress, GET report 404 avant, POST 403 parent, POST 403 autre sitter, POST 200 sitter, booking completed+paid+report_id, dupe 400, GET 200 parent/sitter/admin, GET 403 tiers, GET 404 bogus id, notif babysitting_report livrée))"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22 iter23)",
+    "frontend": "N/A — non testé cette itération (backend-only demandé)"
+  },
+  "seed_data_creation": "POST /api/seed appelé (idempotent). Données TEST_iter23 créées : 1 booking client→pro complété avec review 5⭐ ; 2 family bookings (parent client@jokoo.sn / sitter aisha.family) — le 1er atteint status=completed + report soumis, le 2e reste en état intermédiaire à cause d'un run précédent avec mood='excited' (payload de test invalide — corrigé après première passe). Notifications review_received (pro) et babysitting_report (client) créées + non nettoyées, sans impact.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter23 clean. Rappels : (1) SessionReportIn.mood accepte uniquement 'happy'|'calm'|'tired'|'upset' (pas 'excited'). (2) L'utilisateur habilité à POST /reports du carnet est b['babysitter_user_id'] (le user_id de la baby-sitter connectée, pas b['babysitter_id'] qui est l'id du profil family). (3) POST /reviews accepte booking_id SANS provider_id — bien pour futurs flows UI qui ne veulent pas dupliquer le provider_id côté client. (4) GET /notifications retourne les notifs de l'utilisateur connecté (filtre user_id automatique). (5) Le prestataire pro@jokoo.sn a un provider profile dont l'id == son user_id — la review notif utilise donc user_id=provider_id qui est aussi le user_id du provider pour affichage dans son inbox. (6) Rate-limit /auth/login actif — espacer les runs multi-login.",
+  "rca_of_issue": "N/A — les 2 correctifs backend fonctionnent selon la spec. Une seule fausse alerte lors du premier run causée par mon payload de test invalide (mood='excited' rejeté par Pydantic Literal validator sur SessionReportIn — comportement attendu du backend, corrigé côté test)."
+}

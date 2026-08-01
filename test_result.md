@@ -156,15 +156,57 @@ frontend:
         agent: "main"
         comment: "Added /mobility (hub), /mobility/rides (search), /mobility/rides/publish, /mobility/rides/[id] (detail + book), /mobility/rides/mine (passenger/driver tabs), /mobility/delivery (coming soon). Home tab now shows a 'Mobilité' section with Covoiturage + Livraison cards. Profile menu adds mobility shortcut + my rides. Uses existing chat for driver contact."
 
+  - task: "Review notification (review_received) delivered to provider"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          POST /api/reviews now supports booking_id-only (resolves provider from booking), stamps booking.review_id, and inserts a notification of type `review_received` targeted at `user_id=provider_id` with `booking_id` and `review_id`. Ratings recomputed on providers doc.
+
+  - task: "Family session notebook (carnet) delivered to parent"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          POST /api/family/bookings/{bid}/report creates a babysitting_reports doc, sets booking.report_id + status=completed + paid=true, and inserts a notification of type `babysitting_report` targeted at parent with `family_booking_id`. GET /api/family/bookings/{bid}/report returns 200 for parent/sitter/admin, else 403; 404 if not yet submitted.
+
+frontend:
+  - task: "Notification routing for review_received + babysitting_report"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/(tabs)/notifications.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          routeForNotif() maps `review_received` → /booking/detail/{booking_id} and any `babysitting_*` → /family/booking/{family_booking_id}. /family/booking/[id]/index.tsx now loads and renders the notebook when `report_id` is set on the booking.
+
 metadata:
   created_by: "main_agent"
-  version: "1.1"
-  test_sequence: 2
+  version: "1.2"
+  test_sequence: 3
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Parcels · Livraison longue distance"
+    - "Review notification (review_received) delivered to provider"
+    - "Family session notebook (carnet) delivered to parent"
+    - "Notification routing for review_received + babysitting_report"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -172,13 +214,26 @@ test_plan:
 agent_communication:
   - agent: "main"
     message: |
-      New Mobility module (Phase 1+2 Covoiturage). Backend endpoints under /api/rides — search + publish + book + cancel. Seed already ran (chauffeur@jokoo.sn / Driver1234! plus 4 demo rides). Please validate:
-      - GET /api/rides list & filters (from_city, to_city, date, distance_type)
-      - Weekly recurrence matches when queried date weekday is in recurrence_days
-      - POST /api/rides creates ride (driver can be any authenticated user)
-      - POST /api/rides/{id}/book decreases seats_available and creates ride_booking, prevents self-booking, prevents overbooking
-      - PATCH /api/rides/{id} cancel notifies passengers
-      - GET /api/rides/bookings/mine (passenger view) attaches ride summary
-      - GET /api/rides/bookings/received (driver view)
-      - PATCH /api/rides/bookings/{id} status=cancelled increments seats_available back
-      Use test creds: admin@jokoo.sn / Admin1234! and chauffeur@jokoo.sn / Driver1234!.
+      Please validate two P0 flows just fixed:
+
+      1) Review notification pour le prestataire
+         - Login client → POST /api/reviews avec `{booking_id, rating, comment}` (sans provider_id).
+         - Backend doit :
+           • Résoudre provider_id depuis le booking (403 si le client ne possède pas la réservation).
+           • Marquer booking.review_id et refuser un 2e avis (400).
+           • Insérer une notification `review_received` avec `user_id=provider_id`, `booking_id`, `review_id`.
+           • Recompute providers.rating + providers.reviews_count.
+         - Login prestataire → GET /api/notifications doit contenir `review_received` non lue.
+
+      2) Carnet de session Famille pour le parent
+         - Login babysitter (student) → POST /api/family/bookings/{bid}/report.
+         - Backend doit :
+           • Créer le report, set booking.report_id + status=completed + paid=true.
+           • Insérer notif `babysitting_report` avec `user_id=parent_id`, `family_booking_id`.
+         - Login parent → GET /api/family/bookings/{bid}/report doit renvoyer le carnet.
+         - Login parent → GET /api/notifications doit contenir `babysitting_report`.
+
+      Credentials: admin@jokoo.sn / Admin1234!, client@jokoo.sn / Passw0rd!, pro@jokoo.sn / Passw0rd!,
+      aisha.family@jokoo.sn / Family1234! (babysitter/étudiante).
+
+      Skip frontend UI testing — backend-only pour cette itération (les routes frontend sont déjà en place et branchées sur ces endpoints).

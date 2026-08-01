@@ -13,9 +13,12 @@ const META: Record<string, { icon: any; tint: string }> = {
   booking_accepted:   { icon: "checkmark-circle",      tint: "#16A34A" },
   booking_completed:  { icon: "trophy",                tint: "#F59E0B" },
   booking_paid:       { icon: "card",                  tint: "#0EA5E9" },
+  booking_completion_requested: { icon: "hourglass",   tint: "#D97706" },
+  review_received:    { icon: "star",                  tint: "#F59E0B" },
   message:            { icon: "chatbubble-ellipses",   tint: "#7C3AED" },
   babysitting_new:    { icon: "people",                tint: "#EC4899" },
   babysitting_confirmed: { icon: "shield-checkmark",   tint: "#16A34A" },
+  babysitting_report: { icon: "clipboard",             tint: "#0EA5E9" },
   babysitting_sos:    { icon: "warning",               tint: "#EF4444" },
   parcel_new:         { icon: "cube",                  tint: "#F97316" },
   ride_new:           { icon: "car",                   tint: "#0EA5E9" },
@@ -46,6 +49,12 @@ function routeForNotif(n: Notif & { booking_id?: string; ride_id?: string; parce
     const fid = n.family_booking_id || n.booking_id;
     if (fid) return { pathname: `/family/booking/${fid}` };
     return { pathname: "/family/mine" };
+  }
+  if (t === "review_received") {
+    // Le prestataire tape sur la notif → détail de la réservation notée
+    // (où l'avis est visible via le champ review_id sur le booking).
+    if (n.booking_id) return { pathname: `/booking/detail/${n.booking_id}` };
+    return { pathname: "/(tabs)/profile" };
   }
   if (t.startsWith("booking") && n.booking_id) {
     return { pathname: `/booking/detail/${n.booking_id}` };
