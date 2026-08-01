@@ -1313,6 +1313,19 @@ async def create_review(body: ReviewIn, user=Depends(current_user)):
     await db.reviews.insert_one(doc)
     if body.booking_id:
         await db.bookings.update_one({"id": body.booking_id}, {"$set": {"review_id": rid}})
+    # Notifier le prestataire qu'un avis a été publié
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": provider_id,
+        "type": "review_received",
+        "title": f"⭐ Nouvel avis {body.rating}/5",
+        "body": (body.comment[:120] + "…") if body.comment and len(body.comment) > 120 else (body.comment or f"{user['name']} vous a laissé une note."),
+        "peer_id": user["id"],
+        "booking_id": body.booking_id,
+        "review_id": rid,
+        "read": False,
+        "created_at": now_iso(),
+    })
     # recompute rating
     rs = await db.reviews.find({"provider_id": provider_id}).to_list(1000)
     avg = round(sum(r["rating"] for r in rs) / len(rs), 2)
@@ -3837,8 +3850,9 @@ async def submit_session_report(bid: str, body: SessionReportIn, user=Depends(cu
         "user_id": b["parent_id"],
         "type": "babysitting_report",
         "title": "Carnet de session prêt 📝",
-        "body": f"{b.get('date')} · {b.get('babysitter_name')}",
+        "body": f"{b.get('date')} · {b.get('babysitter_name')} — Vous pouvez maintenant noter la baby-sitter.",
         "peer_id": user["id"],
+        "family_booking_id": bid,
         "read": False,
         "created_at": now_iso(),
     })

@@ -7,18 +7,34 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Btn, Card, Input, Txt } from "@/src/components/ui";
+import { ConfirmDialog } from "@/src/components/ActionSheet";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 export default function SecurityScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [askDelete, setAskDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const doDelete = async () => {
+    setDeleting(true);
+    try {
+      await api.del("/users/me");
+      await signOut();
+      router.replace("/login");
+    } catch (e: any) {
+      setErr(e?.message || "Suppression impossible");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const submit = async () => {
     setErr(null); setSuccess(null);
@@ -124,9 +140,19 @@ export default function SecurityScreen() {
           </View>
           <Row icon="mail-outline" label="Email" hint={user?.email || "—"} />
           <Row icon="call-outline" label="Téléphone" hint={user?.phone || "—"} />
-          <Row icon="alert-circle-outline" label="Supprimer mon compte" tint={colors.danger} onPress={() => router.push("/(tabs)/profile")} />
+          <Row icon="alert-circle-outline" label="Supprimer mon compte" tint={colors.danger} onPress={() => setAskDelete(true)} />
         </Card>
       </ScrollView>
+
+      <ConfirmDialog
+        visible={askDelete}
+        title="Supprimer votre compte ?"
+        message={"Cette action est irréversible. Toutes vos données personnelles seront effacées sous 30 jours. Vos réservations passées resteront anonymisées à des fins comptables."}
+        confirmLabel={deleting ? "Suppression…" : "Oui, supprimer"}
+        destructive
+        onConfirm={doDelete}
+        onClose={() => setAskDelete(false)}
+      />
     </View>
   );
 }

@@ -1,0 +1,46 @@
+{
+  "summary": "Iter21 — 3 fixes validés end-to-end. Backend 9/9 pytest (test_iter21_notifs_delete.py) : (a) notif review_received créée pour le prestataire à la publication d'un review avec title='⭐ Nouvel avis 5/5' + booking_id + review_id + user_id=provider (validé sur GET /notifications côté pro), (b) notif babysitting_report contient bien family_booking_id et body avec 'noter' (nouveau texte 'Vous pouvez maintenant noter la baby-sitter'), (c) delete account E2E : POST /api/auth/register → DELETE /api/users/me (200 ok) → re-login échoue (compte supprimé), (d) régression sanity : client login OK, POST /api/bookings OK. Frontend delete-account UI E2E validé sur /profile/security : compte temp temp_ui_delete@example.com, ConfirmDialog in-app affiché (dialog-confirm visible, PAS Alert natif), tap 'Oui, supprimer' → DELETE 200 → redirection automatique /login → re-login même credentials échoue (reste sur /login). Notif review_received visible dans l'app côté prestataire ('⭐ Nouvel avis 5/5' + 'TEST_iter21 Excellent') et le tap n'entraîne aucun crash (routeForNotif retourne null → mark-read + reste sur la liste, comportement attendu). Aucun red-screen ni pageerror.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "(tabs)/profile.tsx",
+        "issue": "Doublon 'Supprimer mon compte' — le profil tab expose une 2e entrée testID='menu-delete-account' (ligne 169) qui utilise l'ancien flow Alert.alert natif (ligne 43-77) au lieu du ConfirmDialog in-app. Résultat : deux boutons de suppression coexistent (l'un sur /profile via Alert, l'autre sur /profile/security via ConfirmDialog) et provoquent une strict-mode violation Playwright avec 2 matches sur 'Supprimer mon compte'. Cohérence UX à revoir : soit supprimer le doublon de profile.tsx, soit le rediriger vers /profile/security, soit lui appliquer ConfirmDialog.",
+        "testID": "menu-delete-account",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter21_notifs_delete.py",
+    "/app/test_reports/pytest/iter21.xml"
+  ],
+  "action_items": [
+    "Nettoyer le doublon 'Supprimer mon compte' dans app/(tabs)/profile.tsx (ligne 169) : soit supprimer complètement l'entrée (l'utilisateur passera par Sécurité & confidentialité), soit remplacer Alert.alert par le même ConfirmDialog in-app que /profile/security pour cohérence UX. En l'état, 2 flows différents existent pour la même action.",
+    "Aucun autre blocage — les 3 flows (notif review au prestataire, notif carnet Family enrichie avec family_booking_id, delete-account UI) sont livrables."
+  ],
+  "critical_code_review_comments": [
+    "server.py continue de grossir (>4590 lignes). À refactorer en modules quand une iter le permettra (auth, bookings, reviews, family, notifications).",
+    "Bonne pratique côté /reviews : notif review_received insérée juste après la review et avant le recompute rating — pas de risque d'orphelin. Payload complet (booking_id + review_id + peer_id).",
+    "Bonne pratique côté /family/bookings/{bid}/report : family_booking_id ajouté à la notif → tap ouvre bien /family/booking/{id} via routeForNotif (notifications.tsx ligne 46).",
+    "review_received n'a pas de routage dans routeForNotif (notifications.tsx) → tap = no-op (mark-read). Comportement conforme à la spec ('aucun routage spécifique n'est problème, il faut juste que ça ne crash pas'). Une évolution future pourrait ouvrir /booking/detail/{booking_id} pour afficher l'avis reçu (le champ booking_id est déjà stocké dans la notif)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter21_notifs_delete.py (nouveau — 9 tests répartis en 4 classes : TestReviewNotifSentToProvider, TestFamilySessionReportNotif, TestDeleteAccountE2E, TestRegressionSanity)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 iter21)",
+    "frontend": "100% des 2 flows critiques validés (delete-account UI + ConfirmDialog + redirect /login + re-login bloqué ; notif review_received affichée + tap sans crash côté prestataire)"
+  },
+  "seed_data_creation": "1 booking TEST_iter21 créé pour client@jokoo.sn → pro@jokoo.sn, accepté puis complété par les 2 parties, review 5★ 'TEST_iter21 Excellent' posté. 1 family booking TEST_iter21 (aisha babysitter) avec report submitté. Compte temporaire temp_delete_{ts}@example.com créé + supprimé côté backend. Compte temp_ui_delete@example.com créé + supprimé via UI E2E. Password client@jokoo.sn intact (fixture teardown en place). Aucun compte critique modifié.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Base saine iter21. Le doublon 'Supprimer mon compte' entre /profile (Alert.alert natif) et /profile/security (ConfirmDialog) est à trancher côté UX. Rate-limit /auth/login toujours en place — espacer les runs. Les tests iter21 sont indépendants (pas de partage d'état entre workers xdist). Pour retester le flow delete UI, recréer un compte temporaire via POST /api/auth/register avant chaque run (le compte est supprimé à la fin).",
+  "rca_of_issue": "N/A — les 3 fixes fonctionnent comme spécifié. Une observation secondaire : email domain '.local' est rejeté par la validation Pydantic EmailStr (reserved domain) — utiliser @example.com pour les comptes temporaires dans les tests futurs."
+}
