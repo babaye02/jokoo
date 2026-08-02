@@ -1046,7 +1046,10 @@ async def upsert_my_provider(body: ProviderProfileIn, user=Depends(current_user)
         raise HTTPException(403, "Compte prestataire requis")
     label = next((s["label"] for s in SERVICES_CATALOG if s["label"].lower() == body.service.lower() or s["key"] == body.service.lower()), body.service)
     key = next((s["key"] for s in SERVICES_CATALOG if s["label"].lower() == body.service.lower() or s["key"] == body.service.lower()), body.service.lower())
-    doc = {
+    # Récupérer le doc existant pour préserver les champs computed (rating, reviews_count, sponsored_until, etc.)
+    existing = await db.providers.find_one({"id": user["id"]}, {"_id": 0}) or {}
+    # CRITICAL FIX : ne PAS écraser rating / reviews_count / subscription — ils sont computed ou gérés par d'autres endpoints.
+    editable = {
         "id": user["id"],
         "user_id": user["id"],
         "name": user["name"],
@@ -1064,15 +1067,19 @@ async def upsert_my_provider(body: ProviderProfileIn, user=Depends(current_user)
         "gallery": body.gallery,
         "diplomas": body.diplomas,
         "id_card": body.id_card,
-        "verified": bool(body.id_card),
-        "rating": 0,
-        "reviews_count": 0,
-        "subscription_active": False,
-        "subscription_until": None,
+        "verified": bool(body.id_card) or bool(existing.get("verified")),
         "updated_at": now_iso(),
     }
-    await db.providers.update_one({"id": user["id"]}, {"$set": doc}, upsert=True)
-    return {"ok": True, "provider": doc}
+    # Merge en préservant les champs computed s'ils existaient déjà
+    if not existing:
+        # 1ère création : initialiser les compteurs à 0
+        editable["rating"] = 0
+        editable["reviews_count"] = 0
+        editable["subscription_active"] = False
+        editable["subscription_until"] = None
+    await db.providers.update_one({"id": user["id"]}, {"$set": editable}, upsert=True)
+    updated = await db.providers.find_one({"id": user["id"]}, {"_id": 0})
+    return {"ok": True, "provider": updated}
 
 
 # ---------- bookings ----------
@@ -1188,6 +1195,19 @@ async def confirm_completion(bid: str, user=Depends(current_user)):
         "read": False,
         "created_at": now_iso(),
     })
+    # Notif soi-même quand les 2 ont confirmé (pour que le confirmer voie aussi la mission close)
+    if both:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "type": "booking_completed",
+            "title": "Mission terminée",
+            "body": "Vous pouvez laisser un avis pour votre prestataire." if is_client
+                    else "Mission validée. Consultez votre wallet pour la commission.",
+            "booking_id": bid,
+            "read": False,
+            "created_at": now_iso(),
+        })
     return {"ok": True, "status": "completed" if both else b.get("status"), "both_confirmed": both}
 
 
@@ -1276,6 +1296,14 @@ async def update_booking(bid: str, body: BookingUpdate, user=Depends(current_use
 
     # Status change
     if body.status is not None:
+        # State machine : refuser les transitions incohérentes.
+        current_status = b.get("status", "pending")
+        # Booking terminé, remboursé ou refusé : état FINAL, aucune transition sortante autorisée.
+        if current_status in ("completed", "refunded", "rejected"):
+            raise HTTPException(400, f"Impossible de modifier une réservation {current_status}")
+        # Un booking déjà annulé ne peut pas non plus être re-modifié.
+        if current_status == "cancelled" and body.status != "cancelled":
+            raise HTTPException(400, "Impossible de réactiver une réservation annulée")
         # Only provider can accept/reject/complete; client can cancel
         if body.status in ("accepted", "rejected", "completed"):
             if b["provider_id"] != user["id"]:
@@ -1284,6 +1312,25 @@ async def update_booking(bid: str, body: BookingUpdate, user=Depends(current_use
             if b["client_id"] != user["id"]:
                 raise HTTPException(403, "Interdit")
         updates["status"] = body.status
+
+        # CRITICAL rollback: si on annule un booking déjà cash-payé, on doit rembourser la commission_due du prestataire.
+        if body.status == "cancelled" and b.get("paid") and b.get("paid_method") == "cash":
+            commission = float(b.get("commission") or 0)
+            if commission > 0:
+                await db.wallets.update_one(
+                    {"user_id": b["provider_id"]},
+                    {"$inc": {"commission_due": -commission}},
+                )
+                await db.wallet_transactions.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "user_id": b["provider_id"],
+                    "type": "refund",
+                    "amount_xof": -commission,
+                    "source_booking_id": bid,
+                    "note": "Rollback commission suite à annulation cash-payé",
+                    "created_at": now_iso(),
+                })
+
         target = b["client_id"] if body.status in ("accepted", "rejected", "completed") else b["provider_id"]
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
@@ -1314,6 +1361,9 @@ async def create_review(body: ReviewIn, user=Depends(current_user)):
             raise HTTPException(404, "Réservation introuvable")
         if b["client_id"] != user["id"]:
             raise HTTPException(403, "Seul le client peut noter cette réservation")
+        # CRITICAL: la mission doit être terminée pour permettre la notation
+        if b.get("status") != "completed":
+            raise HTTPException(400, "Vous ne pouvez noter qu'une mission terminée")
         if b.get("review_id"):
             raise HTTPException(400, "Un avis a déjà été laissé pour cette réservation")
         provider_id = b["provider_id"]
@@ -1589,6 +1639,7 @@ async def record_cash_payment(bid: str, body: dict, user=Depends(current_user)):
     await db.bookings.update_one(
         {"id": bid},
         {"$set": {
+            "paid": True,
             "paid_at": now_iso(),
             "paid_method": "cash",
             "amount_paid": amount,
@@ -1617,16 +1668,29 @@ async def record_cash_payment(bid: str, body: dict, user=Depends(current_user)):
         "booking_id": bid,
         "created_at": now_iso(),
     })
-    # Notifier le prestataire
+    # Notifier le prestataire (commission Jokoo à régler)
     await db.notifications.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
         "type": "commission_due",
         "title": "Commission Jokoo à régler",
         "body": f"{commission:.0f} FCFA de commission sur votre paiement espèces. Solde dû : {new_debt:.0f} FCFA.",
+        "booking_id": bid,
         "read": False,
         "created_at": now_iso(),
     })
+    # Notifier le client (paiement enregistré côté prestataire)
+    if b.get("client_id"):
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": b["client_id"],
+            "type": "payment_received",
+            "title": "Paiement enregistré",
+            "body": f"Le prestataire a confirmé la réception de {amount:.0f} FCFA en espèces.",
+            "booking_id": bid,
+            "read": False,
+            "created_at": now_iso(),
+        })
     if is_blocked:
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
@@ -3166,6 +3230,10 @@ async def delete_my_account(user=Depends(current_user)):
     await db.providers.delete_many({"user_id": uid})
     await db.services.delete_many({"provider_id": uid})
     await db.babysitters.delete_many({"user_id": uid})
+    # RGPD : purger les tokens push, les préférences notif et les password resets
+    await db.push_tokens.delete_many({"user_id": uid})
+    await db.notification_prefs.delete_many({"user_id": uid})
+    await db.password_resets.delete_many({"user_id": uid})
     # Anonymise historic bookings & messages (conserver l'historique pour l'autre partie)
     await db.bookings.update_many({"client_id": uid}, {"$set": {"client_name": "[Compte supprimé]", "client_id_deleted": True}})
     await db.bookings.update_many({"provider_id": uid}, {"$set": {"provider_name": "[Compte supprimé]", "provider_id_deleted": True}})

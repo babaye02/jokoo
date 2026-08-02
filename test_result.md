@@ -231,16 +231,61 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.9"
-  test_sequence: 10
+  version: "1.10"
+  test_sequence: 11
   run_ui: false
 
 test_plan:
   current_focus:
-    - "AUDIT CROISÉ — cohérence des données & cascades entre modules"
+    - "RETEST iter29 — 4 CRITICAL + 4 MAJOR fixes"
   stuck_tasks: []
-  test_all: true
+  test_all: false
   test_priority: "critical_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Fixes appliqués sur les 4 CRITICAL + 4 MAJOR d'iter29. À valider.
+
+      **CRITICAL FIXES** :
+
+      1) **POST /reviews sans check status='completed'** (server.py:1317 area)
+         → Fix : ajout `if b.get("status") != "completed": raise HTTPException(400, "Vous ne pouvez noter qu'une mission terminée")`.
+         → Test : POST /reviews sur booking `pending` → 400 ; sur booking `completed` → 200.
+
+      2) **PATCH /bookings status=cancelled depuis completed** (server.py:1278 area)
+         → Fix : state machine ajoutée. Transitions depuis `completed`/`refunded`/`rejected` → 400. `cancelled → *` (sauf cancelled) → 400.
+         → Test : PATCH cancelled sur booking completed → 400.
+
+      3) **POST /providers/me réinitialisant rating** (server.py:1043-1074)
+         → Fix : fetch existing doc, isole `rating`/`reviews_count`/`subscription_*` des champs éditables. Ne set à 0 qu'à la **1ère création**.
+         → Test : provider avec rating=5.0 fait POST /providers/me (edit desc) → rating reste 5.0.
+
+      4) **PATCH cancel sans rollback commission cash** (server.py:1249+)
+         → Fix : sur PATCH status=cancelled ET booking.paid ET paid_method="cash" → `$inc commission_due: -commission` + log wallet_transactions (`type:"refund"`).
+         → Test : provider cash-paye un booking (commission_due +X), puis annule le booking → commission_due -X (0), transaction refund présente.
+
+      **MAJOR FIXES** :
+
+      5) **Cash-payment sans notif client** (server.py:1657+)
+         → Fix : ajout notif type=`payment_received` au client après cash-payment.
+
+      6) **push_tokens non purgés au DELETE users/me** (server.py:3210+)
+         → Fix : `db.push_tokens.delete_many` + `db.notification_prefs.delete_many` + `db.password_resets.delete_many` ajoutés.
+
+      7) **booking.paid double source of truth** (server.py:1626)
+         → Fix : cash-payment set explicitement `paid: true`.
+
+      8) **8 types notif orphelins frontend** (frontend/app/(tabs)/notifications.tsx routeForNotif + META)
+         → Fix : routing ajouté pour commission_due/paid, wallet_debt_warning, account_blocked/reactivated, report_status/confirmed/reopened/awaiting_confirm, admin_action.
+
+      **BONUS** : `booking_completed` envoyé aux 2 parties après double confirm (server.py:1195+).
+
+      Retester **backend only** avec le script existant `/app/backend/tests/test_iter29_cross_module_audit.py`. Ajouter les cases manquants si besoin. Rapport dans `/app/test_reports/iteration_30.json`.
+
+      Backend : `http://localhost:8001/api/*`
+      Credentials : voir `/app/memory/test_credentials.md`.
+
 
 agent_communication:
   - agent: "main"

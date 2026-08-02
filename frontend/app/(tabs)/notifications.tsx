@@ -24,6 +24,16 @@ const META: Record<string, { icon: any; tint: string }> = {
   ride_new:           { icon: "car",                   tint: "#0EA5E9" },
   ride_accepted:      { icon: "checkmark-circle",      tint: "#16A34A" },
   payment_received:   { icon: "cash",                  tint: "#16A34A" },
+  commission_due:     { icon: "wallet",                 tint: "#F59E0B" },
+  commission_paid:    { icon: "checkmark-done",         tint: "#16A34A" },
+  wallet_debt_warning:{ icon: "alert-circle",           tint: "#EF4444" },
+  account_blocked:    { icon: "lock-closed",            tint: "#EF4444" },
+  account_reactivated:{ icon: "lock-open",              tint: "#16A34A" },
+  report_status:      { icon: "flag",                   tint: "#F97316" },
+  report_confirmed:   { icon: "shield-checkmark",       tint: "#16A34A" },
+  report_reopened:    { icon: "refresh",                tint: "#F97316" },
+  report_awaiting_confirm: { icon: "hourglass",         tint: "#D97706" },
+  admin_action:       { icon: "megaphone",              tint: "#7C3AED" },
 };
 
 function metaFor(t: string) {
@@ -69,8 +79,25 @@ function routeForNotif(n: Notif & { booking_id?: string; ride_id?: string; parce
   if (t === "message" && n.peer_id) {
     return { pathname: `/chat/${n.peer_id}` };
   }
-  if (t.startsWith("payment") && n.booking_id) {
-    return { pathname: "/(tabs)/profile" };
+  if (t === "payment_received" || t.startsWith("payment")) {
+    if (n.booking_id) return { pathname: `/booking/detail/${n.booking_id}` };
+    return { pathname: "/profile/payments" };
+  }
+  // Commissions & wallet (prestataire)
+  if (t === "commission_due" || t === "commission_paid" || t === "wallet_debt_warning") {
+    return { pathname: "/profile/payments" };
+  }
+  // Blocage / réactivation compte
+  if (t === "account_blocked" || t === "account_reactivated") {
+    return { pathname: "/profile/payments" };
+  }
+  // Signalements
+  if (t === "report_status" || t === "report_confirmed" || t === "report_reopened" || t === "report_awaiting_confirm") {
+    if ((n as any).report_id) return { pathname: `/report/${(n as any).report_id}` };
+    return { pathname: "/(tabs)/notifications" };
+  }
+  if (t === "admin_action") {
+    return { pathname: "/(tabs)/notifications" };
   }
   return null;
 }
