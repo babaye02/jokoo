@@ -1,0 +1,405 @@
+{
+  "duration_sec": 71.5,
+  "total_users": 100,
+  "wave1": {
+    "clients": 60,
+    "prestataires": 40
+  },
+  "wave2": {
+    "bookings_created": 60
+  },
+  "wave3": {
+    "completions": 30,
+    "cancellations": 10,
+    "pw_changes": 20,
+    "forgot_resets": 10
+  },
+  "global": {
+    "ok": 1440,
+    "total": 1540,
+    "success_rate": 93.5
+  },
+  "per_flow": {
+    "register": {
+      "ok": 100,
+      "ko": 0,
+      "attempts": 100,
+      "success_rate": 100.0,
+      "p50_ms": 3561.9,
+      "p95_ms": 5104.9,
+      "max_ms": 5108.0,
+      "sample_errors": []
+    },
+    "login": {
+      "ok": 100,
+      "ko": 0,
+      "attempts": 100,
+      "success_rate": 100.0,
+      "p50_ms": 2225.2,
+      "p95_ms": 3331.1,
+      "max_ms": 3554.1,
+      "sample_errors": []
+    },
+    "provider_upsert": {
+      "ok": 40,
+      "ko": 0,
+      "attempts": 40,
+      "success_rate": 100.0,
+      "p50_ms": 1343.3,
+      "p95_ms": 3114.1,
+      "max_ms": 3118.9,
+      "sample_errors": []
+    },
+    "search": {
+      "ok": 60,
+      "ko": 0,
+      "attempts": 60,
+      "success_rate": 100.0,
+      "p50_ms": 44.8,
+      "p95_ms": 48.3,
+      "max_ms": 53.5,
+      "sample_errors": []
+    },
+    "booking": {
+      "ok": 60,
+      "ko": 0,
+      "attempts": 60,
+      "success_rate": 100.0,
+      "p50_ms": 51.8,
+      "p95_ms": 87.5,
+      "max_ms": 95.0,
+      "sample_errors": []
+    },
+    "chat_send": {
+      "ok": 60,
+      "ko": 0,
+      "attempts": 60,
+      "success_rate": 100.0,
+      "p50_ms": 50.0,
+      "p95_ms": 72.6,
+      "max_ms": 73.1,
+      "sample_errors": []
+    },
+    "sanitizer": {
+      "ok": 60,
+      "ko": 0,
+      "attempts": 60,
+      "success_rate": 100.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "max_ms": 0.0,
+      "sample_errors": []
+    },
+    "chat_get": {
+      "ok": 60,
+      "ko": 0,
+      "attempts": 60,
+      "success_rate": 100.0,
+      "p50_ms": 45.7,
+      "p95_ms": 60.5,
+      "max_ms": 61.4,
+      "sample_errors": []
+    },
+    "favorite_add": {
+      "ok": 60,
+      "ko": 0,
+      "attempts": 60,
+      "success_rate": 100.0,
+      "p50_ms": 43.7,
+      "p95_ms": 52.4,
+      "max_ms": 53.1,
+      "sample_errors": []
+    },
+    "favorite_list": {
+      "ok": 60,
+      "ko": 0,
+      "attempts": 60,
+      "success_rate": 100.0,
+      "p50_ms": 45.0,
+      "p95_ms": 49.3,
+      "max_ms": 49.7,
+      "sample_errors": []
+    },
+    "favorite_persist": {
+      "ok": 60,
+      "ko": 0,
+      "attempts": 60,
+      "success_rate": 100.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "max_ms": 0.0,
+      "sample_errors": []
+    },
+    "notif_list": {
+      "ok": 60,
+      "ko": 0,
+      "attempts": 60,
+      "success_rate": 100.0,
+      "p50_ms": 43.8,
+      "p95_ms": 45.4,
+      "max_ms": 45.8,
+      "sample_errors": []
+    },
+    "notif_pro_check": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 43.9,
+      "p95_ms": 59.8,
+      "max_ms": 60.4,
+      "sample_errors": []
+    },
+    "notif_booking_new_delivered": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "max_ms": 0.0,
+      "sample_errors": []
+    },
+    "notif_read": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 43.7,
+      "p95_ms": 49.3,
+      "max_ms": 50.2,
+      "sample_errors": []
+    },
+    "payment": {
+      "ok": 15,
+      "ko": 0,
+      "attempts": 15,
+      "success_rate": 100.0,
+      "p50_ms": 5861.0,
+      "p95_ms": 5901.3,
+      "max_ms": 5901.3,
+      "sample_errors": []
+    },
+    "payment_no_crash": {
+      "ok": 15,
+      "ko": 0,
+      "attempts": 15,
+      "success_rate": 100.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "max_ms": 0.0,
+      "sample_errors": []
+    },
+    "booking_accept": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 46.3,
+      "p95_ms": 66.7,
+      "max_ms": 69.3,
+      "sample_errors": []
+    },
+    "booking_complete": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 48.7,
+      "p95_ms": 61.7,
+      "max_ms": 61.8,
+      "sample_errors": []
+    },
+    "confirm_pro": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 46.8,
+      "p95_ms": 54.9,
+      "max_ms": 55.1,
+      "sample_errors": []
+    },
+    "confirm_client": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 46.6,
+      "p95_ms": 51.2,
+      "max_ms": 51.2,
+      "sample_errors": []
+    },
+    "review": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 61.3,
+      "p95_ms": 65.8,
+      "max_ms": 66.0,
+      "sample_errors": []
+    },
+    "notif_review_check": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 44.9,
+      "p95_ms": 51.1,
+      "max_ms": 51.4,
+      "sample_errors": []
+    },
+    "notif_review_received_delivered": {
+      "ok": 30,
+      "ko": 0,
+      "attempts": 30,
+      "success_rate": 100.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "max_ms": 0.0,
+      "sample_errors": []
+    },
+    "cancel": {
+      "ok": 10,
+      "ko": 0,
+      "attempts": 10,
+      "success_rate": 100.0,
+      "p50_ms": 56.7,
+      "p95_ms": 58.2,
+      "max_ms": 58.2,
+      "sample_errors": []
+    },
+    "auth_me": {
+      "ok": 20,
+      "ko": 0,
+      "attempts": 20,
+      "success_rate": 100.0,
+      "p50_ms": 48.5,
+      "p95_ms": 2886.7,
+      "max_ms": 2886.7,
+      "sample_errors": []
+    },
+    "change_pw": {
+      "ok": 20,
+      "ko": 0,
+      "attempts": 20,
+      "success_rate": 100.0,
+      "p50_ms": 6882.7,
+      "p95_ms": 7103.3,
+      "max_ms": 7103.3,
+      "sample_errors": []
+    },
+    "login_new_pw": {
+      "ok": 20,
+      "ko": 0,
+      "attempts": 20,
+      "success_rate": 100.0,
+      "p50_ms": 1953.8,
+      "p95_ms": 6427.0,
+      "max_ms": 6427.0,
+      "sample_errors": []
+    },
+    "change_pw_verified": {
+      "ok": 20,
+      "ko": 0,
+      "attempts": 20,
+      "success_rate": 100.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "max_ms": 0.0,
+      "sample_errors": []
+    },
+    "forgot": {
+      "ok": 10,
+      "ko": 0,
+      "attempts": 10,
+      "success_rate": 100.0,
+      "p50_ms": 21.2,
+      "p95_ms": 58.8,
+      "max_ms": 58.8,
+      "sample_errors": []
+    },
+    "reset": {
+      "ok": 10,
+      "ko": 0,
+      "attempts": 10,
+      "success_rate": 100.0,
+      "p50_ms": 2263.0,
+      "p95_ms": 2265.7,
+      "max_ms": 2265.7,
+      "sample_errors": []
+    },
+    "login_after_reset": {
+      "ok": 10,
+      "ko": 0,
+      "attempts": 10,
+      "success_rate": 100.0,
+      "p50_ms": 1370.8,
+      "p95_ms": 2257.7,
+      "max_ms": 2257.7,
+      "sample_errors": []
+    },
+    "reset_verified": {
+      "ok": 10,
+      "ko": 0,
+      "attempts": 10,
+      "success_rate": 100.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "max_ms": 0.0,
+      "sample_errors": []
+    },
+    "delete": {
+      "ok": 100,
+      "ko": 0,
+      "attempts": 100,
+      "success_rate": 100.0,
+      "p50_ms": 55.0,
+      "p95_ms": 80.0,
+      "max_ms": 86.0,
+      "sample_errors": []
+    },
+    "delete_verify": {
+      "ok": 0,
+      "ko": 100,
+      "attempts": 100,
+      "success_rate": 0.0,
+      "p50_ms": 43.1,
+      "p95_ms": 46.6,
+      "max_ms": 48.2,
+      "sample_errors": [
+        {
+          "err": "HTTP 401 {\"detail\":\"User not found\"}",
+          "status": 401
+        },
+        {
+          "err": "HTTP 401 {\"detail\":\"User not found\"}",
+          "status": 401
+        },
+        {
+          "err": "HTTP 401 {\"detail\":\"User not found\"}",
+          "status": 401
+        },
+        {
+          "err": "HTTP 401 {\"detail\":\"User not found\"}",
+          "status": 401
+        },
+        {
+          "err": "HTTP 401 {\"detail\":\"User not found\"}",
+          "status": 401
+        }
+      ]
+    },
+    "delete_token_invalidated": {
+      "ok": 100,
+      "ko": 0,
+      "attempts": 100,
+      "success_rate": 100.0,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "max_ms": 0.0,
+      "sample_errors": []
+    }
+  }
+}

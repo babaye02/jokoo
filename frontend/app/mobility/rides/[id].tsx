@@ -20,13 +20,37 @@ export default function RideDetail() {
   const [seats, setSeats] = useState(1);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<null | "blocked" | "network">(null);
 
   useEffect(() => {
     if (!id) return;
-    api.get<Ride>(`/rides/${id}`).then(setRide).catch(() => setRide(null));
+    setLoadError(null);
+    api.get<Ride>(`/rides/${id}`)
+      .then(setRide)
+      .catch((e: any) => {
+        const msg = String(e?.message || "");
+        setLoadError(msg.includes("404") || /introuvable/i.test(msg) ? "blocked" : "network");
+      });
   }, [id]);
 
   if (!ride) {
+    if (loadError) {
+      const isBlocked = loadError === "blocked";
+      return (
+        <View style={{ flex: 1, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center", padding: spacing.xl }}>
+          <Ionicons name={isBlocked ? "ban" : "cloud-offline-outline"} size={56} color={colors.textMuted} />
+          <Txt size="lg" weight="700" style={{ marginTop: spacing.md, textAlign: "center" }}>
+            {isBlocked ? "Trajet indisponible" : "Impossible de charger"}
+          </Txt>
+          <Txt size="sm" color={colors.textMuted} style={{ textAlign: "center", marginTop: 8 }}>
+            {isBlocked ? "Ce trajet n'est plus accessible." : "Vérifiez votre connexion."}
+          </Txt>
+          <Pressable onPress={() => router.back()} style={{ marginTop: spacing.lg, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.turquoise, borderRadius: 12 }}>
+            <Txt color={colors.white} weight="700">Retour</Txt>
+          </Pressable>
+        </View>
+      );
+    }
     return (
       <View style={{ flex: 1, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" }}>
         <Txt color={colors.textMuted}>Chargement…</Txt>

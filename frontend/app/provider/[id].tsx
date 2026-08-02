@@ -16,13 +16,25 @@ export default function ProviderDetail() {
   const insets = useSafeAreaInsets();
   const [p, setP] = useState<Provider | null>(null);
   const [fav, setFav] = useState(false);
+  const [loadError, setLoadError] = useState<null | "blocked" | "notfound" | "network">(null);
 
   const load = useCallback(async () => {
     if (!id) return;
-    const prov = await api.get<Provider>(`/providers/${id}`);
-    setP(prov);
-    const favs = await api.get<Provider[]>("/favorites").catch(() => []);
-    setFav(favs.some((f) => f.id === id));
+    setLoadError(null);
+    try {
+      const prov = await api.get<Provider>(`/providers/${id}`);
+      setP(prov);
+      const favs = await api.get<Provider[]>("/favorites").catch(() => []);
+      setFav(favs.some((f) => f.id === id));
+    } catch (e: any) {
+      // 404 = soit prestataire supprimé, soit relation bloquée (le backend masque).
+      const msg = String(e?.message || "");
+      if (msg.includes("404") || /introuvable/i.test(msg)) {
+        setLoadError("blocked");
+      } else {
+        setLoadError("network");
+      }
+    }
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
@@ -34,7 +46,49 @@ export default function ProviderDetail() {
   };
 
   if (!p) {
-    return <View style={{ flex: 1, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" }}><Txt color={colors.textMuted}>Chargement…</Txt></View>;
+    if (loadError) {
+      const isBlocked = loadError === "blocked";
+      return (
+        <View style={{ flex: 1, backgroundColor: colors.surface }}>
+          <SafeAreaView edges={["top"]}>
+            <View style={{ padding: spacing.lg, flexDirection: "row", alignItems: "center" }}>
+              <Pressable onPress={() => router.back()} style={styles.iconBtn} testID="provider-back-err">
+                <Ionicons name="chevron-back" size={22} color={colors.midnight} />
+              </Pressable>
+            </View>
+          </SafeAreaView>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl }}>
+            <Ionicons
+              name={isBlocked ? "ban" : "cloud-offline-outline"}
+              size={56}
+              color={colors.textMuted}
+            />
+            <Txt size="lg" weight="700" style={{ marginTop: spacing.md, textAlign: "center" }}>
+              {isBlocked ? "Profil indisponible" : "Impossible de charger"}
+            </Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ textAlign: "center", marginTop: 8 }}>
+              {isBlocked
+                ? "Ce prestataire n'est plus accessible. Il a été bloqué ou n'existe plus."
+                : "Vérifiez votre connexion internet et réessayez."}
+            </Txt>
+            <Pressable
+              onPress={() => (isBlocked ? router.back() : load())}
+              style={{ marginTop: spacing.lg, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.turquoise, borderRadius: 12 }}
+              testID="provider-error-cta"
+            >
+              <Txt color={colors.white} weight="700">
+                {isBlocked ? "Retour" : "Réessayer"}
+              </Txt>
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" }}>
+        <Txt color={colors.textMuted}>Chargement…</Txt>
+      </View>
+    );
   }
 
   const openChat = () => router.push({ pathname: "/chat/[id]", params: { id: p.id, name: p.name } });

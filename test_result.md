@@ -231,18 +231,97 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.6"
-  test_sequence: 7
-  run_ui: true
+  version: "1.8"
+  test_sequence: 9
+  run_ui: false
 
 test_plan:
   current_focus:
-    - "FIX: Suppression de compte (Alert.alert nested → ConfirmDialog)"
-    - "FIX: Favorites filtre bloqués"
-    - "FIX: Ads filtre bloqués (link_type=provider)"
+    - "STRESS/BEHAVIOR — Simulation 100+ utilisateurs, 14 flows E2E"
   stuck_tasks: []
-  test_all: false
-  test_priority: "high_first"
+  test_all: true
+  test_priority: "critical_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Simulation à grande échelle demandée par le user.
+
+      Ampleur : **≥ 100 utilisateurs simulés** (mix clients + prestataires), séquence complète des flows applicatifs.
+
+      Flows à couvrir pour chaque profil (ou un sous-ensemble représentatif si trop lourd) :
+        1. Inscription (`POST /auth/register`)
+        2. Connexion (`POST /auth/login`)
+        3. Mot de passe oublié (`POST /auth/forgot-password` → `POST /auth/reset-password` avec `dev_token`)
+        4. Recherche d'un prestataire (`GET /providers` avec filtres variés)
+        5. Réservation (`POST /bookings`)
+        6. Paiement (`POST /payments/checkout/booking` — vérifier robustesse endpoint uniquement, sk_test_emergent peut échouer)
+        7. Annulation (`PATCH /bookings/{id}` status=cancelled)
+        8. Discussion / Chat (`POST /chat/{peer_id}/messages` + sanitizer + `GET`)
+        9. Notifications (`GET /notifications` + `POST /notifications/{id}/read`)
+        10. Favoris (`POST/DELETE/GET /favorites`)
+        11. Avis (`POST /reviews` sur un booking completed)
+        12. Profil (`GET /auth/me`, `POST /auth/change-password`)
+        13. Changement d'infos (`POST /providers/me` upsert pour un provider ; pour un client : pas d'endpoint dédié → skip ou stocker via `POST /providers/me` avec role=client comme edge-case à signaler)
+        14. Suppression compte (`DELETE /users/me`)
+
+      Instructions générales :
+      - Répondre en **français**.
+      - Utiliser Python + `pytest` + `httpx` (async) ou `requests` pour la simulation → créer `/app/backend/tests/test_iter28_simulation_100users.py`.
+      - Pas de rate limiter agressif sur le backend → 100 users en parallèle OK, mais pool concurrent modéré (10-20 workers max) pour ne pas saturer le pod.
+      - Utiliser des emails uniques `sim-<uuid>@test.jokoo` pour éviter les collisions.
+      - Pour chaque flow : capturer l'erreur (code HTTP, body) et le compter dans un rapport agrégé.
+      - Nettoyer les comptes créés en fin de run (`DELETE /users/me` fait déjà la cascade — dernier flow à tester).
+
+      Livrable dans `/app/test_reports/iteration_28.json` (structure) :
+        - **summary** : nombre de users créés, taux de succès par flow (x/100)
+        - **critical** : bugs bloquants (crash 500, cascade DELETE cassée, auth pétée)
+        - **major** : bugs fonctionnels sans crash (mauvais 400, notif absente, filtre KO)
+        - **minor** : perf lente, warnings
+        - **actionable_fixes** : liste concrète des bugs avec fichier suspect + correction proposée
+
+      Backend externe : `https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com/api/*`
+      Backend local (pour éviter latence proxy) : `http://localhost:8001/api/*` — préférer.
+
+      Ne PAS re-tester en profondeur les modules validés iter23-27 sauf s'ils sont sur le chemin critique de la simulation.
+      Testing type : **backend only** (pas de UI pour cette itération — flows trop nombreux, UI serait trop lente).
+
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Le user rapporte : « ça bug après avoir bloqué un compte ou en essayant de rentrer dans le compte bloqué ».
+
+      Cause racine identifiée :
+      - Les pages détail (`provider/[id]`, `family/babysitter/[id]`, `mobility/rides/[id]`) faisaient un simple
+        `api.get(...).then(setP).catch(() => setP(null))` sans exposer l'erreur.
+      - Le backend renvoie **404** quand le pair est bloqué (masquage silencieux).
+      - Résultat : `p/b/ride` reste `null` → écran figé sur « Chargement… » indéfiniment.
+
+      Fix appliqué sur les 3 pages :
+      - Ajout d'un état `loadError: "blocked" | "network" | null`.
+      - Si erreur 404 → écran clair « Profil indisponible » avec icône ban + bouton « Retour ».
+      - Si erreur réseau → « Impossible de charger » + bouton « Réessayer » (pour provider) ou « Retour ».
+
+      À tester (frontend Playwright) :
+      1. Login `client@jokoo.sn` / `Passw0rd!`.
+      2. Ouvrir la conversation avec `pro@jokoo.sn`, bloquer via ⋮ → « Bloquer ».
+      3. Toast vert visible → retour automatique.
+      4. Depuis la page de recherche, essayer d'accéder au profil bloqué via URL directe : `http://localhost:3000/provider/{pro_id}`.
+         → **Doit afficher « Profil indisponible » et le bouton « Retour »**, PAS « Chargement… » infini.
+      5. Débloquer en API `DELETE /users/{pro_id}/block`, refresh la page → profil normalement chargé.
+
+      Refaire le test similaire pour :
+      - `/family/babysitter/{sitter_id}` après blocage de la baby-sitter.
+      - `/mobility/rides/{ride_id}` après blocage du conducteur.
+
+      Focus **frontend UI uniquement** — backend déjà validé en iter24-27.
+
+      Backend : `https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com/api/*`
+      Frontend : `http://localhost:3000`
+
+      Rapport dans `/app/test_reports/iteration_28.json`.
+
 
 agent_communication:
   - agent: "main"

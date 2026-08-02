@@ -15,13 +15,46 @@ export default function BabysitterDetail() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [b, setB] = useState<Babysitter | null>(null);
+  const [loadError, setLoadError] = useState<null | "blocked" | "network">(null);
 
   useEffect(() => {
     if (!id) return;
-    api.get<Babysitter>(`/family/babysitters/${id}`).then(setB).catch(() => setB(null));
+    setLoadError(null);
+    api.get<Babysitter>(`/family/babysitters/${id}`)
+      .then(setB)
+      .catch((e: any) => {
+        const msg = String(e?.message || "");
+        setLoadError(msg.includes("404") || /introuvable/i.test(msg) ? "blocked" : "network");
+      });
   }, [id]);
 
   if (!b) {
+    if (loadError) {
+      const isBlocked = loadError === "blocked";
+      return (
+        <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
+          <SafeAreaView edges={["top"]} style={styles.header}>
+            <Pressable onPress={() => router.back()} style={styles.back} testID="sitter-back-err">
+              <Ionicons name="chevron-back" size={22} color={colors.midnight} />
+            </Pressable>
+            <Txt size="lg" weight="700">Profil indisponible</Txt>
+            <View style={{ width: 40 }} />
+          </SafeAreaView>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl }}>
+            <Ionicons name={isBlocked ? "ban" : "cloud-offline-outline"} size={56} color={colors.textMuted} />
+            <Txt size="lg" weight="700" style={{ marginTop: spacing.md, textAlign: "center" }}>
+              {isBlocked ? "Profil indisponible" : "Impossible de charger"}
+            </Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ textAlign: "center", marginTop: 8 }}>
+              {isBlocked ? "Cet étudiant n'est plus accessible." : "Vérifiez votre connexion."}
+            </Txt>
+            <Pressable onPress={() => router.back()} style={{ marginTop: spacing.lg, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.turquoise, borderRadius: 12 }}>
+              <Txt color={colors.white} weight="700">Retour</Txt>
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
     return (
       <View style={{ flex: 1, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" }}>
         <Txt color={colors.textMuted}>Chargement…</Txt>
