@@ -231,17 +231,52 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.5"
-  test_sequence: 6
+  version: "1.6"
+  test_sequence: 7
   run_ui: true
 
 test_plan:
   current_focus:
-    - "AUDIT COMPLET #2 — vérification post-fixes iter25"
-    - "Chasse aux liens cassés + boutons non fonctionnels"
+    - "FIX: Suppression de compte (Alert.alert nested → ConfirmDialog)"
+    - "FIX: Favorites filtre bloqués"
+    - "FIX: Ads filtre bloqués (link_type=provider)"
   stuck_tasks: []
-  test_all: true
-  test_priority: "critical_first"
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Le user rapporte 2 bugs :
+      1) « je n'arrive toujours pas à supprimer un compte »
+      2) « quand je bloque un utilisateur je vois toujours son compte »
+
+      Causes racines identifiées et corrigées :
+
+      **Bug 1 — Suppression compte** :
+      - `frontend/app/(tabs)/profile.tsx` utilisait 2 `Alert.alert` imbriqués avec onPress callbacks
+        → ÉCHOUE SILENCIEUSEMENT SUR WEB (le user ne voit rien se passer).
+      - Fix appliqué : remplacé par `ConfirmDialog` (unique modal) + bannière d'erreur in-app rouge (`testID=delete-error`).
+      - À valider frontend : Profile → « Supprimer mon compte » → ConfirmDialog visible → « Oui, supprimer » → API DELETE /users/me appelée → signOut + redirect /login.
+
+      **Bug 2 — Blocage encore visible** :
+      - `GET /api/favorites` ne filtrait PAS les bloqués → un provider mis en favori puis bloqué restait visible dans les favoris.
+      - `GET /api/ads` ne filtrait PAS les pubs pointant vers un prestataire bloqué (link_type=provider).
+      - Fix appliqué : `_blocked_ids(user["id"])` appelé dans les 2 endpoints ; filtres bidirectionnels.
+      - À valider backend :
+        a) Client fait POST /favorites/{pro_id}, puis POST /users/{pro_id}/block, puis GET /favorites → pro absent.
+        b) Créer une pub avec link_type=provider et link_target=<pro_id>. Bloquer ce pro. GET /ads → pub absente.
+        c) Débloquer → tout redevient visible.
+
+      Tester ces 3 points en backend + le fix Alert.alert en frontend UI (playwright localhost:3000).
+      NE PAS re-tester les modules déjà validés en iter23/24/25/26.
+
+      Credentials : admin@jokoo.sn / Admin1234!, client@jokoo.sn / Passw0rd!, pro@jokoo.sn / Passw0rd!.
+      Backend externe : https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com/api/*
+      Frontend : http://localhost:3000
+
+      Rapport dans /app/test_reports/iteration_27.json.
+
 
 agent_communication:
   - agent: "main"

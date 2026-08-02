@@ -1364,7 +1364,14 @@ async def get_booking_detail(bid: str, user=Depends(current_user)):
 async def list_favorites(user=Depends(current_user)):
     fav = await db.favorites.find({"user_id": user["id"]}, {"_id": 0}).to_list(500)
     ids = [f["provider_id"] for f in fav]
-    provs = await db.providers.find({"id": {"$in": ids}}, {"_id": 0}).to_list(500)
+    if not ids:
+        return []
+    # Exclure les prestataires bloqués (mutuellement)
+    blocked = await _blocked_ids(user["id"])
+    filtered_ids = [i for i in ids if i not in blocked]
+    if not filtered_ids:
+        return []
+    provs = await db.providers.find({"id": {"$in": filtered_ids}}, {"_id": 0}).to_list(500)
     return provs
 
 
@@ -2405,6 +2412,7 @@ async def list_public_ads(
     placement: str = "home",
     category: Optional[str] = None,
     audience: Optional[str] = None,  # "client" | "prestataire" — filtre par cible
+    user=Depends(optional_user),
 ):
     """Liste publique — placement, dates, cible, actif. Incrémente les impressions."""
     now = now_iso()
@@ -2413,6 +2421,8 @@ async def list_public_ads(
         query["category_key"] = category
     cur = db.ads.find(query, {"_id": 0}).sort("created_at", -1)
     items = await cur.to_list(100)
+    # Cache des IDs bloqués (utilisateur courant), utilisé pour cacher les pubs pointant vers un prestataire bloqué.
+    blocked = await _blocked_ids(user["id"] if user else None)
     valid = []
     for a in items:
         if not _is_ad_visible(a, now):
@@ -2420,6 +2430,9 @@ async def list_public_ads(
         # Ciblage : "all" ou correspond au rôle transmis
         aud = a.get("target_audience") or "all"
         if audience and aud != "all" and aud != audience:
+            continue
+        # Filtre bloqués : masquer les pubs qui pointent vers un prestataire bloqué mutuellement
+        if blocked and a.get("link_type") == "provider" and a.get("link_target") in blocked:
             continue
         valid.append(_with_ctr(a))
     if valid:

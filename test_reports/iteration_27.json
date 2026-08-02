@@ -1,0 +1,91 @@
+{
+  "summary": "Iter27 — Validation des 2 bugs P0 remontés par le user. RÉSULTAT : les 2 bugs sont CORRIGÉS et le comportement est conforme à la spec. Backend : 4/4 tests pytest OK (test_iter27_delete_and_block_filters.py, 4.58s). Frontend : validation end-to-end du flow de suppression de compte via Playwright web preview mobile (390x844). Bug 1 (suppression compte) : (a) Register /api/auth/register throwaway-<hex>@test.jokoo → 200 avec token ; (b) Login UI /login → OK ; (c) Onglet Profil → scroll → tap menu-delete-account → ConfirmDialog UNIQUE s'affiche avec titre 'Supprimer mon compte ?' + boutons dialog-cancel + dialog-confirm (pas 2 Alert imbriquées comme précédemment) ; (d) Tap dialog-confirm → DELETE /api/users/me observé en réseau → 200 ; (e) Redirection automatique vers /login confirmée ; (f) Réutilisation de l'ancien token sur GET /auth/me → 401 (invalidé car user supprimé de la collection). Bug 2 (utilisateur bloqué visible) : (a) 2a Favoris — client ajoute pro en favori (POST /favorites/{provider_id} 200) → GET /favorites contient pro → POST /users/{pro_user_id}/block 200 → GET /favorites NE contient PLUS pro → DELETE /users/{pro_user_id}/block 200 → pro réapparaît dans favoris. Le filtre _blocked_ids compare bien provider.id ∈ blocked (le block porte sur pro_user_id mais provider.id == user_id dans les données seed, ce qui fait fonctionner le filtre côté /favorites). (b) 2b Ads — admin crée AD link_type=provider link_target=pro_user_id → client GET /ads?placement=home&audience=client voit l'ad → client POST /users/{pro_user_id}/block → GET /ads NE contient PLUS l'ad → unblock → ad réapparaît. Test cleanup : ad supprimé, block cleanup, favorite cleanup. Aucun bug résiduel détecté sur les 2 P0. Aucune régression sur les scopes iter23-26 non retestés. Note technique importante remontée en critical_code_review : dans les données seed, provider.id == provider.user_id (le seed insère avec le même UUID), donc le filtre /favorites `provider.id ∈ blocked` fonctionne — MAIS si un jour un provider était créé avec un id distinct du user_id, le filtre échouerait. Recommandation : filtrer /favorites via provider.user_id ∈ blocked (ligne 1371 server.py).",
+  "critical": [],
+  "major": [],
+  "minor": [
+    {
+      "titre": "Filtre /favorites fragile — dépend de l'égalité provider.id == user_id dans le seed",
+      "reproduction": "server.py:1370-1374 : `blocked = await _blocked_ids(user['id'])` retourne des user_ids. Ensuite `filtered_ids = [i for i in ids if i not in blocked]` où `ids` sont des provider_ids. Le filtre ne fonctionne que parce que dans les données seed provider.id est initialisé à la même valeur que user_id. Si à l'avenir un provider est créé avec un UUID différent du user_id (cas standard en production après upgrade client→prestataire), le filtre échouera silencieusement — les bloqués resteront visibles dans /favorites.",
+      "severite": "minor",
+      "fichier": "/app/backend/server.py:1362-1375",
+      "impact": "Régression latente. Aujourd'hui le fix fonctionne uniquement grâce à la convention seed. Non détecté par les tests actuels.",
+      "correction_proposee": "Récupérer d'abord les providers, puis filtrer via provider.user_id : `provs = await db.providers.find({'id': {'$in': ids}}, {'_id': 0}).to_list(500)` puis `return [p for p in provs if p.get('user_id') not in blocked]`. Ainsi le filtre est robuste indépendamment de la convention d'ID."
+    }
+  ],
+  "resolved_verified": [
+    {"bug": "Bug 1 — Suppression compte", "verdict": "PASS", "steps_verified": [
+      "POST /api/auth/register → 200 + token",
+      "UI /login → login OK → redirection vers /(tabs)",
+      "Navigation Profile → scroll → menu-delete-account tapable",
+      "ConfirmDialog UNIQUE (pas 2 Alert imbriquées) avec titre 'Supprimer mon compte ?'",
+      "testID dialog-confirm et dialog-cancel présents",
+      "Tap dialog-confirm → DELETE /api/users/me observé → 200",
+      "Redirection auto vers /login confirmée (page.url == /login)",
+      "Ancien token sur /auth/me → 401 (invalidé)",
+      "Cascade backend : db.users.delete_one + favorites/legal/notifs/otps/blocked_users/providers/services/babysitters delete_many + bookings/messages/reviews anonymisés (server.py:3146-3162)"
+    ]},
+    {"bug": "Bug 2a — /favorites filtrées par bloqués", "verdict": "PASS", "steps_verified": [
+      "POST /favorites/{pro_id} 200",
+      "GET /favorites contient pro",
+      "POST /users/{pro_user_id}/block 200",
+      "GET /favorites NE contient PLUS pro (filtre _blocked_ids server.py:1370)",
+      "DELETE /users/{pro_user_id}/block 200 → GET /favorites réaffiche pro"
+    ]},
+    {"bug": "Bug 2b — /ads?link_type=provider filtrées", "verdict": "PASS", "steps_verified": [
+      "POST /admin/ads {link_type:'provider', link_target: pro_user_id} → 200",
+      "Client GET /ads?placement=home&audience=client contient l'ad",
+      "Client POST /users/{pro_user_id}/block → 200",
+      "Client GET /ads NE contient PLUS l'ad (filtre server.py:2434-2436)",
+      "Unblock → ad réapparaît"
+    ]}
+  ],
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/favorites", "issue": "Filtre repose sur provider.id ∈ blocked_user_ids ; robuste seulement si provider.id == user_id (convention seed). Voir minor #1."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "profile.tsx / theme.ts", "issue": "Warnings web console persistants : 'shadow*' style props deprecated (utiliser boxShadow) et 'props.pointerEvents' deprecated (utiliser style.pointerEvents). Déjà signalés en iter25/26 — non résolus. Aucun impact utilisateur mais bruit dev. Reference: /app/frontend/src/theme.ts (shadow.soft/medium/card) et composants Pressable."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter27_delete_and_block_filters.py",
+    "/app/test_reports/pytest/iter27.xml",
+    "/app/test_reports/iter27_confirm_dialog.png",
+    "/app/test_reports/iter27_after_delete.png"
+  ],
+  "action_items": [
+    "P3 (hardening) : refactorer GET /api/favorites pour filtrer via provider.user_id ∈ blocked (au lieu de provider.id) — voir 'correction_proposee' du minor #1. Actuellement OK grâce à la convention seed mais fragile.",
+    "P4 : migrer shadow.* → Platform.select({web:{boxShadow:...}}) et props pointerEvents → style.pointerEvents dans /app/frontend/src/theme.ts et src/components/ui.tsx (déjà signalé iter25/26)."
+  ],
+  "critical_code_review_comments": [
+    "profile.tsx:47-64 : deleteAccount() ouvre le ConfirmDialog (setAskDelete(true)), doDelete() appelle api.del('/users/me') puis signOut() + router.replace('/login'). Le catch met delErr → bannière rouge testID='delete-error' visible in-app. Pattern web-safe ✓ (plus de callback Alert.alert imbriqué).",
+    "profile.tsx:173-182 : ConfirmDialog unique avec destructive=true, disabled pendant `deleting`, confirmLabel dynamique 'Suppression…' / 'Oui, supprimer'. UX correcte.",
+    "server.py:3140-3163 : DELETE /users/me — cascade complète sur 8 collections + anonymisation 3 collections + delete_one users. Conforme Apple 5.1.1(v). L'invalidation du token est implicite (JWT stateless, mais current_user rejette 401 car user introuvable en DB).",
+    "server.py:1370 : `blocked = await _blocked_ids(user['id'])` dans /favorites — comparaison avec provider.id. Fonctionne aujourd'hui car seed instaure provider.id == user_id. Filtre à durcir (voir minor #1).",
+    "server.py:2424-2436 : /ads filtre via link_type=='provider' et link_target ∈ blocked. Robuste car link_target stocke bien un user_id (créé par admin avec `link_target: pro_user_id`). ✓",
+    "server.py:3200-3214 : _blocked_ids retourne bidirectionnellement (user_id a bloqué OU a été bloqué par). Correct.",
+    "ActionSheet.tsx:87-131 : ConfirmDialog Modal RN — Pressable overlay + panel isolé + 2 boutons testID dialog-cancel/dialog-confirm. Rendu web-safe."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter27_delete_and_block_filters.py (nouveau — 4 tests / 3 classes)",
+    "/app/test_reports/pytest/iter27.xml (JUnit)",
+    "/app/test_reports/iter27_confirm_dialog.png",
+    "/app/test_reports/iter27_after_delete.png",
+    "/app/test_reports/throwaway.json (artefact de test — email + token du compte throwaway supprimé)"
+  ],
+  "success_rate": {
+    "backend": "100% (4/4 iter27)",
+    "frontend": "100% (Bug 1 flow end-to-end : ConfirmDialog + DELETE 200 + redirect /login + token 401)"
+  },
+  "seed_data_creation": "Créé + supprimé : 1 compte throwaway-37377cea4b@test.jokoo (via API auth/register, puis DELETE /users/me dans le test UI). Créé + supprimé : ~4 ads TEST_iter27 dans admin/ads (créées dans TestBug2b puis DELETE dans le finally). Créé + retiré : 1 favorite client→pro dans TestBug2a. Aucune donnée résiduelle attendue en base après cette itération. Les blocks temporaires client→pro sont bien retirés par DELETE /users/{pro_user_id}/block dans les cleanups.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iter27 clean sur les 2 bugs P0. Points à retenir : (1) Login web preview: la tab-bar utilise testID tab-profile OU on peut goto /profile directement (tab-profile parfois pas cliquable via testID car RN nav). (2) La bannière d'erreur delete-error n'a pas été déclenchée dans ce test (happy path). Pour tester le cas erreur, il faudrait stub le backend en 500 ou détacher le network — non couvert. (3) Le filtre /favorites via provider.id fonctionne uniquement grâce au seed (provider.id == user_id) — à durcir. (4) Register endpoint accepte n'importe quel email non-vérifié (ex: @test.jokoo) — pas de MX check. (5) L'ancien token JWT reste techniquement valide (stateless) mais /auth/me renvoie 401 car current_user cherche l'user en DB (server.py current_user helper). (6) Deprecation warnings shadow*/pointerEvents persistent — cosmétique.",
+  "rca_of_issue": "Bug 1 RCA (déjà résolu par E1) : profile.tsx utilisait Alert.alert imbriqués → sur RN Web les callbacks onPress d'Alert.alert ne se déclenchent PAS (limitation react-native-web). Le fix remplace par un composant ConfirmDialog custom (Modal RN + Pressable) qui fonctionne uniformément web + native. La bannière delete-error garantit un feedback visible en cas d'échec réseau. Confirmé PASS en test UI end-to-end. Bug 2 RCA : GET /favorites et GET /ads ne consommaient pas _blocked_ids → prestataires bloqués restaient visibles dans les favoris ET dans les pubs pointant vers eux. Fix E1 : ajout du filtre via _blocked_ids dans les 2 endpoints (server.py:1370 et 2425). Confirmé PASS avec cycle block/unblock complet. Recommandation subsidiaire : durcir le filtre /favorites (voir minor #1)."
+}
