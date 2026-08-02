@@ -4846,6 +4846,39 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
+@app.on_event("startup")
+async def _startup_ensure_indexes():
+    """Idempotent : corrige les index stales et crée les index recommandés critiques.
+
+    - Drop l'index legacy `expo_token_1 unique` sur push_tokens (bloquait register-token quand plusieurs users avaient expo_token=null en migration).
+    - Recrée un index composite propre pour push_tokens.
+    - Assure quelques index critiques pour perf (email unique, notifications user_id+created_at, etc.).
+    """
+    try:
+        idx = await db.push_tokens.index_information()
+        if "expo_token_1" in idx:
+            await db.push_tokens.drop_index("expo_token_1")
+    except Exception:
+        pass
+    try:
+        await db.push_tokens.create_index([("user_id", 1), ("token", 1)], unique=True, name="user_token_uniq", sparse=True)
+    except Exception:
+        pass
+    # Sécurise les index critiques (idempotent : si déjà présent, no-op).
+    try:
+        await db.users.create_index("email", unique=True, name="email_uniq")
+        await db.users.create_index("apple_sub", sparse=True)
+        await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+        await db.blocked_users.create_index([("user_id", 1), ("blocked_id", 1)], unique=True)
+        await db.blocked_users.create_index("blocked_id")
+        await db.providers.create_index([("service_key", 1), ("city", 1)])
+        await db.bookings.create_index([("client_id", 1), ("created_at", -1)])
+        await db.bookings.create_index([("provider_id", 1), ("created_at", -1)])
+        await db.messages.create_index([("conv_id", 1), ("created_at", 1)])
+    except Exception:
+        pass
+
+
 @app.on_event("shutdown")
 async def close_db():
     client.close()
