@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 
@@ -85,6 +86,17 @@ def verify_password(password: str, hashed: str) -> bool:
         return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
     except Exception:
         return False
+
+
+async def hash_password_async(password: str) -> str:
+    """bcrypt est CPU-bound (~100-300ms). On l'exécute dans un thread pour ne pas bloquer l'event loop."""
+    import asyncio
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(password: str, hashed: str) -> bool:
+    import asyncio
+    return await asyncio.to_thread(verify_password, password, hashed)
 
 
 def make_token(user_id: str) -> str:
@@ -758,7 +770,8 @@ def _client_ip(request: Request) -> str:
 
 @api.post("/auth/register", response_model=AuthOut)
 async def register(body: RegisterIn, request: Request):
-    _rate_check(f"register:{_client_ip(request)}", max_hits=5, window_sec=3600)
+    # 20/h/IP → NAT partagés (café, université, opérateurs mobiles) supportent plusieurs inscriptions.
+    _rate_check(f"register:{_client_ip(request)}", max_hits=20, window_sec=3600)
     existing = await db.users.find_one({"email": body.email.lower()})
     if existing:
         raise HTTPException(400, "Email déjà utilisé")
@@ -766,7 +779,7 @@ async def register(body: RegisterIn, request: Request):
     doc = {
         "id": uid,
         "email": body.email.lower(),
-        "password_hash": hash_password(body.password),
+        "password_hash": await hash_password_async(body.password),
         "name": body.name,
         "role": body.role,
         "is_admin": False,
@@ -789,7 +802,7 @@ async def login(body: LoginIn, request: Request):
     _rate_check(f"login-ip:{ip}", max_hits=20, window_sec=300)
     _rate_check(f"login-email:{email_key}:{ip}", max_hits=8, window_sec=300)
     user = await db.users.find_one({"email": email_key})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    if not user or not await verify_password_async(body.password, user["password_hash"]):
         raise HTTPException(401, "Identifiants invalides")
     token = make_token(user["id"])
     safe = {k: v for k, v in user.items() if k not in ("_id", "password_hash")}
@@ -1227,7 +1240,7 @@ async def reset_password(body: ResetPasswordIn):
         expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     if datetime.now(timezone.utc) > expires_at:
         raise HTTPException(400, "Lien expiré. Recommencez la procédure.")
-    new_hash = hash_password(body.new_password)
+    new_hash = await hash_password_async(body.new_password)
     await db.users.update_one({"id": rec["user_id"]}, {"$set": {"password_hash": new_hash, "updated_at": now_iso()}})
     await db.password_resets.update_one({"token": body.token}, {"$set": {"used": True, "used_at": now_iso()}})
     return {"ok": True}
@@ -2064,12 +2077,12 @@ async def change_password(body: ChangePasswordIn, user=Depends(current_user)):
     if not u:
         raise HTTPException(404, "Utilisateur introuvable")
     stored = u.get("password_hash")
-    if not stored or not verify_password(body.current_password, stored):
+    if not stored or not await verify_password_async(body.current_password, stored):
         raise HTTPException(400, "Mot de passe actuel incorrect")
     # policy check
     if body.new_password == body.current_password:
         raise HTTPException(400, "Le nouveau mot de passe doit être différent de l'actuel")
-    new_hash = hash_password(body.new_password)
+    new_hash = await hash_password_async(body.new_password)
     await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": new_hash, "updated_at": now_iso()}})
     return {"ok": True}
 
@@ -2781,7 +2794,7 @@ async def create_staff(body: StaffIn, user=Depends(require_super_admin)):
     doc = {
         "id": uid,
         "email": body.email.lower(),
-        "password_hash": hash_password(body.password),
+        "password_hash": await hash_password_async(body.password),
         "name": body.name,
         "role": "client",  # staff = compte technique côté app
         "is_admin": body.staff_role == "super_admin",
@@ -2841,7 +2854,7 @@ async def assisted_register(body: AssistedRegisterIn, user=Depends(require_perm(
     doc = {
         "id": uid,
         "email": (body.email or f"{body.phone.replace('+', '')}@jokoo.sn").lower(),
-        "password_hash": hash_password(temp_pwd),
+        "password_hash": await hash_password_async(temp_pwd),
         "name": body.name,
         "role": body.role,
         "phone": body.phone,
@@ -2911,7 +2924,7 @@ async def reset_user_password(uid: str, body: PasswordResetIn, user=Depends(requ
     if not u:
         raise HTTPException(404, "Utilisateur introuvable")
     new_pwd = body.new_password or _gen_otp()
-    await db.users.update_one({"id": uid}, {"$set": {"password_hash": hash_password(new_pwd)}})
+    await db.users.update_one({"id": uid}, {"$set": {"password_hash": await hash_password_async(new_pwd)}})
     return {"ok": True, "new_password": new_pwd}
 
 
@@ -4759,6 +4772,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# GZip compression : réduit ~70% le poids des grosses réponses JSON (recherches, listes admin, providers avec photos base64).
+# min_size=1024 : n'active la compression que pour les réponses ≥ 1 KB (évite surcoût CPU sur petites réponses).
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 @app.on_event("shutdown")
