@@ -1,0 +1,221 @@
+{
+  "cascades": {
+    "1_booking_created": {
+      "visible_client": true,
+      "visible_provider": true,
+      "notif_booking_new_unread": true,
+      "admin_marketplace_stats_changed": false,
+      "admin_endpoint_status": 200
+    },
+    "3_cash_payment": {
+      "wallet_commission_due_incremented": true,
+      "wallet_transactions_logged": false,
+      "booking_paid_at_set": true,
+      "booking_paid_flag_true": false,
+      "notif_client_cash_recorded": false,
+      "notif_provider_commission_due": true,
+      "response": {
+        "ok": true,
+        "commission": 1200.0,
+        "commission_due_total": 1200.0,
+        "blocked": false
+      },
+      "booking_after_block_status": 403,
+      "booking_after_block_expected_403": true
+    },
+    "4_cancellation": {
+      "cancel_status_code": 200,
+      "booking_status_final": "cancelled",
+      "commission_due_rolled_back": false,
+      "commission_due_before": 2400.0,
+      "commission_due_after": 2400.0,
+      "booking_new_notif_count_before": 1,
+      "booking_new_notif_count_after": 1,
+      "cancel_notif_delivered_to_provider": true,
+      "ride": {
+        "created_status": 422
+      }
+    },
+    "5_completion_review_gating": {
+      "review_before_completion_status": 200,
+      "review_before_completion_created": true,
+      "status_after_first_confirm": "accepted",
+      "status_after_second_confirm": "completed",
+      "completed_at_set": true,
+      "notif_booking_completed_client": true,
+      "notif_booking_completed_provider": false,
+      "cancel_after_completed_status": 200
+    },
+    "6_review_recompute": {
+      "review_ok": true,
+      "provider_rating": 4.0,
+      "provider_reviews_count": 1,
+      "rating_recomputed_correctly": true,
+      "booking_review_id_set": true,
+      "double_review_rejected_400": true,
+      "notif_review_received": true
+    },
+    "7_provider_edit_stale_bookings": {
+      "provider_after_service_key": "menuiserie",
+      "provider_reflects_edit": true,
+      "filter_by_new_service_ok": true,
+      "booking_provider_service_before": "Plomberie",
+      "booking_provider_service_after": "Plomberie",
+      "booking_stale": true,
+      "provider_rating_reset_to_0": true,
+      "rating_before_edit": 5.0,
+      "rating_after_edit": 0,
+      "reviews_count_before_edit": 1,
+      "reviews_count_after_edit": 0
+    },
+    "9_account_deletion": {
+      "delete_status": 200,
+      "token_invalidated_401": true,
+      "booking_client_name_anonymised": true,
+      "booking_client_name_actual": "[Compte supprimé]",
+      "messages_anonymised": false,
+      "favorites_creation_status": 405,
+      "push_register_status": 404,
+      "message_send_status": 404,
+      "block_status": 200
+    }
+  },
+  "critical": [
+    {
+      "cascade": 4,
+      "issue": "Annulation d'un booking après cash-payment N'annule PAS la commission_due dans le wallet du prestataire.",
+      "fichier": "/app/backend/server.py:1249-1303 (update_booking) — aucun rollback wallet quand status → cancelled",
+      "impact": "Un prestataire peut voir sa dette de commission gonfler à cause de bookings annulés après cash-payment. À terme, is_blocked_debt=True pour rien.",
+      "proposed_fix": "Dans update_booking, lorsque status devient 'cancelled' ET que booking.paid_method=='cash' ET commission_status=='due' : décrémenter wallets.commission_due de booking.commission et insérer une wallet_transaction de type 'cash_commission_reversed'. Recalculer is_blocked_debt."
+    },
+    {
+      "cascade": 5,
+      "issue": "Une review peut être créée AVANT que le booking soit 'completed' (statut pending/accepted suffit).",
+      "fichier": "/app/backend/server.py:1307-1360 (create_review)",
+      "impact": "Un client peut noter un prestataire sans jamais que la mission soit terminée → fraude possible (avis fake / chantage / dénigrement).",
+      "proposed_fix": "Dans create_review, si booking_id est fourni : vérifier b['status'] == 'completed' avant d'accepter. Retourner 400 'La réservation doit être terminée avant de laisser un avis.' sinon."
+    },
+    {
+      "cascade": 5,
+      "issue": "Un booking déjà 'completed' peut être remis en 'cancelled' via PATCH /bookings.",
+      "fichier": "/app/backend/server.py:1249-1303 (update_booking)",
+      "impact": "Corruption d'état : historique comptable rendu incohérent (mission facturée + annulée).",
+      "proposed_fix": "Refuser toute transition depuis 'completed' vers autre statut. Ajouter une garde : if b['status']=='completed': raise 422."
+    },
+    {
+      "cascade": 7,
+      "issue": "L'upsert /providers/me RÉINITIALISE rating=0 et reviews_count=0 à CHAQUE édition de profil.",
+      "fichier": "/app/backend/server.py:1049-1074 (upsert_my_provider) — le doc contient 'rating': 0, 'reviews_count': 0 systématiquement.",
+      "impact": "CRITIQUE : chaque fois qu'un prestataire modifie son profil (photo, prix, description...), il perd toute son évaluation publique. Perte de confiance/réputation instantanée.",
+      "proposed_fix": "Ne PAS écraser rating/reviews_count/subscription_active/subscription_until/verified en upsert. Utiliser un update_one avec $set n'incluant que les champs du body, ou récupérer d'abord le doc existant et préserver ces champs. Alternativement, retirer ces 4 champs du doc et laisser la logique reviews les gérer."
+    }
+  ],
+  "major": [
+    {
+      "cascade": 3,
+      "issue": "Aucune notification n'est envoyée au CLIENT après enregistrement d'un paiement cash par le prestataire.",
+      "fichier": "/app/backend/server.py:1572-1640 (record_cash_payment)",
+      "impact": "Le client ne sait pas que le prestataire a déclaré avoir reçu le paiement — pas de traçabilité côté client.",
+      "proposed_fix": "Insérer une notification au client_id avec type 'payment_received' (booking_id, amount, method=cash) dans record_cash_payment."
+    },
+    {
+      "cascade": 7,
+      "issue": "Les bookings historiques stockent 'provider_name'/'provider_service' EN DUR à la création et ne sont pas mis à jour quand le prestataire édite son profil.",
+      "fichier": "/app/backend/server.py:1103-1122 (create_booking) + upsert_my_provider",
+      "impact": "UX : le client voit 'Plomberie' dans son historique alors que le prestataire fait maintenant 'Menuiserie'. Techniquement voulu (snapshot temporel), mais si le nom change (marque, activité), l'historique peut sembler cassé.",
+      "proposed_fix": "Deux options : (a) accepter comme snapshot légitime et documenter, ou (b) résoudre dynamiquement provider_name/service à l'affichage via une jointure sur providers (au prix de perdre l'historique du nom exact au moment de la réservation)."
+    },
+    {
+      "cascade": 9,
+      "issue": "push_tokens NON PURGÉS lors de DELETE /users/me.",
+      "fichier": "/app/backend/server.py:3161-3175 (delete_my_account)",
+      "impact": "Un utilisateur supprimé continue de recevoir des push notifications sur son device tant que le token Expo n'expire pas naturellement. Fuite RGPD.",
+      "proposed_fix": "Ajouter `await db.push_tokens.delete_many({\"user_id\": uid})` dans delete_my_account."
+    },
+    {
+      "cascade": 10,
+      "issue": "Types de notifications émis backend mais non routés par routeForNotif() → dead click côté mobile: ['account_blocked', 'account_reactivated', 'cash_commission_due', 'commission_due', 'commission_paid', 'report_awaiting_confirm', 'report_confirmed', 'report_reopened']",
+      "fichier": "/app/frontend/app/(tabs)/notifications.tsx:45-76 (routeForNotif) + backend émetteurs correspondants",
+      "impact": "L'utilisateur voit la notif mais taper dessus n'ouvre rien. UX cassée pour les alertes commission/compte bloqué/report.",
+      "proposed_fix": "Ajouter des routes explicites dans routeForNotif():\n - commission_due, cash_commission_due, commission_paid, account_blocked, account_reactivated → /(tabs)/wallet ou /(tabs)/profile\n - report_confirmed, report_reopened, report_awaiting_confirm → /admin/reports/{report_id} (ou /(tabs)/profile si non-admin)"
+    }
+  ],
+  "minor": [
+    {
+      "cascade": 10,
+      "issue": "Types listés dans la spec ou attendus mais JAMAIS émis par le backend : ['admin_action', 'babysitting_new', 'babysitting_status', 'booking_status', 'parcel_new', 'parcel_status', 'payment_received', 'report_status', 'ride_new', 'wallet_debt_warning']",
+      "impact": "Routes potentiellement mortes (routeForNotif ne recevra jamais ces types). Ex: 'payment_received' n'existe pas → la branche payment* du routeur ne se déclenche jamais.",
+      "proposed_fix": "Deux options : soit émettre ces notifications (recommandé pour payment_received sur webhook Stripe success + booking cash-payment côté client), soit retirer les branches mortes du routeur."
+    }
+  ],
+  "observations": [
+    {
+      "cascade": 3,
+      "note": "booking.paid initialisé à False n'est jamais mis à True lors du cash-payment. Le contrat d'écriture est 'paid_at' + 'paid_method' — l'ancien champ 'paid' reste False → double source de vérité (bug de cohérence UX si consommateurs frontend/admin lisent 'paid'). Recommander d'aligner : soit supprimer 'paid', soit le mettre à True dans record_cash_payment et record du webhook Stripe."
+    },
+    {
+      "cascade": 9,
+      "note": "wallets, wallet_transactions, password_resets, sessions, contact_flags NON PURGÉS lors de DELETE /users/me. Choix acceptable pour la comptabilité, mais à documenter dans la politique de rétention."
+    }
+  ],
+  "notif_types_analysis": {
+    "emitted_backend": [
+      "account_blocked",
+      "account_reactivated",
+      "babysitting_report",
+      "babysitting_request",
+      "babysitting_sos",
+      "babysitting_update",
+      "booking_accepted",
+      "booking_cancelled",
+      "booking_completed",
+      "booking_completion_requested",
+      "booking_new",
+      "booking_quote",
+      "booking_rejected",
+      "cash_commission_due",
+      "commission_due",
+      "commission_paid",
+      "message",
+      "parcel_request",
+      "parcel_update",
+      "report_awaiting_confirm",
+      "report_confirmed",
+      "report_reopened",
+      "review_received",
+      "ride_booking",
+      "ride_cancelled"
+    ],
+    "routed_by_prefix_frontend": [
+      "booking* → /booking/detail",
+      "ride* → /mobility/rides",
+      "parcel* → /mobility/delivery/mine",
+      "babysitting* → /family/booking",
+      "review_received → /booking/detail",
+      "message + peer_id → /chat/{peer_id}",
+      "payment* → /profile"
+    ],
+    "emitted_but_not_routed_dead_click": [
+      "account_blocked",
+      "account_reactivated",
+      "cash_commission_due",
+      "commission_due",
+      "commission_paid",
+      "report_awaiting_confirm",
+      "report_confirmed",
+      "report_reopened"
+    ],
+    "spec_types_never_emitted": [
+      "admin_action",
+      "babysitting_new",
+      "babysitting_status",
+      "booking_status",
+      "parcel_new",
+      "parcel_status",
+      "payment_received",
+      "report_status",
+      "ride_new",
+      "wallet_debt_warning"
+    ]
+  }
+}

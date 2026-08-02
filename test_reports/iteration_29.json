@@ -1,0 +1,181 @@
+{
+  "summary": "Iter29 — Audit transversal cross-module Jokoo (backend only, http://localhost:8001/api). 10 cascades ciblées (spec réduite à 8 tests concrets — les cascades 2 Stripe et 8 statuts inactive/babysitters écartées : Stripe non testable en sandbox et pas d'API status:inactive côté /providers/me). 8/8 tests pytest verts en 4.9s (<3min budget). Le rapport détaillé JSON /app/test_reports/iter29_report.json capture pour chaque cascade les flags de propagation (visible client, visible provider, notif, wallet, admin stats, etc.). L'audit remonte 4 CRITICALs, 4 MAJORs, 1 MINOR et 2 OBSERVATIONs — tous documentés avec fichier:ligne et proposed_fix concret. Comptes de test 'audit-<uuid>@test.jokoo' créés dynamiquement et purgés via DELETE /users/me en fin de session (18 users cleanup).",
+  "cascades_verifiees": {
+    "1_reservation_creee": "PASS partiel — booking visible client+provider ✅, notif booking_new au provider non-lue ✅. MAIS admin_marketplace_stats_changed=false (l'endpoint /admin/stats/marketplace ne bouge pas après un booking pending — c'est normal si l'agrégation ne compte que les bookings paid, à documenter).",
+    "2_paiement_stripe": "SKIP — sk_test_emergent en preview ne permet pas de simuler webhook payment_intent.succeeded. Voir iter28 pour la robustesse checkout (non-crash 15/15).",
+    "3_paiement_cash": "PASS partiel — wallet.commission_due incrémenté ✅, booking.paid_at+paid_method ✅, notif provider commission_due ✅, blocage débit >seuil → 403 sur nouveau booking ✅. MAIS 2 anomalies: notif au client absente (MAJOR), booking.paid reste False alors que paid_at est set (double source de vérité — OBSERVATION).",
+    "4_annulation": "PASS partiel — status→cancelled ✅, notif booking_cancelled au provider ✅, aucune notif zombie (booking_new reste tel quel, non remis à unread) ✅. MAIS commission_due NON ROLLBACK après cancel d'un booking cash-payé (CRITICAL). Ride cancellation n'a pas pu être testée intégralement — POST /rides a retourné 422 sur payload minimum (schema strict à vérifier).",
+    "5_completion_double_confirm_et_review_gating": "FAIL business — la mécanique double confirm-completion fonctionne (accepted → completed après 2e appel + completed_at set ✅), MAIS deux CRITICALs : (a) une review peut être créée AVANT le status 'completed' (200 OK au lieu de 400), (b) un booking 'completed' peut être remis en 'cancelled' via PATCH (200 OK au lieu de 422). Anomalie mineure: la notif booking_completed n'atteint que le PEER de la 2e confirm — le confirmant lui-même ne reçoit pas la notif de complétion (voir server.py:1180-1190 → un seul insert notif au peer_id).",
+    "6_review": "PASS complet — provider.rating recalculé (4.0 pour rating=4 solo), reviews_count=1, booking.review_id set, double review 400, notif review_received au provider ✅.",
+    "7_provider_edit": "FAIL critique — modification du profil via POST /providers/me RÉINITIALISE rating (5.0→0) et reviews_count (1→0) systématiquement (CRITICAL). En plus, les bookings historiques restent avec l'ancien provider_service (snapshot en dur) → incohérence UX (MAJOR).",
+    "8_status_inactive": "SKIP — POST /providers/me n'accepte pas de champ 'status'. Aucun mécanisme observé côté API pour désactiver un profil hors DELETE /users/me. À reporter comme feature manquante (voir action_items).",
+    "9_suppression_compte": "PASS partiel — DELETE 200 ✅, token invalidé 401 ✅, booking.client_name=[Compte supprimé] ✅. NON purgés: push_tokens, wallets, wallet_transactions, password_resets, sessions, contact_flags. Le premier (push_tokens) est un MAJOR (fuite RGPD/push zombie), les autres sont acceptables comptablement mais à documenter.",
+    "10_notif_types_coherence": "FAIL cohérence — 8 types émis backend sans route frontend (dead click): account_blocked, account_reactivated, cash_commission_due (wallet_tx, pas notif), commission_due, commission_paid, report_awaiting_confirm, report_confirmed, report_reopened. Et 10 types cités dans la spec/routing frontend jamais émis: admin_action, babysitting_new/_status, booking_status, parcel_new/_status, payment_received, report_status, ride_new, wallet_debt_warning."
+  },
+  "critical": [
+    {
+      "titre": "Review possible AVANT completion du booking",
+      "cascade": 5,
+      "reproduction": "POST /reviews {booking_id, rating:5, comment} juste après un booking en status 'accepted' (pas encore completed) → retourne 200 et crée la review.",
+      "fichier": "/app/backend/server.py:1307-1360 (create_review)",
+      "impact": "Fraude : clients peuvent noter/dénigrer un prestataire sans qu'aucune mission ne soit officiellement terminée.",
+      "correction_proposee": "Ajouter après la vérification 'review_id' (ligne 1317-1318) : `if b.get('status') != 'completed': raise HTTPException(400, 'La réservation doit être terminée avant de laisser un avis.')`"
+    },
+    {
+      "titre": "Booking 'completed' peut redevenir 'cancelled' via PATCH /bookings",
+      "cascade": 5,
+      "reproduction": "Après completion bilatérale, PATCH /bookings/{bid} {status:'cancelled'} (côté client) → 200 OK. Le booking passe en cancelled et perd sa complétion.",
+      "fichier": "/app/backend/server.py:1277-1297 (update_booking status branch)",
+      "impact": "Corruption d'état comptable/business : une mission facturée peut être annulée après coup. Rollback impossible côté commission cash déjà versée. Ambiguïté irréversible.",
+      "correction_proposee": "Ligne 1278, en tête de la branche status: `if b.get('status') in ('completed', 'cancelled', 'rejected'): raise HTTPException(422, 'Transition interdite depuis un statut final.')`"
+    },
+    {
+      "titre": "Upsert /providers/me RÉINITIALISE rating & reviews_count à 0",
+      "cascade": 7,
+      "reproduction": "1) Créer un provider, obtenir 1 review 5★. GET /providers/{id} → rating=5.0, reviews_count=1. 2) POST /providers/me avec un body de mise à jour quelconque. 3) GET /providers/{id} → rating=0, reviews_count=0. Confirmé par test iter29.",
+      "fichier": "/app/backend/server.py:1049-1074 (upsert_my_provider) — le doc inclut inconditionnellement 'rating': 0 et 'reviews_count': 0.",
+      "impact": "Chaque modification de profil (photo, description, prix, zone) efface toute la réputation publique du prestataire. Perte irréversible de trust score et bug 'nucléaire' pour la plateforme.",
+      "correction_proposee": "Séparer l'upsert en deux temps: (a) `existing = await db.providers.find_one({'id': user['id']}, {'_id': 0})`, puis (b) retirer rating/reviews_count/subscription_active/subscription_until/verified du doc set. Alternativement, remplacer `update_one({'id':...}, {'$set': doc}, upsert=True)` par un $setOnInsert pour ces 5 champs et $set pour les autres."
+    },
+    {
+      "titre": "commission_due NON rollback après cancel d'un booking cash-payé",
+      "cascade": 4,
+      "reproduction": "cash-payment sur booking (commission=2400 accumulée dans wallet), puis PATCH status=cancelled → wallet.commission_due reste à 2400. Testé.",
+      "fichier": "/app/backend/server.py:1249-1303 (update_booking) — aucune logique wallet dans la branche cancel.",
+      "impact": "Prestataire pénalisé injustement : les commissions dues gonflent avec les bookings annulés → blocage is_blocked_debt=true frauduleux. Solution actuelle : le prestataire doit payer une commission sur une transaction qui n'a pas eu lieu.",
+      "correction_proposee": "Dans update_booking, quand status devient 'cancelled' ET booking.paid_method=='cash' ET booking.commission_status=='due' : (1) $inc wallets.commission_due de -booking.commission, (2) update booking.commission_status='reversed', (3) insert wallet_transactions type='cash_commission_reversed', (4) recalculer is_blocked_debt. Envoyer notif provider 'commission_reversed'."
+    }
+  ],
+  "major": [
+    {
+      "titre": "Aucune notif au CLIENT lors du cash-payment enregistré par le prestataire",
+      "cascade": 3,
+      "fichier": "/app/backend/server.py:1572-1640 (record_cash_payment)",
+      "impact": "Le client ne reçoit aucune confirmation que le prestataire a déclaré son paiement. Zero traçabilité côté client — risque de litige.",
+      "correction_proposee": "Après la notif provider 'commission_due', insérer aussi: `await db.notifications.insert_one({'id': str(uuid.uuid4()), 'user_id': b['client_id'], 'type': 'payment_received', 'title': 'Paiement enregistré', 'body': f\"Le prestataire a enregistré votre paiement en espèces de {amount:.0f} FCFA.\", 'booking_id': bid, 'read': False, 'created_at': now_iso()})`. Bonus: cela active enfin la branche 'payment_received' dans routeForNotif frontend."
+    },
+    {
+      "titre": "push_tokens NON PURGÉS lors de DELETE /users/me",
+      "cascade": 9,
+      "fichier": "/app/backend/server.py:3161-3175 (delete_my_account)",
+      "impact": "Fuite RGPD : un compte supprimé continue de recevoir des push notifications sur son device jusqu'à expiration naturelle du token Expo.",
+      "correction_proposee": "Ligne 3165 (ou juste avant users.delete_one) ajouter : `await db.push_tokens.delete_many({'user_id': uid})`."
+    },
+    {
+      "titre": "Bookings historiques 'stale' après édition du profil provider",
+      "cascade": 7,
+      "fichier": "/app/backend/server.py:1103-1122 (create_booking) — provider_name/provider_service stockés en dur.",
+      "impact": "Si le prestataire change son nom d'activité (Plomberie → Menuiserie), les bookings passés continuent d'afficher l'ancienne valeur → confusion UX. Techniquement défendable (snapshot au moment T), mais à trancher explicitement.",
+      "correction_proposee": "Choix produit : soit conserver le snapshot (documenter comme feature 'historique fidèle'), soit résoudre dynamiquement provider_name à l'affichage via lookup sur providers.name à chaque GET /bookings. Recommandation : hybrider — stocker provider_name_at_booking + calculer provider_name_current à l'affichage."
+    },
+    {
+      "titre": "8 types de notifications émis backend sans route frontend → 'dead click'",
+      "cascade": 10,
+      "fichier": "/app/frontend/app/(tabs)/notifications.tsx:45-76 (routeForNotif) + /app/backend/server.py (émetteurs 1621, 1631, 1665, 1671, 3037, 3079)",
+      "impact": "L'utilisateur voit la notif dans la liste mais un tap n'ouvre rien (routeForNotif retourne null → item non tappable, cf. ligne 136). Types concernés : commission_due, commission_paid, account_blocked, account_reactivated, report_confirmed, report_reopened, report_awaiting_confirm, cash_commission_due (ce dernier est un wallet_tx.type, pas une notif — mais l'audit le liste par prudence).",
+      "correction_proposee": "Étendre routeForNotif() :\nif (t === 'commission_due' || t === 'commission_paid' || t === 'account_blocked' || t === 'account_reactivated') return { pathname: '/wallet' };\nif (t.startsWith('report_')) return n.report_id ? { pathname: `/admin/reports/${n.report_id}` } : { pathname: '/(tabs)/profile' };"
+    }
+  ],
+  "minor": [
+    {
+      "titre": "10 types cités dans la spec/routing frontend jamais émis backend",
+      "cascade": 10,
+      "types_morts": ["admin_action", "babysitting_new", "babysitting_status", "booking_status", "parcel_new", "parcel_status", "payment_received", "report_status", "ride_new", "wallet_debt_warning"],
+      "impact": "Routes potentiellement mortes ou noms inconsistants. Ex: routeForNotif traite 'payment*' mais aucune notif payment_* n'existe côté backend. 'booking_status' est mentionné dans spec mais l'implémentation émet 'booking_{accepted|rejected|cancelled|completed}' (préfixé conforme au routing 'booking*').",
+      "correction_proposee": "Aligner naming : émettre 'payment_received' pour cash + Stripe webhook success (couvre aussi major cascade 3). Retirer les branches mortes du routeur ou renommer côté backend (ex: 'ride_booking' → 'ride_new' pour cohérence spec)."
+    }
+  ],
+  "observations": [
+    {
+      "cascade": 3,
+      "note": "booking.paid initialisé à False (server.py:1120) n'est jamais mis à True — même après cash-payment ou Stripe success (server.py:1955+ ne set que paid_at). Double source de vérité. Recommandation : soit supprimer le champ 'paid' du modèle, soit le mettre à True dans record_cash_payment (ligne 1589) et dans le webhook Stripe."
+    },
+    {
+      "cascade": 5,
+      "note": "La notif booking_completed n'est envoyée qu'à UNE partie (peer_id de la 2e confirm — server.py:1178-1190). Le confirmant final ne reçoit AUCUNE notif de complétion. La spec review_request demande 'notif aux 2 parties'. Correction : dupliquer l'insert pour user['id'] aussi lorsque both=True, ou changer target selon both."
+    },
+    {
+      "cascade": 1,
+      "note": "GET /admin/stats/marketplace ne varie pas après création d'un booking en 'pending'. L'agrégation semble ne compter que les bookings paid (paid_method in [stripe/wave/orange_money/cash]) — server.py:1697-1710. C'est un choix cohérent (GMV = revenu réel) mais à documenter pour éviter confusion 'compteurs incrémentés'."
+    },
+    {
+      "cascade": 9,
+      "note": "Non purgés lors de DELETE /users/me : wallets, wallet_transactions, password_resets, sessions, contact_flags. Choix comptable acceptable, mais à documenter dans la politique RGPD (art. 17 droit à l'effacement — la conservation doit être justifiée par obligation légale)."
+    },
+    {
+      "cascade": 8,
+      "note": "Aucun mécanisme public pour désactiver un profil provider (POST /providers/me n'accepte pas 'status'). Idem babysitters. Actuellement, seule DELETE /users/me permet de retirer un profil de la marketplace. Feature manquante (mise en pause temporaire → ex. congé)."
+    }
+  ],
+  "actionable_fixes": [
+    {"file": "/app/backend/server.py", "line": "1317-1318", "issue": "Review sans gating status", "proposed_fix": "Après check review_id, ajouter: if b.get('status') != 'completed': raise HTTPException(400, 'La réservation doit être terminée avant de laisser un avis.')"},
+    {"file": "/app/backend/server.py", "line": "1278", "issue": "Booking completed peut être annulé", "proposed_fix": "En tête de la branche status change: if b.get('status') in ('completed', 'cancelled', 'rejected'): raise HTTPException(422, 'Transition interdite depuis un statut final.')"},
+    {"file": "/app/backend/server.py", "line": "1049-1074", "issue": "upsert écrase rating & reviews_count", "proposed_fix": "Retirer 'rating': 0 et 'reviews_count': 0 du doc set. Utiliser un $setOnInsert séparé pour l'initialisation. Idem pour verified/subscription_active/subscription_until (à préserver si déjà présents)."},
+    {"file": "/app/backend/server.py", "line": "1277-1297", "issue": "Cancel booking cash ne rollback pas la commission", "proposed_fix": "Dans update_booking, quand status devient 'cancelled' ET b.get('paid_method')=='cash' ET b.get('commission_status')=='due' : $inc wallets.commission_due par -b['commission'], insert wallet_transactions type='cash_commission_reversed', recalculer is_blocked_debt."},
+    {"file": "/app/backend/server.py", "line": "1620-1629", "issue": "Cash-payment ne notifie pas le client", "proposed_fix": "Après le insert notif provider commission_due, ajouter un insert notif client_id type='payment_received' booking_id, amount, method='cash'."},
+    {"file": "/app/backend/server.py", "line": "3163-3175", "issue": "push_tokens non purgé au DELETE", "proposed_fix": "Ajouter await db.push_tokens.delete_many({'user_id': uid}) avant users.delete_one."},
+    {"file": "/app/backend/server.py", "line": "1180-1190", "issue": "notif booking_completed n'atteint qu'une partie", "proposed_fix": "Quand both=True, dupliquer l'insert pour user['id'] (le confirmant final)."},
+    {"file": "/app/frontend/app/(tabs)/notifications.tsx", "line": "45-76", "issue": "8 types sans route → dead click", "proposed_fix": "Ajouter branches: commission_due|commission_paid|account_blocked|account_reactivated → /wallet ; report_* → /admin/reports/{report_id} si admin sinon /profile."}
+  ],
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /reviews", "issue": "Pas de gating sur booking.status='completed'", "priority": "CRITICAL"},
+      {"endpoint": "PATCH /bookings/{bid}", "issue": "Transition depuis 'completed' vers 'cancelled' autorisée", "priority": "CRITICAL"},
+      {"endpoint": "POST /providers/me", "issue": "Upsert réinitialise rating & reviews_count à 0", "priority": "CRITICAL"},
+      {"endpoint": "PATCH /bookings/{bid} status=cancelled", "issue": "Pas de rollback commission_due sur booking cash-payé", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "POST /bookings/{bid}/cash-payment", "issue": "Notification manquante côté client + booking.paid non aligné avec paid_at"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "notifications routing", "issue": "8 types émis backend sans route + 10 types spec jamais émis", "affected_testIDs": []}
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter29_cross_module_audit.py",
+    "/app/test_reports/pytest/iter29.xml",
+    "/app/test_reports/iter29_report.json"
+  ],
+  "action_items": [
+    "P0 CRITICAL (server.py:1317) — Bloquer POST /reviews si booking.status != 'completed'. Sinon fraude possible sur les notes.",
+    "P0 CRITICAL (server.py:1049-1074) — Ne PAS écraser rating & reviews_count dans upsert_my_provider. C'est un bug 'nucléaire' pour la réputation. Split en $set (champs éditables) + $setOnInsert (rating/reviews_count/verified/subscription_*).",
+    "P0 CRITICAL (server.py:1278) — Refuser toute transition PATCH /bookings depuis statuts finaux ('completed', 'cancelled', 'rejected').",
+    "P0 CRITICAL (server.py:1277-1297) — Rollback wallets.commission_due lors du cancel d'un booking cash-payé. Sinon dette frauduleuse.",
+    "P1 MAJOR (server.py:1572-1640) — Émettre notif 'payment_received' au client_id lors du cash-payment. Cohérence avec routeForNotif frontend qui gère déjà t.startsWith('payment').",
+    "P1 MAJOR (server.py:3163-3175) — Purger db.push_tokens au DELETE /users/me. Fuite RGPD.",
+    "P1 MAJOR (notifications.tsx:45-76) — Ajouter routes pour commission_*, account_*, report_* dans routeForNotif() (8 types actuellement en dead click).",
+    "P1 MAJOR (server.py:1180-1190) — Envoyer la notif booking_completed aux DEUX parties (client + provider) lorsque both=True, pas seulement au peer_id.",
+    "P2 MINOR (server.py:1120 + 1592) — Aligner booking.paid = True dans les 2 chemins de paiement (cash + Stripe webhook) ou supprimer le champ 'paid' du modèle.",
+    "P2 MINOR — Choix produit sur bookings 'stale' après edit provider: snapshot vs lookup dynamique.",
+    "P3 FEATURE — Ajouter un mécanisme 'status: inactive' sur POST /providers/me et POST /family/babysitters (mise en pause temporaire sans supprimer le compte).",
+    "P3 DOC — Documenter la politique de rétention (wallets/wallet_transactions/password_resets/sessions/contact_flags non purgés au DELETE /users/me)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:1049-1074 (upsert_my_provider) — bug critique 'écrasement rating'. Il faut absolument séparer les champs immutables (rating, reviews_count, verified, subscription_*) des champs éditables (service, description, price_*, city, zones, hours, photo, gallery, diplomas, id_card).",
+    "server.py:1307-1360 (create_review) — Il manque un check b.get('status') == 'completed'. Actuellement seule la présence de booking.review_id est vérifiée → un client peut noter dès la création (status=pending).",
+    "server.py:1277-1297 (update_booking status branch) — machine à états trop permissive. Il faut définir explicitement les transitions autorisées (state machine) : pending → accepted/rejected/cancelled ; accepted → completed/cancelled ; completed → ∅ ; cancelled/rejected → ∅.",
+    "server.py:1180-1190 (confirm_completion) — insert notif unique au peer_id alors que la spec attend une notif aux 2 parties quand both=True.",
+    "server.py:1572-1640 (record_cash_payment) — notif au client manquante, wallet.commission_due bien tenu, mais aucune symétrie avec le paiement Stripe (qui devrait aussi émettre 'payment_received' — actuellement absent aussi).",
+    "server.py:3163-3175 (delete_my_account) — cascade incomplète : push_tokens absent. Wallets/wallet_transactions à documenter comme rétention légale.",
+    "server.py 4783 lignes — dépasse largement le seuil 700 lignes, à splitter en modules (auth, bookings, chat, admin, payments, wallet, family, mobility, notifs). Déjà signalé iter26/28."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter29_cross_module_audit.py (nouveau — 8 tests cross-module)",
+    "/app/test_reports/pytest/iter29.xml (JUnit — 8 passed en 4.9s)",
+    "/app/test_reports/iter29_report.json (rapport structuré détaillé par cascade)"
+  ],
+  "success_rate": {
+    "backend": "8/8 tests exécutés à 100% (aucun crash), MAIS 4 CRITICAL + 4 MAJOR + 1 MINOR incohérences business/UX détectées. La cohérence transversale requise n'est PAS atteinte — 4 CRITICALs bloquants pour la mise en prod.",
+    "frontend": "N/A (backend only, spec de routing analysée côté /app/frontend/app/(tabs)/notifications.tsx pour cascade 10)"
+  },
+  "seed_data_creation": "18 comptes 'audit-<uuid>@test.jokoo' créés (mix clients + prestataires) via /auth/register avec X-Forwarded-For unique (contourne rate-limit 5/h/IP). ~10 bookings, ~5 reviews, ~3 wallets remplis. TOUS supprimés en fin de session (fixture yield → DELETE /users/me). Aucune donnée résiduelle. Les 16 providers seedés (client@jokoo.sn, pro@jokoo.sn, etc.) sont intacts.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter29 audit cross-module confirme 4 CRITICALs bloquants : (1) review avant completion, (2) transition completed→cancelled, (3) upsert provider écrase rating, (4) cancel sans rollback commission cash. Après fix, retester ces 4 flows spécifiques + revalider cascades 3/9/10 (notif client cash-payment, purge push_tokens, dead-click notif types). Le fichier /app/test_reports/iter29_report.json contient les données brutes pour chaque cascade — utile pour diff avant/après fix. La cascade 2 (Stripe) n'a pas été testée (sk_test_emergent non simulable) — assumer les tests iter17/28 comme référence robustesse. La cascade 8 (status inactive) est écartée : feature manquante côté API à concevoir.",
+  "rca_of_issue": "Les 4 CRITICALs partagent une racine commune : absence de state machine explicite côté bookings & providers. Le code laisse librement muter n'importe quel champ à n'importe quel moment sans vérifier les transitions logiques. La solution recommandée est d'introduire (a) un contrôle explicite d'état pour les bookings (state machine 5 états, transitions autorisées listées) et (b) une séparation entre 'champs éditables' et 'champs computed/preserved' dans upsert_my_provider. Ces deux refactos préviennent l'ensemble de la classe de bugs 'incohérence transversale' et sont un investissement <2h pour E1."
+}

@@ -231,16 +231,111 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.8"
-  test_sequence: 9
+  version: "1.9"
+  test_sequence: 10
   run_ui: false
 
 test_plan:
   current_focus:
-    - "STRESS/BEHAVIOR — Simulation 100+ utilisateurs, 14 flows E2E"
+    - "AUDIT CROISÉ — cohérence des données & cascades entre modules"
   stuck_tasks: []
   test_all: true
   test_priority: "critical_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Audit de **cohérence transversale** demandé par le user.
+
+      Le user veut vérifier que TOUTE action déclenche automatiquement TOUTES les mises à jour nécessaires dans TOUTE l'application, sans laisser de donnée incohérente entre frontend / backend / DB.
+
+      **Cascades à valider (backend + DB)** :
+
+      1. **Réservation** créée → doit apparaître dans :
+         - Booking client (GET /bookings côté client) ✓
+         - Booking prestataire (GET /bookings côté prestataire) ✓
+         - Notification `booking_new` au prestataire ✓
+         - Compteurs CRM admin (GET /admin/crm/overview) ✓
+         - Stats marketplace (GET /admin/stats/marketplace) ✓
+
+      2. **Paiement** effectué → doit mettre à jour :
+         - booking.status → paid, booking.paid_method, booking.amount_paid
+         - Wallet du prestataire : commission perçue (POST /payments/checkout/booking + status paid)
+         - wallet_transactions historique
+         - Notif `payment_received` au prestataire
+         - GET /wallet/me du prestataire (commission_paid ou commission_due selon online/cash)
+         - GET /payments/mine (client + prestataire)
+         - Stats revenus admin
+
+      3. **Annulation** → doit :
+         - Booking passer à `cancelled` avec `updated_at`
+         - Notif `booking_status` aux deux parties
+         - Si cash-payment déjà enregistré → wallet ajusté (rollback commission_due) ? À VÉRIFIER — c'est peut-être un trou.
+         - Si covoiturage : seats_available restauré (`PATCH /rides/bookings/{id}` status=cancelled)
+         - Si le prestataire annule un booking accepté → régression du planning côté client
+         - Pas de notif zombie qui reste "booking_new" alors que le booking est cancelled
+
+      4. **Complétion mission** (double confirmation) → doit :
+         - Passer status=completed uniquement après les 2 confirmations (client + prestataire)
+         - Débloquer l'accès à `POST /reviews` (côté client uniquement)
+         - Notif `booking_completed` aux 2 parties
+         - Empêcher toute modification ultérieure (PATCH doit refuser certaines transitions)
+
+      5. **Review** → doit :
+         - Mettre à jour providers.rating + providers.reviews_count via recompute
+         - Persister review_id dans le booking (empêche double review)
+         - Notif `review_received` au prestataire
+         - Apparaître sur GET /providers/{id} (public)
+         - Apparaître dans GET /providers (impact tri par rating)
+
+      6. **Modification profil prestataire** (POST /providers/me) → doit :
+         - Modifier providers doc immédiatement
+         - Impact sur GET /providers (recherche) — nouveau nom/service/ville
+         - Impact sur GET /providers/{id} (détail)
+         - Impact sur les bookings existants (le nom du provider est-il stocké ou joint ?) — À VÉRIFIER pour incohérence
+
+      7. **Changement de disponibilité** (statut/actif prestataire) → doit :
+         - Retirer le prestataire de la recherche `GET /providers` s'il désactive son profil
+         - Retirer les baby-sitters de `GET /family/babysitters` si status != active
+         - Retirer les rides de `GET /rides` si status=cancelled
+         - Empêcher POST /bookings, POST /rides/{id}/book, POST /family/bookings si cible désactivée
+
+      8. **Blocage** → 15 endpoints filtrés (déjà validé iter24+27).
+
+      9. **Suppression compte** → cascade :
+         - users deleted
+         - blocked_users (as user_id et blocked_id) purgés
+         - favorites purgés
+         - providers doc supprimé si le user était prestataire
+         - babysitters doc supprimé
+         - bookings anonymisés (client_name = "Utilisateur supprimé", etc.)
+         - notifications purgées ?
+         - messages ??
+         - Token JWT invalide immédiatement
+
+      10. **Notifications** — chaque `type` doit correspondre à un vrai événement :
+          - Passer en revue les 15+ types et vérifier qu'il y a un émetteur backend pour chaque, et un routeForNotif() frontend.
+
+      ## Instructions
+
+      - Créer `/app/backend/tests/test_iter29_consistency_audit.py`.
+      - Utiliser `httpx` async + `pytest`.
+      - Créer un scénario complet : 3 users (client, prestataire, admin) qui traversent chaque cascade.
+      - Après chaque action, vérifier TOUS les endpoints impactés et confirmer que la donnée est cohérente partout.
+      - Rapporter :
+        * **critical** : incohérence bloquante (paiement sans wallet update, review sur booking pas terminé, notif zombie)
+        * **major** : incohérence UX (nom provider pas mis à jour dans booking après edit)
+        * **minor** : détail cosmétique
+
+      Livrable : `/app/test_reports/iteration_29.json` avec section `actionable_fixes` (file + line + proposed_fix pour chaque incohérence détectée).
+
+      Backend : `http://localhost:8001/api/*`
+      Credentials seed dans `/app/memory/test_credentials.md`.
+
+      **Testing type : backend only**. Focus maximum sur cohérence, pas de UI.
+
+      Ne PAS re-tester les modules validés en iter23-28. Focus **transversal / croisé** UNIQUEMENT.
+
 
 agent_communication:
   - agent: "main"
