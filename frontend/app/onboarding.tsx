@@ -44,7 +44,7 @@ const SLIDES: Slide[] = [
     title: "Le marketplace qui rapproche les Sénégalais.",
     subtitle: "Services, mobilité et famille — tout dans une seule app.",
     image:
-      "https://images.pexels.com/photos/2074131/pexels-photo-2074131.jpeg?auto=compress&cs=tinysrgb&w=1400",
+      "https://images.pexels.com/photos/2159065/pexels-photo-2159065.jpeg?auto=compress&cs=tinysrgb&w=1400",
     accent: "#00C2A8",
     icon: "sparkles",
   },

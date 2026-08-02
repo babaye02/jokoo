@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Linking, FlatList } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Linking, FlatList, Share, Platform } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -41,6 +41,20 @@ export default function ProviderDetail() {
   const call = () => p.phone && Linking.openURL(`tel:${p.phone}`);
   const book = () => router.push({ pathname: "/booking/[providerId]", params: { providerId: p.id } });
 
+  const share = async () => {
+    if (!p) return;
+    const message = `Découvrez ${p.name} (${p.service}) sur Jokoo — ${p.city}. Rating ${p.rating}/5.`;
+    try {
+      if (Platform.OS === "web" && typeof (globalThis as any).navigator?.share === "function") {
+        await (globalThis as any).navigator.share({ title: p.name, text: message });
+      } else {
+        await Share.share({ message });
+      }
+    } catch (_e) {
+      /* user cancelled */
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
@@ -56,7 +70,7 @@ export default function ProviderDetail() {
               <Pressable onPress={toggleFav} style={styles.iconBtn} testID="provider-fav">
                 <Ionicons name={fav ? "heart" : "heart-outline"} size={22} color={fav ? colors.danger : colors.midnight} />
               </Pressable>
-              <Pressable style={styles.iconBtn}>
+              <Pressable onPress={share} style={styles.iconBtn} testID="provider-share">
                 <Ionicons name="share-outline" size={22} color={colors.midnight} />
               </Pressable>
             </View>
