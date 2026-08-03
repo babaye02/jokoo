@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Image } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Image, findNodeHandle } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +17,30 @@ export default function BabysitterDetail() {
   const [b, setB] = useState<Babysitter | null>(null);
   const [reviews, setReviews] = useState<any[]>([]);
   const [loadError, setLoadError] = useState<null | "blocked" | "network">(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const reviewsRef = useRef<View>(null);
+  const reviewsY = useRef(0);
+  const scrollToReviews = () => {
+    const sv = scrollRef.current as any;
+    const node = reviewsRef.current as any;
+    if (!sv || !node) return;
+    try {
+      const scrollNode = sv.getScrollableNode ? sv.getScrollableNode() : findNodeHandle(sv);
+      if (node.measureLayout && scrollNode) {
+        node.measureLayout(
+          scrollNode,
+          (_x: number, y: number) => {
+            sv.scrollTo({ y: Math.max(0, y - 12), animated: true });
+          },
+          () => {
+            sv.scrollTo({ y: Math.max(0, reviewsY.current - 12), animated: true });
+          }
+        );
+        return;
+      }
+    } catch {}
+    sv.scrollTo({ y: Math.max(0, reviewsY.current - 12), animated: true });
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -79,7 +103,7 @@ export default function BabysitterDetail() {
         </Pressable>
       </SafeAreaView>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 160 + insets.bottom }}>
+      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: spacing.xl, paddingBottom: 160 + insets.bottom }}>
         {/* Hero card */}
         <Card>
           <View style={{ flexDirection: "row" }}>
@@ -101,13 +125,20 @@ export default function BabysitterDetail() {
                 </Txt>
               </View>
               <Txt size="xs" color={colors.textSubtle}>{b.university}{b.field_of_study ? ` · ${b.field_of_study}` : ""}</Txt>
-              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
+              <Pressable
+                onPress={scrollToReviews}
+                hitSlop={8}
+                style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}
+                testID="sitter-rating"
+                accessibilityRole="button"
+                accessibilityLabel="Voir les avis parents"
+              >
                 <Ionicons name="star" size={12} color="#F59E0B" />
                 <Txt size="xs" weight="700" style={{ marginLeft: 4 }}>{(b.rating || 0).toFixed(1)}</Txt>
                 <Txt size="xxs" color={colors.textMuted} style={{ marginLeft: 4 }}>({b.reviews_count} avis)</Txt>
                 <Ionicons name="location-outline" size={12} color={colors.textMuted} style={{ marginLeft: 10 }} />
                 <Txt size="xxs" color={colors.textMuted} style={{ marginLeft: 3 }}>{b.city}</Txt>
-              </View>
+              </Pressable>
             </View>
           </View>
 
@@ -218,7 +249,11 @@ export default function BabysitterDetail() {
         ) : null}
 
         {/* Avis clients */}
-        <View style={{ marginTop: spacing.md }}>
+        <View
+          ref={reviewsRef}
+          style={{ marginTop: spacing.md }}
+          onLayout={(e) => { reviewsY.current = e.nativeEvent.layout.y; }}
+        >
           <Card>
             <Txt size="sm" weight="700" style={{ marginBottom: spacing.sm }}>
               Avis parents ({b.reviews_count || 0})

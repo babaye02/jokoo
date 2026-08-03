@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Linking, FlatList, Share, Platform } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Linking, FlatList, Share, Platform, findNodeHandle } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,6 +17,31 @@ export default function ProviderDetail() {
   const [p, setP] = useState<Provider | null>(null);
   const [fav, setFav] = useState(false);
   const [loadError, setLoadError] = useState<null | "blocked" | "notfound" | "network">(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const reviewsRef = useRef<View>(null);
+  const reviewsY = useRef(0);
+
+  const scrollToReviews = () => {
+    const sv = scrollRef.current as any;
+    const node = reviewsRef.current as any;
+    if (!sv || !node) return;
+    try {
+      const scrollNode = sv.getScrollableNode ? sv.getScrollableNode() : findNodeHandle(sv);
+      if (node.measureLayout && scrollNode) {
+        node.measureLayout(
+          scrollNode,
+          (_x: number, y: number) => {
+            sv.scrollTo({ y: Math.max(0, y - 12), animated: true });
+          },
+          () => {
+            sv.scrollTo({ y: Math.max(0, reviewsY.current - 12), animated: true });
+          }
+        );
+        return;
+      }
+    } catch {}
+    sv.scrollTo({ y: Math.max(0, reviewsY.current - 12), animated: true });
+  };
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -111,7 +136,7 @@ export default function ProviderDetail() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
         {/* Cover */}
         <View style={styles.cover}>
           <Image source={{ uri: p.photo || "https://images.unsplash.com/photo-1621905252472-943afaa20e20" }} style={StyleSheet.absoluteFill} contentFit="cover" />
@@ -159,13 +184,33 @@ export default function ProviderDetail() {
             </View>
           </View>
 
-          {/* Stats */}
+          {/* Stats — Note et Avis cliquables pour scroller vers la section avis */}
           <View style={styles.stats}>
-            <Stat icon="star" label="Note" value={`${p.rating.toFixed(1)}`} color="#F59E0B" />
+            <Pressable
+              onPress={scrollToReviews}
+              hitSlop={8}
+              style={{ flex: 1 }}
+              testID="stat-note"
+              accessibilityRole="button"
+              accessibilityLabel="Voir les avis clients"
+            >
+              <Stat icon="star" label="Note" value={`${p.rating.toFixed(1)}`} color="#F59E0B" />
+            </Pressable>
             <View style={styles.statDivider} />
-            <Stat icon="chatbubbles-outline" label="Avis" value={`${p.reviews_count}`} color={colors.turquoise} />
+            <Pressable
+              onPress={scrollToReviews}
+              hitSlop={8}
+              style={{ flex: 1 }}
+              testID="stat-avis"
+              accessibilityRole="button"
+              accessibilityLabel="Voir les avis clients"
+            >
+              <Stat icon="chatbubbles-outline" label="Avis" value={`${p.reviews_count}`} color={colors.turquoise} />
+            </Pressable>
             <View style={styles.statDivider} />
-            <Stat icon="shield-checkmark" label="Statut" value={p.verified ? "Vérifié" : "Non vérifié"} color={colors.midnight} small />
+            <View style={{ flex: 1 }}>
+              <Stat icon="shield-checkmark" label="Statut" value={p.verified ? "Vérifié" : "Non vérifié"} color={colors.midnight} small />
+            </View>
           </View>
 
           {/* Description */}
@@ -238,21 +283,26 @@ export default function ProviderDetail() {
             </Section>
           ) : null}
 
-          {/* Reviews */}
-          <Section title={`Avis clients (${p.reviews_count})`}>
-            {(p.reviews || []).slice(0, 5).map((r: Review) => (
-              <Card key={r.id} style={{ marginBottom: 10 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                  <Txt weight="700">{r.author_name}</Txt>
-                  <Stars value={r.rating} size={12} />
-                </View>
-                <Txt size="sm" color={colors.textMuted} style={{ marginTop: 6, lineHeight: 20 }}>{r.comment}</Txt>
-              </Card>
-            ))}
-            {(!p.reviews || p.reviews.length === 0) ? (
-              <Txt color={colors.textMuted}>Aucun avis pour le moment.</Txt>
-            ) : null}
-          </Section>
+          {/* Reviews — target du scroll depuis les étoiles */}
+          <View
+            ref={reviewsRef}
+            onLayout={(e) => { reviewsY.current = e.nativeEvent.layout.y; }}
+          >
+            <Section title={`Avis clients (${p.reviews_count})`}>
+              {(p.reviews || []).slice(0, 5).map((r: Review) => (
+                <Card key={r.id} style={{ marginBottom: 10 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Txt weight="700">{r.author_name}</Txt>
+                    <Stars value={r.rating} size={12} />
+                  </View>
+                  <Txt size="sm" color={colors.textMuted} style={{ marginTop: 6, lineHeight: 20 }}>{r.comment}</Txt>
+                </Card>
+              ))}
+              {(!p.reviews || p.reviews.length === 0) ? (
+                <Txt color={colors.textMuted}>Aucun avis pour le moment.</Txt>
+              ) : null}
+            </Section>
+          </View>
         </View>
       </ScrollView>
 
@@ -274,7 +324,7 @@ export default function ProviderDetail() {
 
 function Stat({ icon, label, value, color, small }: { icon: any; label: string; value: string; color: string; small?: boolean }) {
   return (
-    <View style={{ flex: 1, alignItems: "center" }}>
+    <View style={{ alignItems: "center" }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <Ionicons name={icon} size={14} color={color} />
         <Txt size="lg" weight="700" numberOfLines={1} style={{ fontSize: small ? 15 : 18 }}>{value}</Txt>
