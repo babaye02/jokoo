@@ -1,34 +1,34 @@
 {
   "app_name": "Jokoo",
-  "personality": "1 iOS-Native Clean (Adapted for Premium Senegalese Services)",
-  "personality_one_liner": "A highly trustworthy, minimalist, and premium Senegalese service marketplace that feels as reliable and fluid as Uber or Airbnb.",
+  "personality": "1 iOS-Native Clean + 6 Glass / Luxe",
+  "personality_one_liner": "An elegant, Pinterest-worthy African premium marketplace combining native iOS cleanliness with glassmorphic depth and warm, aspirational lifestyle photography.",
   "color": {
-    "surface": "#FFFFFF",
-    "onSurface": "#0B1F3A",
-    "surfaceSecondary": "#F7F9FC",
-    "onSurfaceSecondary": "#152A4A",
-    "surfaceTertiary": "#EAF0F8",
-    "onSurfaceTertiary": "#0B1F3A",
+    "surface": "#FDFBF7",
+    "onSurface": "#1A1A1A",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#1A1A1A",
+    "surfaceTertiary": "#F2EFEB",
+    "onSurfaceTertiary": "#4A4A4A",
     "surfaceInverse": "#0B1F3A",
     "onSurfaceInverse": "#FFFFFF",
-    "brand": "#00C2A8",
-    "brandPrimary": "#00C2A8",
+    "brand": "#0B1F3A",
+    "brandPrimary": "#0B1F3A",
     "onBrandPrimary": "#FFFFFF",
-    "brandSecondary": "#0B1F3A",
+    "brandSecondary": "#00C2A8",
     "onBrandSecondary": "#FFFFFF",
-    "brandTertiary": "#E0F8F5",
-    "onBrandTertiary": "#008B77",
-    "success": "#28A745",
+    "brandTertiary": "#E6FAF7",
+    "onBrandTertiary": "#007A6A",
+    "success": "#00C2A8",
     "onSuccess": "#FFFFFF",
-    "warning": "#FFC107",
-    "onWarning": "#000000",
-    "error": "#DC3545",
+    "warning": "#F5A623",
+    "onWarning": "#FFFFFF",
+    "error": "#D0021B",
     "onError": "#FFFFFF",
-    "info": "#17A2B8",
+    "info": "#4A90E2",
     "onInfo": "#FFFFFF",
-    "border": "#E5EAF2",
-    "borderStrong": "#CCD6E5",
-    "divider": "#F0F4F8"
+    "border": "#EBE8E3",
+    "borderStrong": "#D1CCC2",
+    "divider": "#EBE8E3"
   },
   "typography": {
     "displayFontFamily": "Poppins",
@@ -42,7 +42,7 @@
     }
   },
   "spacing": {
-    "rule": "Use generous padding and margins to create the requested 'beaucoup d'espace blanc'. Let content breathe. Use 24px (xl) or 32px (2xl) for screen edges and major sections.",
+    "rule": "Generous vertical breathing room. Cards and sections must never feel cramped.",
     "xs": 4,
     "sm": 8,
     "md": 12,
@@ -61,16 +61,16 @@
   "navigation": "bottom_tabs",
   "icon_set": "Ionicons",
   "glassmorphism": {
-    "enabled": true,
+    "enabled": "true",
     "do's": [
-      "Use glass effect on sticky headers over scrolling content.",
-      "Use glass on the bottom tab bar.",
-      "Use glass for the fixed bottom CTA container on the Pro Details and Booking screens.",
-      "Use glass for floating action buttons or map filters."
+      "Use on bottom tab bar when content scrolls behind",
+      "Use on featured/hero cards sitting on a photo backdrop",
+      "Use on floating action buttons over tinted background",
+      "Ensure text on glass is fully readable by using a tinted base (>=70% opacity) underneath the blur"
     ],
     "dont's": [
-      "Never apply glass to standard cards, form inputs, or list items.",
-      "Never blur body text regions."
+      "Never blur body text regions or form fields",
+      "Do not apply to every list row or dense data cards"
     ]
   },
   "platform_libraries": {
@@ -87,121 +87,65 @@
   },
   "screens": [
     {
-      "name": "Splash",
-      "purpose": "Brand entry with animated Jokoo logo.",
-      "states": {
-        "loading": "Fluid animation of the logo.",
-        "empty": "N/A",
-        "error": "N/A"
-      },
-      "layout": "Solid surface Inverse (#0B1F3A) or surface (#FFFFFF) with a perfectly centered logo. Minimal and premium."
-    },
-    {
       "name": "Onboarding",
-      "purpose": "Introduce the value prop to users (3 steps).",
+      "purpose": "Tell the premium Jokoo story through 5 immersive full-bleed photographic steps with scroll parallax and fade transitions.",
       "states": {
-        "loading": "N/A",
+        "loading": "Centered brand spinner",
         "empty": "N/A",
         "error": "N/A"
       },
-      "layout": "Full-bleed high-quality imagery of Senegalese professionals. A vertical gradient scrim (transparent to surfaceInverse) at the bottom 40%. Large Poppins white text on top of the scrim, with a pill-shaped brandPrimary CTA at the bottom thumb zone."
-    },
-    {
-      "name": "Auth",
-      "purpose": "Login and Registration for both Clients and Providers.",
-      "states": {
-        "loading": "Centered spinner on CTA button.",
-        "empty": "N/A",
-        "error": "Inline red error text below failing inputs."
-      },
-      "layout": "Clean layout with a segmented control or toggle for Client vs Prestataire. Form inputs use surfaceTertiary with pill radius. Sticky submit button above keyboard."
+      "layout": "Full-screen expo-image with a vertical gradient scrim (transparent to 80% surfaceInverse). Text and Paginator sit in the bottom 30%. Sticky primary CTA (Sign Up) at the absolute bottom with safe area clearance. Photos depict: Welcome (Black woman entrepreneur), Services (Premium hair salon), Mobility (Smiling delivery driver), Family (Happy family playing), CTA (Modern professional portrait)."
     },
     {
       "name": "Home",
-      "purpose": "Discovery and search for services and nearby professionals.",
+      "purpose": "Central hub allowing clients to easily browse categories, view featured providers, and access Jokoo Mobility/Family.",
       "states": {
-        "loading": "Skeleton loaders for cards and categories.",
-        "empty": "No pros nearby: Illustration + 'Try a different area' CTA.",
-        "error": "Failed to load: Toast message + Retry button."
-      },
-      "layout": "Top Header: User address/location and greeting. Sticky search bar (glass or solid surface). Horizontal scrolling category chips (rounded). Hero Promo Banner (rounded corners, subtle brand gradient). Horizontal scroll for 'Pros near you' (cards with photo, name, rating, job). Vertical list for 'Top Rated'. Ample bottom padding for the glass tab bar."
-    },
-    {
-      "name": "Pro Detail",
-      "purpose": "Showcase a professional's profile, reviews, and portfolio.",
-      "states": {
-        "loading": "Skeleton loader matching the profile layout.",
+        "loading": "Skeleton cards for categories and featured providers.",
         "empty": "N/A",
-        "error": "Standard full-screen error with Retry."
+        "error": "Readable error message with a retry button."
       },
-      "layout": "Cover Photo/Gallery on top with a glass back-button overlay. Profile Photo floats overlapping the cover and surface. Content sections (Description, Pricing, Reviews, Badges). Fixed bottom CTA container (glass) with 'Réserver' (brandPrimary) and 'Discuter/Appeler' (secondary) buttons."
+      "layout": "Sticky glass header with user greeting. Horizontal scroll list for categories (large photo cards with signature icon overlay). Vertical list or 2-col grid for featured providers (rounded cards with subtle shadow, provider avatar, name, rating, and service pill). Generous lg/xl spacing between sections."
     },
     {
-      "name": "Booking",
-      "purpose": "Step-by-step flow to select date, time, address, and view estimates.",
+      "name": "Provider Profile",
+      "purpose": "Showcase the provider's professionalism, ratings, and available services to drive booking.",
       "states": {
-        "loading": "Spinner on Next/Submit button.",
-        "empty": "N/A",
-        "error": "Inline error for missing fields."
+        "loading": "Skeleton cover image and text lines.",
+        "empty": "No services available message + illustration.",
+        "error": "Failed to load profile + retry button."
       },
-      "layout": "Single column layout. Clear typography. Large touch targets for Date/Time selection (pills or large calendar cells). Sticky CTA at the bottom in a KeyboardAvoidingView."
-    },
-    {
-      "name": "Payment",
-      "purpose": "Select payment method (Wave, Orange Money, Card, Cash).",
-      "states": {
-        "loading": "Spinner during transaction.",
-        "empty": "N/A",
-        "error": "Payment failed modal."
-      },
-      "layout": "Clean radio-button style list of payment methods using surfaceSecondary cards. Clear summary of total cost. Large sticky primary button at the bottom."
-    },
-    {
-      "name": "Chat",
-      "purpose": "Real-time messaging between client and provider.",
-      "states": {
-        "loading": "Message loading skeletons.",
-        "empty": "No messages yet illustration + 'Say hi!' text.",
-        "error": "Red exclamation mark next to failed messages."
-      },
-      "layout": "Glass sticky header with Pro's name and photo. Chat bubbles: brandPrimary for sender, surfaceSecondary for receiver. Rounded corners (pill-like). Input field sticky at bottom above keyboard."
-    },
-    {
-      "name": "Provider Dashboard",
-      "purpose": "Management hub for professionals (earnings, calendar, requests).",
-      "states": {
-        "loading": "Skeleton loaders for stats.",
-        "empty": "No upcoming bookings illustration.",
-        "error": "Standard error state."
-      },
-      "layout": "High-level stats cards at the top (Earnings, Bookings). Calendar widget. Vertical list of recent or upcoming requests. Clean, data-focused, lots of white space between metrics."
+      "layout": "Large cover photo at the top. Profile card overlaps the cover by -40pt, featuring the avatar, name, and rating. Below, a clean list of services with prices. Sticky 'Book Now' CTA at the bottom with a glassmorphic background container."
     }
   ],
   "images": {
-    "onboarding_1": {
-      "url": "https://images.pexels.com/photos/10682438/pexels-photo-10682438.jpeg",
-      "alt": "African male blue-collar worker in a hard hat"
+    "onboarding_1_welcome": {
+      "url": "https://images.unsplash.com/photo-1762341120362-54c074c13ca6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzZ8MHwxfHNlYXJjaHwxfHxibGFjayUyMHdvbWFuJTIwZW50cmVwcmVuZXVyJTIwbW9kZXJuJTIwb2ZmaWNlfGVufDB8fHx8MTc4NTc3MDE5OXww&ixlib=rb-4.1.0&q=85",
+      "alt": "Black woman entrepreneur in modern office"
     },
-    "onboarding_2": {
-      "url": "https://images.pexels.com/photos/36441633/pexels-photo-36441633.jpeg",
-      "alt": "African woman having her hair braided in a colorful salon"
+    "onboarding_2_services": {
+      "url": "https://images.unsplash.com/photo-1729005732908-de02acdeca5d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwxfHxhZnJpY2FuJTIwd29tYW4lMjBicmFpZGluZyUyMGhhaXIlMjBzYWxvbnxlbnwwfHx8fDE3ODU3NzAyMDV8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "African woman braiding hair in premium salon"
     },
-    "promo_banner": {
-      "url": "https://images.unsplash.com/photo-1657302699239-c350f0372260",
-      "alt": "Dakar Senegal city coastal view"
+    "onboarding_3_mobility": {
+      "url": "https://images.unsplash.com/photo-1617347454431-f49d7ff5c3b1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwxfHxibGFjayUyMGRlbGl2ZXJ5JTIwZHJpdmVyJTIwc2Nvb3RlcnxlbnwwfHx8fDE3ODU3NzAxOTl8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Black delivery driver on scooter"
     },
-    "pro_avatar_fallback": {
-      "url": "https://images.unsplash.com/photo-1621905252472-943afaa20e20",
-      "alt": "African male professional worker"
+    "onboarding_4_family": {
+      "url": "https://images.unsplash.com/photo-1624272864537-8ecc72b67958?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHwxfHxibGFjayUyMGZhbWlseSUyMHBsYXlpbmclMjBoYXBweXxlbnwwfHx8fDE3ODU3NzAyMDB8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Happy black family playing"
+    },
+    "onboarding_5_cta": {
+      "url": "https://images.unsplash.com/photo-1614890094520-7b8dd0ec56d2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwxfHxhZnJpY2FuJTIwYW1lcmljYW4lMjBidXNpbmVzc21hbiUyMHBvcnRyYWl0JTIwc21pbGluZ3xlbnwwfHx8fDE3ODU3NzAyMDV8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "African American businessman portrait smiling"
     }
   },
   "instructions_to_main_agent": [
-    "STRICT COLOR PALETTE: Only use the defined Midnight Blue (#0B1F3A), Turquoise (#00C2A8), and White (#FFFFFF) tokens. Do not introduce random purples or standard blues.",
-    "TYPOGRAPHY: Exclusively use 'Poppins' for all text elements. Maintain the weight cap at 500. Use sizing for hierarchy, not ultra-bold weights.",
-    "LAYOUT & SPACING: The client requested 'beaucoup d'espace blanc'. Apply `xl` (24px) or `2xl` (32px) margins/padding heavily on root views and between major sections.",
-    "COMPONENTS: Ensure all buttons, chips, and cards use rounded corners (`md` to `pill`) as specified by 'coins arrondis'. Shadows must remain light (tier 1).",
-    "GLASSMORPHISM: Apply glass effects selectively to floating/sticky elements (headers, tab bars, bottom CTAs) to enhance the 'Premium' feel without cluttering.",
-    "LOCALIZATION: Ensure all placeholders and labels reflect the Senegalese/Francophone context (e.g., 'Wave', 'Orange Money', 'Dakar', 'Prestataire').",
-    "LEARNINGS FROM RESEARCH: Mobbin-style marketplace UI thrives on high-trust signals. Always display verified badges, clear star ratings, and response times prominently on Pro cards."
+    "IMPLEMENTATION OF THEME: Base app around iOS-Native Clean with Glass/Luxe accents. The overarching feel must be 'Pinterest-worthy', 'African Premium', and highly aspirational. Use the `surface` token (#FDFBF7) as the main background for a warm, editorial feel.",
+    "COLOR USAGE: Use the existing brand Midnight (#0B1F3A) and Turquoise (#00C2A8) as primary accents. Do not use generic default blue/purple colors. Deep black/dark grey (#1A1A1A) should be used for text to maintain high contrast and readability against the off-white/beige backgrounds.",
+    "IMAGE HANDLING: ALWAYS apply a gradient-to-dark scrim (top to bottom, transparent to >=70% surfaceInverse) over any full-bleed imagery (e.g. Onboarding, Category hero cards) where text overlay is required. This is zero-tolerance for readability.",
+    "ONBOARDING SCROLL & ANIMATION: The 5 onboarding screens must use `react-native-reanimated` for scroll parallax on the background images, fading text/headings as the user scrolls, and a sticky sign-up CTA at the bottom.",
+    "COMPONENT STYLE: Cards should have generous `lg` (24px) border radii. Avoid hard borders; rely on subtle shadow (tier 1) and generous spacing for separation. When showing categories, integrate signature icons layered over the premium photography.",
+    "PROMPTS FOR GEMINI NANO BANANA (Fallback): If generating images, use prompts like: 'Wide-angle, cinematic photograph of a modern African woman entrepreneur in a premium glass office, golden hour lighting, deep navy and warm amber tones, mobile portrait crop.'",
+    "HAPTICS: Ensure subtle haptic feedback on tab changes, button presses (like 'Book Now'), and primary actions to reinforce the premium tactile feel."
   ]
 }
