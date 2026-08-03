@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { View, StyleSheet, TextInput, FlatList, Pressable, ScrollView } from "react-native";
+import { View, StyleSheet, TextInput, FlatList, Pressable, ScrollView, Text } from "react-native";
 import { Image } from "expo-image";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -64,12 +64,17 @@ export default function Search() {
   useEffect(() => { doSearch(); }, [doSearch]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
-      <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.surface, ...shadow.soft }}>
-        <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md }}>
-          <Txt size="xl" weight="700">Recherche</Txt>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.bg }}>
+        <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.md, paddingTop: 4 }}>
+          <Text style={{ fontSize: 11, letterSpacing: 1.6, color: colors.primary, fontWeight: "700", textTransform: "uppercase" }}>
+            Explorer
+          </Text>
+          <Text style={{ fontFamily: "InstrumentSerif", fontSize: 34, lineHeight: 38, letterSpacing: -0.8, color: colors.text, marginTop: 4 }}>
+            Recherche
+          </Text>
           <View style={styles.searchWrap}>
-            <Ionicons name="search" size={18} color={colors.textMuted} />
+            <Ionicons name="search" size={19} color={colors.textMuted} />
             <TextInput
               testID="search-input"
               placeholder="Nom, service, description…"
@@ -82,7 +87,7 @@ export default function Search() {
             />
             {q ? (
               <Pressable onPress={() => setQ("")} testID="search-clear">
-                <Ionicons name="close-circle" size={18} color={colors.textSubtle} />
+                <Ionicons name="close-circle" size={20} color={colors.textSubtle} />
               </Pressable>
             ) : null}
           </View>
@@ -95,12 +100,12 @@ export default function Search() {
                 style={styles.crumbBtn}
                 testID="search-clear-cat"
               >
-                <Ionicons name="chevron-back" size={14} color={colors.midnight} />
-                <Txt size="xs" weight="700" style={{ marginLeft: 4 }}>Catégories</Txt>
+                <Ionicons name="chevron-back" size={14} color={colors.text} />
+                <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text, marginLeft: 4 }}>Catégories</Text>
               </Pressable>
-              <Txt size="sm" weight="700" style={{ marginLeft: 8, flex: 1 }} numberOfLines={1}>
-                {currentCat ? `${currentCat.emoji}  ${currentCat.label}` : category}
-              </Txt>
+              <Text style={{ fontFamily: "InstrumentSerif", fontSize: 20, lineHeight: 24, letterSpacing: -0.2, color: colors.text, marginLeft: 10, flex: 1 }} numberOfLines={1}>
+                {currentCat ? currentCat.label : category}
+              </Text>
             </View>
           ) : null}
 
@@ -190,21 +195,28 @@ export default function Search() {
           }
           renderItem={({ item }) => (
             <Pressable onPress={() => router.push(`/provider/${item.id}`)} style={styles.card} testID={`result-${item.id}`}>
-              <Image source={{ uri: item.photo || "https://images.unsplash.com/photo-1621905252472-943afaa20e20" }} style={styles.img} contentFit="cover" />
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <Txt size="md" weight="700" numberOfLines={1} style={{ flex: 1 }}>{item.name}</Txt>
-                  {item.verified ? <Ionicons name="checkmark-circle" size={16} color={colors.turquoise} /> : null}
-                </View>
-                <Txt size="xs" color={colors.textMuted}>{item.service} · {item.city}</Txt>
-                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-                  <Stars value={item.rating} size={12} />
-                  <Txt size="xs" color={colors.textMuted} style={{ marginLeft: 6 }}>{item.rating.toFixed(1)} ({item.reviews_count})</Txt>
+              <View style={{ position: "relative" }}>
+                <Image source={{ uri: item.photo || "https://images.unsplash.com/photo-1621905252472-943afaa20e20" }} style={styles.img} contentFit="cover" />
+                {item.verified ? (
+                  <View style={styles.verifiedDot}>
+                    <Ionicons name="checkmark-circle" size={14} color={colors.white} />
+                  </View>
+                ) : null}
+              </View>
+              <View style={{ flex: 1, marginLeft: 14 }}>
+                <Text style={{ fontFamily: "InstrumentSerif", fontSize: 20, lineHeight: 24, letterSpacing: -0.2, color: colors.text }} numberOfLines={1}>{item.name}</Text>
+                <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }} numberOfLines={1}>{item.service} · {item.city}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}>
+                  <Ionicons name="star" size={12} color="#F59E0B" />
+                  <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text, marginLeft: 4 }}>{item.rating.toFixed(1)}</Text>
+                  <Text style={{ fontSize: 11, color: colors.textMuted, marginLeft: 4 }}>· {item.reviews_count} avis</Text>
                 </View>
               </View>
-              <View style={{ alignItems: "flex-end", maxWidth: 110 }}>
-                <Txt weight="700" color={colors.turquoise} numberOfLines={1} style={{ textAlign: "right" }}>{priceLabel(item)}</Txt>
-                <Txt size="xxs" color={colors.textSubtle}>par prestation</Txt>
+              <View style={{ alignItems: "flex-end", justifyContent: "space-between", height: 80 }}>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: colors.text }} numberOfLines={1}>{priceLabel(item)}</Text>
+                <View style={styles.rowCta}>
+                  <Text style={{ fontSize: 12, fontWeight: "700", color: colors.white }}>Réserver</Text>
+                </View>
               </View>
             </Pressable>
           )}
@@ -216,26 +228,47 @@ export default function Search() {
 
 const styles = StyleSheet.create({
   searchWrap: {
-    marginTop: spacing.md,
-    height: 52,
+    marginTop: spacing.lg,
+    height: 60,
     borderRadius: radius.pill,
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.card,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 22,
     borderWidth: 1,
     borderColor: colors.border,
+    ...shadow.hairline,
   },
-  searchInput: { flex: 1, marginLeft: 10, fontSize: fs.md, color: colors.text, height: "100%" },
-  card: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surface, borderRadius: radius.lg, padding: 12, ...shadow.soft },
-  img: { width: 64, height: 64, borderRadius: 16 },
+  searchInput: { flex: 1, marginLeft: 12, fontSize: fs.md, color: colors.text, height: "100%" },
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderRadius: radius.xl,
+    padding: 14,
+    ...shadow.card,
+  },
+  img: { width: 80, height: 80, borderRadius: 20 },
+  verifiedDot: {
+    position: "absolute",
+    bottom: 4, right: 4,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.primary,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: colors.card,
+  },
+  rowCta: {
+    backgroundColor: colors.text,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 999,
+  },
   crumbBtn: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
   },
