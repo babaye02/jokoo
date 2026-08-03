@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, TextInput, RefreshControl, FlatList, Dimensions } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, TextInput, RefreshControl, FlatList, Dimensions, Text } from "react-native";
 import { Image } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { LinearGradient } from "expo-linear-gradient";
@@ -80,30 +80,32 @@ export default function Home() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
+        contentContainerStyle={{ paddingBottom: 140 + insets.bottom }}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.turquoise} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {/* Header */}
+        {/* Header — greeting éditorial serif */}
         <SafeAreaView edges={["top"]} style={styles.header}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.xl }}>
-            <View>
-              <Txt size="sm" color={colors.textMuted}>Bonjour,</Txt>
-              <Txt size="xl" weight="700" testID="home-greeting">{user?.name?.split(" ")[0] || "Ami"} 👋</Txt>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", paddingHorizontal: spacing.xl }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, color: colors.textMuted, letterSpacing: 0.3 }}>Bonjour,</Text>
+              <Text style={{ fontFamily: "InstrumentSerif", fontSize: 34, lineHeight: 40, letterSpacing: -0.8, color: colors.text, marginTop: 2 }} testID="home-greeting">
+                {user?.name?.split(" ")[0] || "Ami"} 👋
+              </Text>
             </View>
             <Pressable onPress={() => router.push("/favorites")} style={styles.iconBtn} testID="home-favorites">
-              <Ionicons name="heart-outline" size={22} color={colors.midnight} />
+              <Ionicons name="heart-outline" size={22} color={colors.text} />
             </Pressable>
           </View>
 
-          {/* Search */}
+          {/* Search — pill Apple */}
           <View style={styles.searchWrap}>
-            <Ionicons name="search" size={18} color={colors.textMuted} />
+            <Ionicons name="search" size={19} color={colors.textMuted} />
             <TextInput
               testID="home-search-input"
-              placeholder="Quel service recherchez-vous ?"
+              placeholder="Recherchez un service, un pro, une ville…"
               placeholderTextColor={colors.textSubtle}
               value={q}
               onChangeText={setQ}
@@ -124,30 +126,28 @@ export default function Home() {
           </View>
         ) : null}
 
-        {/* Explorer par catégorie — grandes cartes immersives (photos IA hero) */}
-        <View style={{ marginTop: spacing.xl }}>
+        {/* Explorer par catégorie — grandes cartes immersives */}
+        <View style={{ marginTop: spacing.xxl }}>
           <View style={styles.premiumHead}>
             <View style={{ flex: 1 }}>
-              <Txt style={[typo.overline, { color: colors.turquoise }]}>UNIVERS JOKOO</Txt>
-              <Txt style={[typo.h2, { marginTop: 4 }]}>Explorer par catégorie</Txt>
+              <Text style={{ fontSize: 11, letterSpacing: 1.6, color: colors.primary, fontWeight: "700", textTransform: "uppercase", marginBottom: 6 }}>
+                UNIVERS JOKOO
+              </Text>
+              <Text style={{ fontFamily: "InstrumentSerif", fontSize: 26, lineHeight: 32, letterSpacing: -0.4, color: colors.text }}>
+                Explorer par catégorie
+              </Text>
             </View>
-            <Pressable
-              onPress={() => router.push("/(tabs)/search")}
-              hitSlop={12}
-              testID="cat-all"
-            >
-              <Txt style={{ color: colors.turquoise, fontWeight: "700", fontSize: 13 }}>
-                Tout voir →
-              </Txt>
+            <Pressable onPress={() => router.push("/(tabs)/search")} hitSlop={12} testID="cat-all">
+              <Txt size="sm" weight="700" color={colors.primary}>Tout voir →</Txt>
             </Pressable>
           </View>
           <FlatList
             data={HERO_CATEGORIES}
             horizontal
             showsHorizontalScrollIndicator={false}
-            snapToInterval={CAT_CARD_W + 12}
+            snapToInterval={CAT_CARD_W + 14}
             decelerationRate="fast"
-            contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: 12, paddingBottom: spacing.md }}
+            contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: 14, paddingBottom: spacing.md }}
             keyExtractor={(c) => c.key}
             renderItem={({ item }) => (
               <View style={{ width: CAT_CARD_W }}>
@@ -155,7 +155,7 @@ export default function Home() {
                   label={item.label}
                   photo={getCategoryPhoto(item.key)}
                   icon={getCategoryIcon(item.key) as any}
-                  color={item.color}
+                  color={colors.white}
                   size="lg"
                   testID={`hero-cat-${item.key}`}
                   onPress={() =>
@@ -170,32 +170,8 @@ export default function Home() {
           />
         </View>
 
-        {/* Categories (icônes compactes) */}
-        <SectionHeader title="Services populaires" action="Tout voir" onAction={() => router.push("/(tabs)/search")} testID="section-services" />
-        <FlatList
-          data={services}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: spacing.md, paddingBottom: spacing.sm }}
-          keyExtractor={(s) => s.key}
-          renderItem={({ item }) => (
-            <Pressable
-              testID={`service-${item.key}`}
-              onPress={() => router.push({ pathname: "/(tabs)/search", params: { service: item.key } })}
-              style={styles.svcCard}
-            >
-              <View style={[styles.svcIcon, { backgroundColor: `${item.color}22` }]}>
-                <Ionicons name={item.icon as any} size={22} color={item.color} />
-              </View>
-              <Txt size="sm" weight="600" style={{ textAlign: "center", marginTop: 8 }} numberOfLines={2}>
-                {item.label}
-              </Txt>
-            </Pressable>
-          )}
-        />
-
         {/* Mobilité */}
-        <SectionHeader title="Mobilité" action="Explorer" onAction={() => router.push("/mobility")} testID="section-mobility" />
+        <SectionHeader title="Mobilité" overline="Se déplacer" action="Explorer" onAction={() => router.push("/mobility")} testID="section-mobility" />
         <View style={{ paddingHorizontal: spacing.xl, flexDirection: "row", gap: spacing.md }}>
           <Pressable
             onPress={() => router.push("/mobility/rides")}
@@ -222,7 +198,7 @@ export default function Home() {
         </View>
 
         {/* Jokoo Family */}
-        <SectionHeader title="Jokoo Family" action="Découvrir" onAction={() => router.push("/family")} testID="section-family" />
+        <SectionHeader title="Jokoo Family" overline="Confiance & Sérénité" action="Découvrir" onAction={() => router.push("/family")} testID="section-family" />
         <View style={{ paddingHorizontal: spacing.xl }}>
           <Pressable onPress={() => router.push("/family")} style={styles.familyCard} testID="family-card">
             <LinearGradient
@@ -248,7 +224,7 @@ export default function Home() {
         </View>
 
         {/* Nearby */}
-        <SectionHeader title="Près de vous" action="Voir plus" onAction={() => router.push("/(tabs)/search")} />
+        <SectionHeader title="Près de vous" overline="À proximité" action="Voir plus" onAction={() => router.push("/(tabs)/search")} />
         <FlatList
           data={nearby}
           horizontal
@@ -259,7 +235,7 @@ export default function Home() {
         />
 
         {/* Top rated */}
-        <SectionHeader title="Les mieux notés" />
+        <SectionHeader title="Les mieux notés" overline="Top prestataires" />
         {midAds.length > 0 ? (
           <View style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.md }}>
             <AdCarousel ads={midAds} testIDPrefix="ad-mid" />
@@ -418,29 +394,31 @@ function ProviderRow({ p, onPress }: { p: Provider; onPress: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  header: { backgroundColor: colors.surface, paddingBottom: spacing.md, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, ...shadow.soft },
+  header: { backgroundColor: colors.bg, paddingBottom: spacing.lg, paddingTop: 4 },
   premiumHead: {
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
     paddingHorizontal: spacing.xl,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
-  iconBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.card, alignItems: "center", justifyContent: "center", ...shadow.hairline },
   searchWrap: {
     marginTop: spacing.lg,
     marginHorizontal: spacing.xl,
-    height: 56,
+    height: 60,
     borderRadius: radius.pill,
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.card,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 18,
+    paddingLeft: 22,
+    paddingRight: 8,
     borderWidth: 1,
     borderColor: colors.border,
+    ...shadow.hairline,
   },
-  searchInput: { flex: 1, marginLeft: 10, fontSize: fs.md, color: colors.text, height: "100%" },
-  searchBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.turquoise, alignItems: "center", justifyContent: "center" },
+  searchInput: { flex: 1, marginLeft: 12, fontSize: fs.md, color: colors.text, height: "100%" },
+  searchBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   promo: {
     height: 140,
     borderRadius: radius.lg,

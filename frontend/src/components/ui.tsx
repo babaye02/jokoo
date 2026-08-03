@@ -192,13 +192,22 @@ function ExpoImage({ uri, size }: { uri: string; size: number }) {
 }
 
 // -------- Section header --------
-export function SectionHeader({ title, action, onAction, testID }: { title: string; action?: string; onAction?: () => void; testID?: string }) {
+export function SectionHeader({ title, action, onAction, testID, overline }: { title: string; action?: string; onAction?: () => void; testID?: string; overline?: string }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.md, paddingHorizontal: spacing.xl }}>
-      <Txt testID={testID} size="lg" weight="700">{title}</Txt>
+    <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", marginBottom: spacing.lg, paddingHorizontal: spacing.xl, marginTop: spacing.xxl }}>
+      <View style={{ flex: 1 }}>
+        {overline ? (
+          <Text style={{ fontSize: 11, letterSpacing: 1.6, color: colors.primary, fontWeight: "700", textTransform: "uppercase", marginBottom: 6 }}>
+            {overline}
+          </Text>
+        ) : null}
+        <Text testID={testID} style={{ fontFamily: "InstrumentSerif", fontSize: 26, lineHeight: 32, letterSpacing: -0.4, color: colors.text }}>
+          {title}
+        </Text>
+      </View>
       {action ? (
-        <Pressable onPress={onAction}>
-          <Txt size="sm" weight="600" color={colors.turquoise}>{action}</Txt>
+        <Pressable onPress={onAction} hitSlop={12}>
+          <Txt size="sm" weight="700" color={colors.primary}>{action} →</Txt>
         </Pressable>
       ) : null}
     </View>
