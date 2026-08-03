@@ -241,7 +241,7 @@ export default function Home() {
             <AdCarousel ads={midAds} testIDPrefix="ad-mid" />
           </View>
         ) : null}
-        <View style={{ paddingHorizontal: spacing.xl, gap: spacing.md }}>
+        <View style={{ gap: 0 }}>
           {top.map((p) => (
             <ProviderRow key={p.id} p={p} onPress={() => router.push(`/provider/${p.id}`)} />
           ))}
@@ -342,28 +342,35 @@ function NearbyCard({ p, onPress }: { p: Provider; onPress: () => void }) {
   const sponsored = p.sponsored_until && p.sponsored_until > new Date().toISOString();
   return (
     <Pressable onPress={onPress} style={styles.nearCard} testID={`nearby-${p.id}`}>
-      <Image source={{ uri: p.photo || "https://images.unsplash.com/photo-1621905252472-943afaa20e20" }} style={styles.nearImg} contentFit="cover" />
-      {p.verified ? (
-        <View style={styles.verifiedBadge}>
-          <Ionicons name="checkmark-circle" size={14} color={colors.turquoise} />
+      <View style={styles.nearImgWrap}>
+        <Image source={{ uri: p.photo || "https://images.unsplash.com/photo-1621905252472-943afaa20e20" }} style={styles.nearImg} contentFit="cover" />
+        <Pressable
+          hitSlop={8}
+          onPress={(e) => { e.stopPropagation?.(); }}
+          style={styles.heartBtn}
+        >
+          <Ionicons name="heart-outline" size={16} color={colors.text} />
+        </Pressable>
+        {sponsored ? (
+          <View style={styles.sponsoredBadge} testID={`sponsored-${p.id}`}>
+            <Ionicons name="star" size={10} color={colors.white} />
+            <Text style={{ color: colors.white, fontSize: 10, fontWeight: "700", marginLeft: 3 }}>Sponsorisé</Text>
+          </View>
+        ) : null}
+      </View>
+      <View style={{ padding: 14 }}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Text style={{ fontFamily: "InstrumentSerif", fontSize: 20, lineHeight: 24, color: colors.text, flex: 1, letterSpacing: -0.2 }} numberOfLines={1}>{p.name}</Text>
+          {p.verified ? <Ionicons name="checkmark-circle" size={16} color={colors.primary} /> : null}
         </View>
-      ) : null}
-      {sponsored ? (
-        <View style={styles.sponsoredBadge} testID={`sponsored-${p.id}`}>
-          <Ionicons name="rocket" size={10} color={colors.white} />
-          <Txt size="xxs" weight="700" color={colors.white} style={{ marginLeft: 3 }}>Sponsorisé</Txt>
-        </View>
-      ) : null}
-      <View style={{ padding: 12 }}>
-        <Txt size="md" weight="700" numberOfLines={1}>{p.name}</Txt>
-        <Txt size="xs" color={colors.textMuted} numberOfLines={1}>{p.service} · {p.city}</Txt>
-        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, justifyContent: "space-between" }}>
+        <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }} numberOfLines={1}>{p.service} · {p.city}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10, justifyContent: "space-between" }}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <Ionicons name="star" size={12} color="#F59E0B" />
-            <Txt size="xs" weight="600" style={{ marginLeft: 3 }}>{p.rating.toFixed(1)}</Txt>
-            <Txt size="xs" color={colors.textSubtle}> ({p.reviews_count})</Txt>
+            <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text, marginLeft: 4 }}>{p.rating.toFixed(1)}</Text>
+            <Text style={{ fontSize: 11, color: colors.textSubtle, marginLeft: 3 }}>({p.reviews_count})</Text>
           </View>
-          <Txt size="xs" weight="700" color={colors.turquoise} numberOfLines={1}>{priceLabel(p)}</Txt>
+          <Text style={{ fontSize: 13, fontWeight: "700", color: colors.text }} numberOfLines={1}>{priceLabel(p)}</Text>
         </View>
       </View>
     </Pressable>
@@ -373,21 +380,30 @@ function NearbyCard({ p, onPress }: { p: Provider; onPress: () => void }) {
 function ProviderRow({ p, onPress }: { p: Provider; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={styles.row} testID={`prov-row-${p.id}`}>
-      <Image source={{ uri: p.photo || "https://images.unsplash.com/photo-1621905252472-943afaa20e20" }} style={styles.rowImg} contentFit="cover" />
-      <View style={{ flex: 1, marginLeft: 12 }}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <Txt size="md" weight="700" numberOfLines={1} style={{ flex: 1 }}>{p.name}</Txt>
-          {p.verified ? <Ionicons name="checkmark-circle" size={16} color={colors.turquoise} /> : null}
-        </View>
-        <Txt size="xs" color={colors.textMuted} numberOfLines={1}>{p.service} · {p.city}</Txt>
-        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-          <Stars value={p.rating} size={12} />
-          <Txt size="xs" color={colors.textMuted} style={{ marginLeft: 6 }}>{p.rating.toFixed(1)} · {p.reviews_count} avis</Txt>
+      <View style={{ position: "relative" }}>
+        <Image source={{ uri: p.photo || "https://images.unsplash.com/photo-1621905252472-943afaa20e20" }} style={styles.rowImg} contentFit="cover" />
+        {p.verified ? (
+          <View style={styles.rowVerified}>
+            <Ionicons name="checkmark-circle" size={14} color={colors.white} />
+          </View>
+        ) : null}
+      </View>
+      <View style={{ flex: 1, marginLeft: 14 }}>
+        <Text style={{ fontFamily: "InstrumentSerif", fontSize: 20, lineHeight: 24, letterSpacing: -0.2, color: colors.text }} numberOfLines={1}>{p.name}</Text>
+        <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }} numberOfLines={1}>{p.service} · {p.city}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8, gap: 8 }}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Ionicons name="star" size={12} color="#F59E0B" />
+            <Text style={{ fontSize: 12, fontWeight: "700", color: colors.text, marginLeft: 4 }}>{p.rating.toFixed(1)}</Text>
+            <Text style={{ fontSize: 11, color: colors.textMuted, marginLeft: 3 }}>· {p.reviews_count} avis</Text>
+          </View>
         </View>
       </View>
-      <View style={{ alignItems: "flex-end", maxWidth: 110 }}>
-        <Txt size="md" weight="700" color={colors.turquoise} numberOfLines={1} style={{ textAlign: "right" }}>{priceLabel(p)}</Txt>
-        <Txt size="xxs" color={colors.textSubtle}>par prestation</Txt>
+      <View style={{ alignItems: "flex-end", justifyContent: "space-between", height: 80 }}>
+        <Text style={{ fontSize: 14, fontWeight: "700", color: colors.text }} numberOfLines={1}>{priceLabel(p)}</Text>
+        <View style={styles.rowCta}>
+          <Text style={{ fontSize: 12, fontWeight: "700", color: colors.white }}>Réserver</Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -471,13 +487,25 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.turquoise,
   },
-  nearCard: { width: 200, borderRadius: radius.lg, backgroundColor: colors.surface, overflow: "hidden", ...shadow.card },
-  nearImg: { width: "100%", height: 130 },
+  nearCard: { width: 240, borderRadius: radius.xl, backgroundColor: colors.card, overflow: "hidden", ...shadow.card },
+  nearImgWrap: { width: "100%", height: 180, position: "relative" },
+  nearImg: { width: "100%", height: "100%" },
+  heartBtn: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sponsoredBadge: {
-    position: "absolute", top: 10, left: 10,
+    position: "absolute", top: 12, left: 12,
     flexDirection: "row", alignItems: "center",
-    backgroundColor: colors.turquoise,
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999,
+    backgroundColor: colors.text,
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999,
   },
   adTag: {
     alignSelf: "flex-start",
@@ -487,6 +515,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   verifiedBadge: { position: "absolute", top: 10, right: 10, backgroundColor: colors.white, borderRadius: 999, padding: 3 },
-  row: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surface, borderRadius: radius.lg, padding: 12, ...shadow.soft },
-  rowImg: { width: 56, height: 56, borderRadius: 16 },
+  row: { flexDirection: "row", alignItems: "center", backgroundColor: colors.card, borderRadius: radius.xl, padding: 14, ...shadow.card, marginHorizontal: spacing.xl, marginBottom: 12 },
+  rowImg: { width: 80, height: 80, borderRadius: 20 },
+  rowVerified: {
+    position: "absolute",
+    bottom: 4, right: 4,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.primary,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: colors.card,
+  },
+  rowCta: {
+    backgroundColor: colors.text,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 999,
+  },
 });
