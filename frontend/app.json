@@ -14,13 +14,25 @@
       "bundleIdentifier": "com.emergent.jokoomobiledev.b94ufz",
       "usesAppleSignIn": true,
       "buildNumber": "2",
+      "requireFullScreen": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "Prenez des photos pour votre profil et vos annonces.",
-        "NSPhotoLibraryUsageDescription": "Ajoutez des photos à vos annonces et profil.",
-        "NSPhotoLibraryAddUsageDescription": "Enregistrez vos reçus de mission.",
+        "NSCameraUsageDescription": "Ajoutez une photo de profil ou de mission.",
+        "NSPhotoLibraryUsageDescription": "Sélectionnez des photos pour votre profil.",
+        "NSPhotoLibraryAddUsageDescription": "Sauvegardez vos reçus de mission.",
+        "NSMicrophoneUsageDescription": "Envoyez des messages vocaux aux prestataires.",
+        "NSLocationWhenInUseUsageDescription": "Trouvez les prestataires proches de vous.",
+        "NSContactsUsageDescription": "Partagez Jokoo avec vos proches.",
+        "NSFaceIDUsageDescription": "Connectez-vous rapidement et en toute sécurité.",
+        "NSUserTrackingUsageDescription": "Personnalisez votre expérience avec des offres pertinentes.",
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleDisplayName": "Jokoo",
-        "LSApplicationQueriesSchemes": ["wave", "orangemoney", "tel", "mailto", "sms"]
+        "LSApplicationQueriesSchemes": ["wave", "orangemoney", "tel", "mailto", "sms", "https", "http", "maps", "comgooglemaps"],
+        "UIBackgroundModes": [],
+        "UIRequiresFullScreen": false,
+        "UIStatusBarStyle": "UIStatusBarStyleDefault",
+        "UIViewControllerBasedStatusBarAppearance": true,
+        "CFBundleLocalizations": ["fr", "en"],
+        "CFBundleDevelopmentRegion": "fr"
       }
     },
     "android": {

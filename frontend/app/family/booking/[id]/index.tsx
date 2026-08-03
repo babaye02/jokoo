@@ -484,7 +484,7 @@ export default function FamilyBookingDetail() {
         {/* ── THANK YOU FOOTER ── */}
         <View style={styles.thanks}>
           <Text style={styles.thanksTitle}>Merci de faire confiance à Jokoo.</Text>
-          <Text style={styles.thanksSub}>Une communauté de familles et d'étudiants au Sénégal.</Text>
+          <Text style={styles.thanksSub}>Une communauté de familles et d&apos;étudiants au Sénégal.</Text>
           <View style={styles.thanksLogo}>
             <Text style={{ fontFamily: "InstrumentSerif", fontSize: 24, letterSpacing: -0.4, color: colors.text }}>Jokoo</Text>
           </View>
