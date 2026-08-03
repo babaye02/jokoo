@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Platform } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Platform, TextInput, Text } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +10,7 @@ import { Btn, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 type Method = "card" | "wave" | "orange" | "cash";
+type PromoState = { code: string; discount: number; final: number; title?: string } | null;
 
 export default function BookingSuccess() {
   const { bookingId, amount, priceType } = useLocalSearchParams<{ bookingId: string; amount: string; priceType?: string }>();
@@ -18,9 +19,36 @@ export default function BookingSuccess() {
   const [method, setMethod] = useState<Method>("card");
   const [loading, setLoading] = useState(false);
   const [paid, setPaid] = useState(false);
+  const [promoInput, setPromoInput] = useState("");
+  const [promo, setPromo] = useState<PromoState>(null);
+  const [promoErr, setPromoErr] = useState<string | null>(null);
+  const [promoBusy, setPromoBusy] = useState(false);
 
   const isQuote = priceType === "quote" || !amount;
   const amountNum = parseInt(amount || "0", 10) || 0;
+  const finalAmount = promo ? promo.final : amountNum;
+
+  const applyPromo = async () => {
+    const code = promoInput.trim().toUpperCase();
+    if (!code) return;
+    setPromoBusy(true);
+    setPromoErr(null);
+    try {
+      const r = await api.post<any>("/promo-codes/validate", { code, amount: amountNum, category: "provider" });
+      if (r.valid) {
+        setPromo({ code: r.code, discount: r.discount || 0, final: r.final_amount ?? amountNum, title: r.title });
+        setPromoInput("");
+      } else {
+        setPromoErr(r.reason || "Ce code n'est pas applicable.");
+      }
+    } catch (e: any) {
+      setPromoErr(e?.message || "Erreur, réessayez.");
+    } finally {
+      setPromoBusy(false);
+    }
+  };
+
+  const removePromo = () => { setPromo(null); setPromoErr(null); };
 
   const pay = async () => {
     setLoading(true);
@@ -32,7 +60,8 @@ export default function BookingSuccess() {
         "/payments/orange/checkout/booking";
       const r = await api.post<{ url: string }>(endpoint, {
         booking_id: bookingId,
-        amount_xof: Math.max(500, amountNum),
+        amount_xof: Math.max(500, finalAmount),
+        promo_code: promo?.code || undefined,
       });
       if (Platform.OS === "web") window.location.assign(r.url);
       else await WebBrowser.openBrowserAsync(r.url);
@@ -93,6 +122,81 @@ export default function BookingSuccess() {
 
         {!isQuote && !paid ? (
           <>
+            {/* ── PROMO CODE ── */}
+            <View style={styles.promoCard}>
+              <Text style={styles.promoOverline}>Code promo</Text>
+              {promo ? (
+                <View>
+                  <View style={styles.promoAppliedRow}>
+                    <View style={styles.promoBadge}>
+                      <Ionicons name="checkmark" size={14} color={colors.white} />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={styles.promoCodeApplied}>{promo.code}</Text>
+                      {promo.title ? <Text style={styles.promoTitleTxt}>{promo.title}</Text> : null}
+                    </View>
+                    <Pressable onPress={removePromo} hitSlop={8}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: colors.danger }}>Retirer</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <View>
+                  <View style={styles.promoInputRow}>
+                    <View style={styles.promoInputWrap}>
+                      <Ionicons name="pricetag-outline" size={16} color={colors.textMuted} />
+                      <TextInput
+                        value={promoInput}
+                        onChangeText={(v) => { setPromoInput(v.toUpperCase()); setPromoErr(null); }}
+                        placeholder="Entrer un code promo"
+                        placeholderTextColor={colors.textSubtle}
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                        style={styles.promoInput}
+                        testID="checkout-promo-input"
+                      />
+                    </View>
+                    <Pressable
+                      onPress={applyPromo}
+                      disabled={!promoInput.trim() || promoBusy}
+                      style={[styles.promoApplyBtn, (!promoInput.trim() || promoBusy) && { opacity: 0.5 }]}
+                      testID="checkout-promo-apply"
+                    >
+                      <Text style={styles.promoApplyTxt}>{promoBusy ? "…" : "Appliquer"}</Text>
+                    </Pressable>
+                  </View>
+                  {promoErr ? (
+                    <View style={styles.promoErrBox}>
+                      <Ionicons name="alert-circle" size={12} color="#DC2626" />
+                      <Text style={styles.promoErrTxt}>{promoErr}</Text>
+                    </View>
+                  ) : null}
+                  <Pressable onPress={() => router.push("/promo-codes")} style={{ marginTop: 8 }} hitSlop={6}>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: colors.primary }}>Voir tous les codes disponibles →</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+
+            {/* ── PRICE BREAKDOWN (only when promo applied) ── */}
+            {promo ? (
+              <View style={styles.breakdownCard}>
+                <View style={styles.brkRow}>
+                  <Text style={styles.brkLabel}>Sous-total</Text>
+                  <Text style={styles.brkValue}>{formatXof(amountNum)}</Text>
+                </View>
+                <View style={styles.brkRow}>
+                  <Text style={[styles.brkLabel, { color: "#059669" }]}>Réduction ({promo.code})</Text>
+                  <Text style={[styles.brkValue, { color: "#059669" }]}>−{formatXof(promo.discount)}</Text>
+                </View>
+                <View style={styles.brkDiv} />
+                <View style={styles.brkRow}>
+                  <Text style={styles.brkTotalLabel}>Total à payer</Text>
+                  <Text style={styles.brkTotalValue}>{formatXof(finalAmount)}</Text>
+                </View>
+              </View>
+            ) : null}
+
             <Txt size="lg" weight="700" style={{ marginTop: spacing.xl, marginBottom: spacing.md }}>
               Moyen de paiement
             </Txt>
@@ -114,7 +218,7 @@ export default function BookingSuccess() {
           />
         ) : (
           <Btn
-            title={`Payer ${formatXof(amountNum)}`}
+            title={`Payer ${formatXof(finalAmount)}`}
             onPress={pay}
             loading={loading}
             fullWidth
@@ -159,4 +263,28 @@ const styles = StyleSheet.create({
   radioActive: { borderColor: colors.turquoise },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.turquoise },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0, padding: spacing.xl, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.divider },
+
+  // Promo
+  promoCard: { marginTop: spacing.lg, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  promoOverline: { fontSize: 11, letterSpacing: 1.4, color: colors.textMuted, fontWeight: "700", textTransform: "uppercase", marginBottom: 10 },
+  promoInputRow: { flexDirection: "row", gap: 8 },
+  promoInputWrap: { flex: 1, flexDirection: "row", alignItems: "center", height: 46, borderRadius: 12, backgroundColor: "#FAFAFA", borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, gap: 8 },
+  promoInput: { flex: 1, fontSize: 14, fontWeight: "700", color: colors.text, letterSpacing: 1.0 },
+  promoApplyBtn: { paddingHorizontal: 16, height: 46, borderRadius: 12, backgroundColor: colors.text, alignItems: "center", justifyContent: "center" },
+  promoApplyTxt: { fontSize: 13, fontWeight: "700", color: colors.white, letterSpacing: -0.1 },
+  promoErrBox: { flexDirection: "row", alignItems: "center", marginTop: 8, padding: 8, borderRadius: 10, backgroundColor: "#FEE2E2" },
+  promoErrTxt: { fontSize: 12, color: "#991B1B", marginLeft: 5, fontWeight: "600", flex: 1 },
+  promoAppliedRow: { flexDirection: "row", alignItems: "center" },
+  promoBadge: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#059669", alignItems: "center", justifyContent: "center" },
+  promoCodeApplied: { fontSize: 14, fontWeight: "800", color: colors.text, letterSpacing: 0.8 },
+  promoTitleTxt: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
+
+  // Breakdown
+  breakdownCard: { marginTop: 10, padding: 14, borderRadius: radius.lg, backgroundColor: "#F0FBF8", borderWidth: 1, borderColor: "#A7F3D0" },
+  brkRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 },
+  brkLabel: { fontSize: 13, color: colors.textMuted },
+  brkValue: { fontSize: 13, fontWeight: "600", color: colors.text },
+  brkDiv: { height: 1, backgroundColor: "#A7F3D0", marginVertical: 6 },
+  brkTotalLabel: { fontSize: 14, fontWeight: "700", color: colors.text },
+  brkTotalValue: { fontSize: 20, fontWeight: "800", color: colors.text, letterSpacing: -0.3 },
 });

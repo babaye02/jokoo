@@ -43,6 +43,25 @@ const isToday = (d: string) => { try { return new Date(d).toDateString() === new
 const isWithinDays = (d: string, days: number) => { try { const t = new Date(d).getTime(); const now = Date.now(); return now - t <= days * 86400_000 && t <= now; } catch { return false; } };
 const greeting = () => { const h = new Date().getHours(); if (h < 12) return "Bonjour"; if (h < 18) return "Bon après-midi"; return "Bonsoir"; };
 
+function timeAgo(iso?: string | null): string {
+  if (!iso) return "";
+  try {
+    const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 60) return "à l'instant";
+    if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
+    if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
+    if (s < 172800) return "hier";
+    return `il y a ${Math.floor(s / 86400)} j`;
+  } catch { return ""; }
+}
+
+const ACTIVITY_META: Record<string, { icon: any; tint: string }> = {
+  mission_completed: { icon: "checkmark-done", tint: "#059669" },
+  payment_received:  { icon: "cash",           tint: "#7C3AED" },
+  review_received:   { icon: "star",           tint: "#F59E0B" },
+  achievement:       { icon: "rocket",         tint: "#0EA5E9" },
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -53,14 +72,32 @@ export default function Dashboard() {
   const [quoteDrafts, setQuoteDrafts] = useState<Record<string, string>>({});
   const [showProBanner, setShowProBanner] = useState(true);
   const [online, setOnline] = useState(true);
-  const [chartRange, setChartRange] = useState<"day" | "week" | "month" | "year">("week");
+  const [chartRange, setChartRange] = useState<"week" | "month" | "year">("week");
+  const [history, setHistory] = useState<{ label: string; amount: number }[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [activity, setActivity] = useState<{ id: string; type: string; title: string; subtitle: string; amount?: number; at?: string }[]>([]);
 
   const load = useCallback(async () => {
     try { setDash(await api.get<Dash>("/dashboard")); }
     catch (e: any) { Alert.alert("Erreur", e.message); }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  const loadHistory = useCallback(async (range: "week" | "month" | "year") => {
+    try {
+      const r = await api.get<{ buckets: { label: string; amount: number }[]; total: number }>(`/dashboard/revenue-history?range=${range}`);
+      setHistory(r.buckets || []);
+      setHistoryTotal(r.total || 0);
+    } catch { /* silent */ }
+  }, []);
+
+  const loadActivity = useCallback(async () => {
+    try {
+      const r = await api.get<{ items: any[] }>("/dashboard/activity?limit=8");
+      setActivity(r.items || []);
+    } catch { /* silent */ }
+  }, []);
+
+  useFocusEffect(useCallback(() => { load(); loadActivity(); loadHistory(chartRange); }, [load, loadActivity, loadHistory, chartRange]));
 
   const accept = async (id: string) => { await api.patch(`/bookings/${id}`, { status: "accepted" }); load(); };
   const reject = async (id: string) => { await api.patch(`/bookings/${id}`, { status: "rejected" }); load(); };
@@ -131,9 +168,10 @@ export default function Dashboard() {
     return <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}><Text style={{ color: colors.textMuted }}>Chargement…</Text></View>;
   }
 
-  // Fake chart bars (7 days)
-  const chartBars = [0.35, 0.55, 0.42, 0.78, 0.65, 0.90, 0.72];
-  const chartLabels = ["L", "M", "M", "J", "V", "S", "D"];
+  // Chart data (real)
+  const chartMax = Math.max(1, ...history.map((h) => h.amount || 0));
+  const chartBars = history.length > 0 ? history.map((h) => (h.amount || 0) / chartMax) : [0, 0, 0, 0, 0, 0, 0];
+  const chartLabels = history.length > 0 ? history.map((h) => h.label) : ["L", "M", "M", "J", "V", "S", "D"];
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -230,13 +268,18 @@ export default function Dashboard() {
           <View style={styles.chartHead}>
             <View style={{ flex: 1 }}>
               <Text style={styles.overline}>Évolution</Text>
-              <Text style={styles.sectionTitle}>Revenus 7 jours</Text>
+              <Text style={styles.sectionTitle}>
+                {chartRange === "week" ? "Revenus · 7 jours" : chartRange === "month" ? "Revenus · 4 semaines" : "Revenus · 12 mois"}
+              </Text>
+              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
+                Total : {formatXof(historyTotal)}
+              </Text>
             </View>
             <View style={styles.chartTabs}>
-              {(["day", "week", "month", "year"] as const).map((k) => (
+              {(["week", "month", "year"] as const).map((k) => (
                 <Pressable key={k} onPress={() => setChartRange(k)} style={[styles.chartTab, chartRange === k && styles.chartTabActive]}>
                   <Text style={[styles.chartTabTxt, chartRange === k && { color: colors.white }]}>
-                    {k === "day" ? "J" : k === "week" ? "S" : k === "month" ? "M" : "A"}
+                    {k === "week" ? "S" : k === "month" ? "M" : "A"}
                   </Text>
                 </Pressable>
               ))}
@@ -246,7 +289,7 @@ export default function Dashboard() {
             {chartBars.map((v, i) => (
               <View key={i} style={styles.chartCol}>
                 <View style={{ flex: 1, justifyContent: "flex-end", width: "100%", alignItems: "center" }}>
-                  <View style={[styles.chartBar, { height: `${Math.round(v * 100)}%` }]} />
+                  <View style={[styles.chartBar, { height: `${Math.max(4, Math.round(v * 100))}%` }]} />
                 </View>
                 <Text style={styles.chartLbl}>{chartLabels[i]}</Text>
               </View>
@@ -358,12 +401,27 @@ export default function Dashboard() {
         <View style={styles.sectionCard}>
           <Text style={styles.overline}>Activité</Text>
           <Text style={styles.sectionTitle}>Dernières activités</Text>
-          <View style={{ marginTop: 8, gap: 12 }}>
-            <ActivityRow icon="checkmark-done" tint="#059669" title="Mission terminée" sub="Il y a 2 h · Aminata Sy" />
-            <ActivityRow icon="cash" tint="#7C3AED" title="Paiement reçu" sub={`${formatXof(15000)} · Il y a 3 h`} />
-            <ActivityRow icon="star" tint="#F59E0B" title="Nouvel avis 5 ⭐" sub="Il y a 5 h" />
-            <ActivityRow icon="rocket" tint="#0EA5E9" title="Objectif débloqué" sub="10 missions atteintes" />
-          </View>
+          {activity.length === 0 ? (
+            <View style={styles.emptyMini}>
+              <Ionicons name="pulse-outline" size={28} color={colors.textSubtle} />
+              <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 6 }}>Pas encore d&apos;activité</Text>
+            </View>
+          ) : (
+            <View style={{ marginTop: 12, gap: 12 }}>
+              {activity.slice(0, 6).map((a) => {
+                const meta = ACTIVITY_META[a.type] || ACTIVITY_META.mission_completed;
+                return (
+                  <ActivityRow
+                    key={a.id}
+                    icon={meta.icon}
+                    tint={meta.tint}
+                    title={a.title}
+                    sub={`${a.subtitle}${a.amount ? ` · ${formatXof(a.amount)}` : ""}${a.at ? ` · ${timeAgo(a.at)}` : ""}`}
+                  />
+                );
+              })}
+            </View>
+          )}
         </View>
 
         {/* ── ACHIEVEMENTS ── */}

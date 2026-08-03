@@ -29,7 +29,7 @@ from emergentintegrations.payments.stripe.checkout import (
     CheckoutSessionRequest,
 )
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request, Query
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -541,7 +541,8 @@ class MessageIn(BaseModel):
 
 class CheckoutBookingIn(BaseModel):
     booking_id: str
-    amount_xof: int  # amount in whole XOF (F CFA)
+    amount_xof: int  # amount in whole XOF (F CFA) — AFTER promo discount if any
+    promo_code: Optional[str] = None  # optional promo code applied at checkout
 
 
 class CheckoutSubIn(BaseModel):
@@ -2898,16 +2899,195 @@ async def dashboard(user=Depends(current_user)):
     }
 
 
+# ---------- Dashboard: Revenue history ----------
+@api.get("/dashboard/revenue-history")
+async def dashboard_revenue_history(
+    range_: str = Query("week", alias="range"),  # "week" | "month" | "year"
+    user=Depends(current_user),
+):
+    """Historique agrégé des revenus. Prestataire uniquement.
+    - week  : 7 derniers jours (bucket = jour)
+    - month : 4 dernières semaines (bucket = semaine)
+    - year  : 12 derniers mois (bucket = mois)
+    Retourne : { range, currency, total, buckets: [{ label, iso, amount }] }
+    """
+    if user["role"] != "prestataire":
+        raise HTTPException(403, "Prestataire uniquement")
+
+    now = datetime.utcnow()
+    rng = range_ if range_ in ("week", "month", "year") else "week"
+
+    # 1. Determine window & bucket size
+    if rng == "week":
+        start = now - timedelta(days=6)
+        buckets_meta = []
+        for i in range(7):
+            d = start + timedelta(days=i)
+            buckets_meta.append({
+                "label": ["L", "M", "M", "J", "V", "S", "D"][d.weekday()],
+                "iso": d.date().isoformat(),
+                "start": datetime(d.year, d.month, d.day),
+                "end": datetime(d.year, d.month, d.day) + timedelta(days=1),
+                "amount": 0,
+            })
+    elif rng == "month":
+        start = now - timedelta(days=27)
+        buckets_meta = []
+        for i in range(4):
+            ws = start + timedelta(days=i * 7)
+            we = ws + timedelta(days=7)
+            buckets_meta.append({
+                "label": f"S{i + 1}",
+                "iso": ws.date().isoformat(),
+                "start": datetime(ws.year, ws.month, ws.day),
+                "end": datetime(we.year, we.month, we.day),
+                "amount": 0,
+            })
+    else:  # year
+        buckets_meta = []
+        for i in range(11, -1, -1):
+            m = (now.month - i - 1) % 12 + 1
+            y = now.year - ((i - now.month + 1) // 12 if i >= now.month else 0)
+            ms = datetime(y, m, 1)
+            if m == 12:
+                me = datetime(y + 1, 1, 1)
+            else:
+                me = datetime(y, m + 1, 1)
+            months_fr = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"]
+            buckets_meta.append({
+                "label": months_fr[m - 1],
+                "iso": ms.date().isoformat(),
+                "start": ms,
+                "end": me,
+                "amount": 0,
+            })
+
+    completed = await db.bookings.find(
+        {"provider_id": user["id"], "status": "completed"},
+        {"_id": 0, "created_at": 1, "price": 1, "quote_amount": 1, "date": 1},
+    ).to_list(2000)
+
+    def _bkt_dt(b: dict) -> datetime:
+        d = b.get("date")
+        if d and isinstance(d, str) and len(d) >= 10:
+            try:
+                return datetime.fromisoformat(d[:10])
+            except Exception:
+                pass
+        ca = b.get("created_at") or ""
+        try:
+            return datetime.fromisoformat(ca[:19])
+        except Exception:
+            return datetime(2000, 1, 1)
+
+    for b in completed:
+        dt = _bkt_dt(b)
+        amt = int(b.get("price") or b.get("quote_amount") or 0)
+        for bkt in buckets_meta:
+            if bkt["start"] <= dt < bkt["end"]:
+                bkt["amount"] += amt
+                break
+
+    total = sum(bkt["amount"] for bkt in buckets_meta)
+    return {
+        "range": rng,
+        "currency": "XOF",
+        "total": total,
+        "buckets": [
+            {"label": bkt["label"], "iso": bkt["iso"], "amount": bkt["amount"]}
+            for bkt in buckets_meta
+        ],
+    }
+
+
+# ---------- Dashboard: Activity timeline ----------
+@api.get("/dashboard/activity")
+async def dashboard_activity(limit: int = 20, user=Depends(current_user)):
+    """Timeline unifiée d'activité pour prestataire : missions terminées, paiements, avis, achievements."""
+    if user["role"] != "prestataire":
+        raise HTTPException(403, "Prestataire uniquement")
+
+    items: list[dict] = []
+
+    # 1. Recent completed bookings (missions)
+    completed = await db.bookings.find(
+        {"provider_id": user["id"], "status": "completed"},
+        {"_id": 0},
+    ).sort("updated_at", -1).limit(int(limit)).to_list(int(limit))
+    for b in completed:
+        items.append({
+            "id": f"mission_{b.get('id')}",
+            "type": "mission_completed",
+            "title": "Mission terminée",
+            "subtitle": f"{b.get('client_name', 'Client')} · {b.get('service') or 'Prestation'}",
+            "amount": b.get("price") or b.get("quote_amount") or 0,
+            "at": b.get("updated_at") or b.get("created_at"),
+            "booking_id": b.get("id"),
+        })
+
+    # 2. Paid bookings (payment received)
+    paid = await db.bookings.find(
+        {"provider_id": user["id"], "paid": True},
+        {"_id": 0},
+    ).sort("updated_at", -1).limit(int(limit)).to_list(int(limit))
+    for b in paid:
+        items.append({
+            "id": f"payment_{b.get('id')}",
+            "type": "payment_received",
+            "title": "Paiement reçu",
+            "subtitle": f"{b.get('client_name', 'Client')} · {b.get('service') or 'Prestation'}",
+            "amount": b.get("price") or b.get("quote_amount") or 0,
+            "at": b.get("paid_at") or b.get("updated_at") or b.get("created_at"),
+            "booking_id": b.get("id"),
+        })
+
+    # 3. Recent reviews on provider
+    reviews = await db.reviews.find(
+        {"provider_id": user["id"]},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(int(limit)).to_list(int(limit))
+    for r in reviews:
+        rating = r.get("rating", 0)
+        stars = "⭐" * min(5, int(rating))
+        items.append({
+            "id": f"review_{r.get('id')}",
+            "type": "review_received",
+            "title": f"Avis {rating}/5 {stars}",
+            "subtitle": r.get("author_name") or "Client",
+            "at": r.get("created_at"),
+            "review_id": r.get("id"),
+        })
+
+    # 4. Achievements (milestones — derived)
+    completed_count = len(completed)
+    achievement_thresholds = [(1, "1re mission"), (10, "10 missions"), (50, "50 missions"), (100, "100 missions")]
+    for th, label in achievement_thresholds:
+        if completed_count >= th:
+            items.append({
+                "id": f"achievement_{th}",
+                "type": "achievement",
+                "title": "Objectif débloqué",
+                "subtitle": label,
+                "at": (completed[th - 1] if len(completed) >= th else completed[-1]).get("updated_at") if completed else None,
+            })
+
+    # Sort by timestamp desc
+    items.sort(key=lambda x: x.get("at") or "", reverse=True)
+    return {"items": items[: int(limit)]}
+
+
 # ---------- payments (Stripe checkout via emergentintegrations) ----------
 @api.post("/payments/checkout/booking")
 async def pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
     b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
     if not b or b["client_id"] != user["id"]:
         raise HTTPException(404, "Réservation introuvable")
+    # Apply promo code if provided (returns final amount to charge)
+    final_amt = await _apply_promo_to_booking(body.booking_id, body.promo_code, int(body.amount_xof), user, category="provider")
     try:
         # emergentintegrations wrapper expects amount as float in major units.
         req = CheckoutSessionRequest(
-            amount=float(body.amount_xof),
+            amount=float(final_amt),
             currency="xof",
             success_url=f"{APP_URL}/booking/paid?session_id={{CHECKOUT_SESSION_ID}}&booking_id={body.booking_id}",
             cancel_url=f"{APP_URL}/booking/cancelled",
@@ -2915,6 +3095,7 @@ async def pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
                 "booking_id": body.booking_id,
                 "user_id": user["id"],
                 "kind": "booking",
+                "promo_code": (body.promo_code or "").upper() if body.promo_code else "",
             },
         )
         session = await stripe_checkout.create_checkout_session(req)
@@ -3069,8 +3250,9 @@ async def wave_pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
     b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
     if not b or b["client_id"] != user["id"]:
         raise HTTPException(404, "Réservation introuvable")
+    final_amt = await _apply_promo_to_booking(body.booking_id, body.promo_code, int(body.amount_xof), user, category="provider")
     session = await wave_create_checkout(
-        amount_xof=int(body.amount_xof),
+        amount_xof=final_amt,
         success_url=f"{APP_URL}/api/payments/wave/return?booking_id={body.booking_id}",
         error_url=f"{APP_URL}/api/payments/wave/cancel",
         client_reference=f"booking:{body.booking_id}",
@@ -3147,9 +3329,10 @@ async def om_pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
     b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
     if not b or b["client_id"] != user["id"]:
         raise HTTPException(404, "Réservation introuvable")
+    final_amt = await _apply_promo_to_booking(body.booking_id, body.promo_code, int(body.amount_xof), user, category="provider")
     order_id = f"jokoo-{body.booking_id}"
     session = await om_create_webpayment(
-        amount_xof=int(body.amount_xof),
+        amount_xof=final_amt,
         order_id=order_id,
         return_url=f"{APP_URL}/api/payments/orange/return?booking_id={body.booking_id}",
         cancel_url=f"{APP_URL}/api/payments/orange/cancel",
@@ -3622,6 +3805,49 @@ async def _promo_status_for_user(promo: dict, user: dict, amount: Optional[int] 
         result["discount"] = disc
         result["final_amount"] = max(0, int(amount) - disc)
     return result
+
+
+async def _apply_promo_to_booking(booking_id: str, code: Optional[str], amount: int, user: dict, category: str = "provider") -> int:
+    """Valide et applique un code promo à une réservation.
+    - Vérifie l'applicabilité (via _promo_status_for_user)
+    - Enregistre l'usage dans `promo_code_uses`
+    - Stamp la réservation avec {promo_code, promo_discount_xof, promo_final_xof}
+    Retourne : le montant final (int, en F CFA) après réduction. Si code invalide/absent, renvoie `amount` inchangé.
+    """
+    if not code:
+        return amount
+    code_up = code.strip().upper()
+    p = await db.promo_codes.find_one({"code": code_up}, {"_id": 0})
+    if not p:
+        return amount
+    st = await _promo_status_for_user(p, user, amount=amount, category=category)
+    if st.get("status") != "applicable":
+        # Non applicable — on ignore silencieusement pour ne pas casser le paiement.
+        return amount
+    disc = int(st.get("discount") or 0)
+    final = int(st.get("final_amount") if st.get("final_amount") is not None else max(0, amount - disc))
+    if disc <= 0:
+        return amount
+    # Record usage
+    await db.promo_code_uses.insert_one({
+        "id": str(uuid.uuid4()),
+        "code": code_up,
+        "user_id": user["id"],
+        "booking_id": booking_id,
+        "amount_xof": amount,
+        "discount_xof": disc,
+        "final_xof": final,
+        "created_at": now_iso(),
+    })
+    # Stamp booking (both bookings & family_bookings collections)
+    stamp = {
+        "promo_code": code_up,
+        "promo_discount_xof": disc,
+        "promo_final_xof": final,
+    }
+    await db.bookings.update_one({"id": booking_id}, {"$set": stamp})
+    await db.family_bookings.update_one({"id": booking_id}, {"$set": stamp})
+    return final
 
 
 @api.get("/promo-codes")
