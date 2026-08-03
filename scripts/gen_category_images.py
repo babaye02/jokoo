@@ -1,5 +1,6 @@
-"""Génère les images des catégories Jokoo — version cinématographique Gen Z premium.
-Style : Apple × Airbnb × Pinterest × Arc Browser, Sénégal moderne, personnes noires en action.
+"""Génère les images des catégories Jokoo — style REPORTAGE DOCUMENTAIRE PHOTORÉALISTE.
+Objectif : indiscernable d'une vraie photographie professionnelle. ZÉRO look IA.
+Inspiration : campagnes publicitaires Airbnb, Uber, Apple Today, Notion, Stripe.
 """
 import asyncio
 import base64
@@ -14,31 +15,82 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 OUT = Path("/app/frontend/assets/categories")
 OUT.mkdir(parents=True, exist_ok=True)
 
+# Style DOCUMENTAIRE — vocabulaire photographique réaliste (pas de vocabulaire IA)
 STYLE = (
-    "CINEMATIC editorial photograph, portrait 4:5 aspect ratio, PREMIUM Airbnb × Pinterest × Arc Browser "
-    "× Vogue Africa aesthetic. Shot on Leica Q3, 35mm f/1.4, extremely shallow depth of field, subject "
-    "razor-sharp with dreamy bokeh background. GOLDEN HOUR lighting — warm amber sun rays cutting through "
-    "the scene. Modern SENEGAL settings: Dakar Plateau rooftop, Almadies villa, VDN co-working space, "
-    "trendy Ngor café, luxury Point E salon. Beautiful young Black Senegalese/African/afro-descendant "
-    "subjects in their 20s-30s, GEN Z lifestyle, real emotion caught in motion, unposed candid moment, "
-    "modern minimalist urban Dakar. Warm sun flare, atmospheric haze, cinematic mood. Subtle turquoise "
-    "brand accent naturally in scene. National Geographic × A24 film still × Kinfolk magazine. "
-    "NO camera pose, NO staged smiles, NO stock-photo cliché. "
+    "Shot on Sony A7 IV, 35mm f/2.0 lens, documentary reportage photography, "
+    "candid moment captured naturally, real Senegalese person mid-action, "
+    "NOT looking at camera, no posing, no staged smile. "
+    "Natural daylight through windows, soft even lighting, realistic colors, "
+    "authentic modern Senegalese setting (Dakar Plateau, Almadies, VDN, Ngor). "
+    "Real skin texture with natural imperfections, natural hair, everyday modest clothing. "
+    "Slight motion blur on hands where working. Photojournalism style. "
+    "Portrait 4:5 aspect ratio. Clean but lived-in interior, real objects, real tools. "
+    "Editorial photography for Airbnb/Uber/Apple Today magazine feature. "
+    "AVOID: plastic-looking skin, artificial eyes, perfect faces, cinematic sun flares, "
+    "over-saturated colors, staged compositions, deformed hands, unnatural backgrounds. "
 )
 
 CATEGORIES = [
-    ("beauty",    "Elegant Dakar hair salon in Almadies: young Senegalese hairstylist with braided updo, mid-motion applying finishing product to her client seated in modern chair, marble counter, gold-framed mirror, hanging plants, warm golden window light. She's focused on her craft, tools laid out artistically. Instagrammable interior."),
-    ("health",    "Modern Dakar clinic: young Black female doctor in cream coat leaning slightly to explain something to a smiling patient, both looking at a tablet. Sun streams through large windows, plants, minimalist medical decor, warm afternoon light."),
-    ("home",      "Contemporary Almadies villa: young Senegalese woman housekeeper mid-motion arranging fresh flowers in ceramic vase on marble kitchen counter, sun streaming through floor-to-ceiling windows, plants everywhere, minimal luxe design. Real morning ritual."),
-    ("repair",    "Modern Dakar Plateau apartment: young Senegalese electrician in dark denim workwear kneeling to install premium light fixture on exposed brick wall. Tools organized in leather roll on wooden floor. Warm ambient light from vintage bulbs. Real craft in motion."),
-    ("transport", "Golden hour on Corniche Ouest Dakar: young Senegalese man leaning coolly against sleek black sedan overlooking ocean, cinematic sun flare, palm silhouettes. Not posing — checking his phone, in his own world. Warm amber sky."),
-    ("food",      "Trendy Dakar café in Ngor: young Senegalese chef mid-plating gourmet thieboudienne on ceramic plate, marble table, herbs, colorful ingredients, professional overhead light. Hands blurred with motion, focused eyes."),
-    ("events",    "Almadies rooftop wedding setup at golden hour: young Senegalese event designer arranging cascading flowers on wooden banquet table, string lights, candles, elegant African textiles. Ocean view, palm trees, dreamy sunset. She's engrossed in her craft."),
-    ("tech",      "Trendy VDN co-working space: young Senegalese software developer on modern MacBook, dual external monitors showing code, plants, minimalist wooden desk, cortado coffee, brass accents, Aeropress on shelf. Warm afternoon light. Focused work, coffee-shop aesthetic."),
-    ("education", "Cozy Dakar Plateau library scene: young Senegalese tutor beside a teenage student, both leaning over an open textbook at wooden desk. Warm brass lamp light, books stacked, plants. Real learning moment, focused expressions, no camera awareness."),
-    ("kids",      "Sunny Almadies nursery: young Senegalese nanny lifting a giggling African toddler under sunbeam through window, both laughing genuinely. Colorful modern wooden toys, plants, cozy rug. Pure joy captured in motion."),
-    ("laundry",   "Modern Dakar Plateau tailoring atelier: young Senegalese seamstress at industrial machine crafting bold ankara dress, colorful fabrics draped, brass sewing kit, cortado coffee nearby, brick wall, plants. Hands blurred, focused eyes."),
-    ("moving",    "Dakar street scene: two young Senegalese movers in matching branded polo t-shirts carrying a beautiful wooden mid-century chair from modern branded van into an Almadies villa entrance. Palm trees, golden hour, teamwork, motion, professional energy."),
+    ("beauty",
+        "Real Dakar hair salon interior. A Senegalese hairdresser in her 30s wearing a simple black apron "
+        "over a t-shirt is braiding a client's hair. She's focused on her hands, not the camera. Other female "
+        "clients wait naturally in the background, one reading her phone. Salon has beige walls, mirrors with "
+        "framed hairstyles pictures, styling products on a shelf, floor with hair strands here and there. "
+        "Warm daylight from a side window. Candid working moment."),
+    ("health",
+        "A Senegalese nurse in her late 20s wearing a plain white nursing tunic is measuring blood pressure "
+        "on the arm of an elderly African patient sitting on an exam chair. She's looking at the equipment, "
+        "concentrated. Simple modern clinic room in Dakar with white walls, a poster, medical cabinet. "
+        "Natural window light. Real working moment, no eye contact with camera."),
+    ("home",
+        "A Senegalese cleaner in her 30s wearing simple denim jeans and a plain apron is wiping a large "
+        "living-room window in a bright modern Almadies apartment. Behind the window: Dakar rooftops and "
+        "palm trees visible in soft focus. She's mid-motion, focused on the window. Wooden floor, minimal "
+        "modern furniture (sofa, plants). Natural afternoon daylight."),
+    ("repair",
+        "A Senegalese electrician in his 30s wearing a plain navy work shirt and jeans is standing on a small "
+        "ladder installing a modern pendant light in a bright living room. His tool belt on. He's reaching up, "
+        "focused on the wires, real hands. Plain white walls, a wooden coffee table, a sofa visible. Natural "
+        "daylight through the window. Candid work in progress."),
+    ("transport",
+        "A young Senegalese delivery driver in his 20s wearing a simple branded polo shirt is handing a wrapped "
+        "package to a smiling young woman at the door of her modern Dakar residence. Both natural expressions, "
+        "genuine friendly transaction. His electric scooter parked in soft focus behind. Warm afternoon sun. "
+        "Terracotta wall, plants near the door."),
+    ("food",
+        "A Senegalese chef in her 30s wearing a plain white chef jacket is plating grilled fish with vegetables "
+        "on a ceramic dish in the kitchen of a small modern Dakar restaurant. Her hands are in motion, arranging "
+        "ingredients. Steam rising. Simple stainless kitchen counter, herbs in a jar, ingredients around. "
+        "Natural overhead light. Real cooking moment."),
+    ("events",
+        "A Senegalese wedding decorator in her 30s wearing casual jeans and a plain t-shirt is arranging fresh "
+        "white flowers on a long banquet table in an outdoor Dakar garden setting. Late afternoon sun casting "
+        "soft shadows. She's leaning over, focused on the arrangement. Wooden chairs around, other decorations "
+        "half done in the background. Candid working shot."),
+    ("tech",
+        "A Senegalese software developer in his late 20s wearing casual t-shirt is typing on a MacBook Pro at "
+        "a wooden desk in a modern Dakar co-working space. Second monitor showing code. He's focused on the "
+        "screen, not the camera. Coffee cup nearby, plants, other coworkers blurred in background. Natural "
+        "daylight through large windows. Everyday work moment."),
+    ("education",
+        "A Senegalese tutor in her late 20s wearing a simple sweater is sitting beside a teenage student at a "
+        "wooden desk in a calm home study room in Dakar. They're both looking at an open notebook, her finger "
+        "pointing at a math problem. Books stacked, a laptop, a lamp. Natural window light. Real learning moment."),
+    ("kids",
+        "A Senegalese nanny in her 20s wearing casual clothes is sitting cross-legged on a rug reading a "
+        "picture book to two African children who are leaning in curiously. Bright modern Dakar living room "
+        "with toys on the floor, plants. Everyone focused on the book. Natural window light. Candid family "
+        "moment, no camera awareness."),
+    ("laundry",
+        "A Senegalese seamstress in her 30s wearing a plain apron is sitting at an industrial sewing machine "
+        "in a small modest Dakar tailoring workshop, guiding colorful ankara fabric under the needle. Her hands "
+        "focused, foot on pedal. Rolls of fabric and threads on shelves behind. Natural daylight from a window. "
+        "Real everyday work moment."),
+    ("moving",
+        "Two young Senegalese movers in their 20s wearing simple matching branded polo t-shirts are carefully "
+        "carrying a wooden dining chair down the sidewalk toward a modern Dakar apartment building entrance. "
+        "Their branded van is parked in soft focus behind. Warm afternoon light. Palm trees. Teamwork in motion, "
+        "focused expressions, no camera pose."),
 ]
 
 
@@ -48,8 +100,8 @@ async def generate_one(key: str, subject: str):
     api_key = os.getenv("EMERGENT_LLM_KEY")
     chat = LlmChat(
         api_key=api_key,
-        session_id=f"category-v2-{key}",
-        system_message="You generate authentic cinematic African premium documentary photography.",
+        session_id=f"category-doc-{key}",
+        system_message="You produce authentic documentary photography, not AI art. Every image must look like it was shot by a real photographer for a magazine feature.",
     )
     chat.with_model("gemini", "gemini-3.1-flash-image-preview").with_params(modalities=["image", "text"])
     try:
@@ -67,7 +119,6 @@ async def generate_one(key: str, subject: str):
 
 async def main():
     tasks = [generate_one(k, s) for k, s in CATEGORIES]
-    # Batch of 3 concurrent
     for i in range(0, len(tasks), 3):
         await asyncio.gather(*tasks[i:i+3])
 
