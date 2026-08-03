@@ -358,6 +358,16 @@ class ProviderProfileIn(BaseModel):
     gallery: List[str] = []
     diplomas: List[str] = []
     id_card: Optional[str] = None
+    # --- v2.1 : mode d'intervention (au domicile / à l'établissement / les deux) ---
+    service_mode: Optional[Literal["at_client", "at_venue", "both"]] = None
+    travel_fee_xof: Optional[float] = None
+    venue_address: Optional[str] = None  # adresse complète (déplien Google Maps)
+    venue_city: Optional[str] = None
+    # --- v2.1 : disponibilités hebdomadaires + absences ---
+    # weekly_availability : {"mon":[{"start":"08:00","end":"12:00"}], ..., "sun":[]}
+    weekly_availability: Optional[dict] = None
+    # unavailable_dates : [{"date":"YYYY-MM-DD","reason":"congés"}]
+    unavailable_dates: Optional[List[dict]] = None
 
 
 class BookingIn(BaseModel):
@@ -1367,6 +1377,85 @@ def _provider_public(p: dict) -> dict:
     return {k: v for k, v in p.items() if k != "_id"}
 
 
+# ---------- v2.1 : mode d'intervention & disponibilités ----------
+_DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+_TIME_RE = re.compile(r"^\d{2}:\d{2}$")
+
+
+def _hhmm_to_min(hhmm: str) -> Optional[int]:
+    try:
+        if not _TIME_RE.match(hhmm):
+            return None
+        h, m = hhmm.split(":")
+        h_i, m_i = int(h), int(m)
+        if 0 <= h_i <= 23 and 0 <= m_i <= 59:
+            return h_i * 60 + m_i
+    except Exception:
+        pass
+    return None
+
+
+def _normalize_weekly_availability(payload: Optional[dict]) -> dict:
+    """Nettoie et trie les créneaux horaires par jour.
+    Retourne toujours 7 clés (mon..sun), même vides."""
+    out: dict[str, list[dict]] = {d: [] for d in _DAYS_ORDER}
+    if not isinstance(payload, dict):
+        return out
+    for day in _DAYS_ORDER:
+        raw = payload.get(day) or []
+        if not isinstance(raw, list):
+            continue
+        cleaned: list[tuple[int, int]] = []
+        for slot in raw:
+            if not isinstance(slot, dict):
+                continue
+            s = _hhmm_to_min(str(slot.get("start", "")))
+            e = _hhmm_to_min(str(slot.get("end", "")))
+            if s is None or e is None or e <= s:
+                continue
+            cleaned.append((s, e))
+        cleaned.sort()
+        # merge des chevauchements
+        merged: list[tuple[int, int]] = []
+        for s, e in cleaned:
+            if merged and s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+        out[day] = [
+            {
+                "start": f"{s // 60:02d}:{s % 60:02d}",
+                "end": f"{e // 60:02d}:{e % 60:02d}",
+            }
+            for s, e in merged
+        ]
+    return out
+
+
+def _normalize_unavailable_dates(payload: Optional[list]) -> list[dict]:
+    if not isinstance(payload, list):
+        return []
+    out = []
+    seen = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        d = str(item.get("date", "")).strip()
+        # Format ISO YYYY-MM-DD
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", d):
+            continue
+        if d in seen:
+            continue
+        seen.add(d)
+        entry = {"date": d}
+        r = str(item.get("reason", "")).strip()
+        if r:
+            entry["reason"] = r[:80]
+        out.append(entry)
+    out.sort(key=lambda x: x["date"])
+    return out
+
+
 def _mask_phone(phone: Optional[str]) -> Optional[str]:
     """Ne montre que les 2 derniers chiffres jusqu'à réservation confirmée."""
     if not phone:
@@ -1485,6 +1574,89 @@ async def get_provider(provider_id: str, user=Depends(optional_user)):
     return p
 
 
+@api.get("/providers/{provider_id}/availability")
+async def get_provider_availability(
+    provider_id: str,
+    date: str,
+    slot_minutes: int = 60,
+    step_minutes: int = 30,
+):
+    """Retourne les créneaux disponibles pour un prestataire à une date donnée.
+
+    - `date` : YYYY-MM-DD
+    - `slot_minutes` : durée de chaque créneau (défaut 60 min)
+    - `step_minutes` : pas entre 2 créneaux successifs (défaut 30 min)
+    Prend en compte : weekly_availability, unavailable_dates ET les bookings
+    déjà réservés/en attente sur ce prestataire à cette date.
+    """
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date or ""):
+        raise HTTPException(400, "Date invalide (YYYY-MM-DD)")
+    if slot_minutes < 15 or slot_minutes > 480:
+        slot_minutes = 60
+    if step_minutes < 15 or step_minutes > 240:
+        step_minutes = 30
+
+    p = await db.providers.find_one({"id": provider_id}, {
+        "_id": 0, "weekly_availability": 1, "unavailable_dates": 1,
+    })
+    if not p:
+        raise HTTPException(404, "Prestataire introuvable")
+
+    # Jour indispo ?
+    unav = {u.get("date") for u in (p.get("unavailable_dates") or []) if isinstance(u, dict)}
+    if date in unav:
+        return {"date": date, "day_off": True, "slots": []}
+
+    # Jour de la semaine (0=lundi)
+    from datetime import date as _date_cls
+    try:
+        y, m, d = date.split("-")
+        wd = _date_cls(int(y), int(m), int(d)).weekday()
+    except Exception:
+        raise HTTPException(400, "Date invalide")
+    day_key = _DAYS_ORDER[wd]
+    weekly = p.get("weekly_availability") or {}
+    ranges = weekly.get(day_key) or []
+    if not ranges:
+        return {"date": date, "day_off": True, "slots": []}
+
+    # Créneaux existants (bookings) sur cette date pour ce provider
+    day_bookings = await db.bookings.find(
+        {"provider_id": provider_id, "date": {"$regex": f"^{date}"}, "status": {"$in": [
+            "pending", "accepted", "in_progress", "completion_requested", "completed"
+        ]}},
+        {"_id": 0, "date": 1, "time": 1, "duration_minutes": 1}
+    ).to_list(200)
+    taken: list[tuple[int, int]] = []
+    for b in day_bookings:
+        t = (b.get("time") or "").strip()
+        start = _hhmm_to_min(t)
+        if start is None:
+            continue
+        dur = int(b.get("duration_minutes") or slot_minutes)
+        taken.append((start, start + dur))
+
+    # Génération des créneaux
+    slots = []
+    for r in ranges:
+        s = _hhmm_to_min(r.get("start", ""))
+        e = _hhmm_to_min(r.get("end", ""))
+        if s is None or e is None:
+            continue
+        cursor = s
+        while cursor + slot_minutes <= e:
+            c_start, c_end = cursor, cursor + slot_minutes
+            # Conflit avec un booking existant ?
+            conflict = any(not (c_end <= ts or c_start >= te) for (ts, te) in taken)
+            slots.append({
+                "start": f"{c_start // 60:02d}:{c_start % 60:02d}",
+                "end": f"{c_end // 60:02d}:{c_end % 60:02d}",
+                "available": not conflict,
+            })
+            cursor += step_minutes
+    return {"date": date, "day_off": False, "slots": slots}
+
+
 @api.post("/providers/me")
 async def upsert_my_provider(body: ProviderProfileIn, user=Depends(current_user)):
     if user["role"] != "prestataire":
@@ -1570,6 +1742,14 @@ async def upsert_my_provider(body: ProviderProfileIn, user=Depends(current_user)
         "diplomas": body.diplomas,
         "id_card": body.id_card,
         "verified": bool(body.id_card) or bool(existing.get("verified")),
+        # v2.1 — mode d'intervention
+        "service_mode": body.service_mode or existing.get("service_mode") or "at_client",
+        "travel_fee_xof": (body.travel_fee_xof if body.travel_fee_xof is not None else existing.get("travel_fee_xof")),
+        "venue_address": body.venue_address if body.venue_address is not None else existing.get("venue_address"),
+        "venue_city": body.venue_city if body.venue_city is not None else existing.get("venue_city"),
+        # v2.1 — disponibilités
+        "weekly_availability": _normalize_weekly_availability(body.weekly_availability) if body.weekly_availability is not None else existing.get("weekly_availability"),
+        "unavailable_dates": _normalize_unavailable_dates(body.unavailable_dates) if body.unavailable_dates is not None else existing.get("unavailable_dates"),
         "updated_at": now_iso(),
     }
     # Merge en préservant les champs computed s'ils existaient déjà
