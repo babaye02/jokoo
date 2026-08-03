@@ -12,7 +12,8 @@ export default function ResetPassword() {
   const { token: initialToken } = useLocalSearchParams<{ token?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [token, setToken] = useState((initialToken as string) || "");
+  // Token conservé UNIQUEMENT en mémoire — jamais affiché dans l'UI.
+  const [token] = useState((initialToken as string) || "");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
@@ -21,7 +22,7 @@ export default function ResetPassword() {
 
   const submit = async () => {
     setErr(null);
-    if (!token.trim()) return setErr("Token manquant");
+    if (!token.trim()) return setErr("Lien invalide ou expiré. Redemandez un email de réinitialisation.");
     if (password.length < 8) return setErr("Le mot de passe doit contenir au moins 8 caractères");
     if (password !== confirm) return setErr("La confirmation ne correspond pas");
     setSaving(true);
@@ -60,16 +61,26 @@ export default function ResetPassword() {
             </Card>
           ) : (
             <Card>
-              <Input label="Token de réinitialisation" icon="key-outline" autoCapitalize="none" value={token} onChangeText={setToken} testID="reset-token" />
+              <Txt size="sm" color={colors.textMuted} style={{ marginBottom: 12 }}>
+                Choisissez un nouveau mot de passe pour votre compte Jokoo.
+              </Txt>
               <Input label="Nouveau mot de passe (8+ caractères)" icon="lock-closed-outline" secureTextEntry value={password} onChangeText={setPassword} testID="reset-password" />
               <Input label="Confirmer" icon="lock-closed-outline" secureTextEntry value={confirm} onChangeText={setConfirm} testID="reset-confirm" />
+              {!token ? (
+                <View style={styles.errBox}>
+                  <Ionicons name="alert-circle" size={16} color={colors.danger} />
+                  <Txt size="xs" color={colors.danger} style={{ marginLeft: 6, flex: 1 }}>
+                    Lien invalide ou expiré. Redemandez un email de réinitialisation.
+                  </Txt>
+                </View>
+              ) : null}
               {err ? (
                 <View style={styles.errBox}>
                   <Ionicons name="alert-circle" size={16} color={colors.danger} />
                   <Txt size="xs" color={colors.danger} style={{ marginLeft: 6, flex: 1 }}>{err}</Txt>
                 </View>
               ) : null}
-              <Btn title="Enregistrer le nouveau mot de passe" onPress={submit} loading={saving} disabled={!password || !confirm || saving} fullWidth size="lg" style={{ marginTop: spacing.md }} testID="reset-submit" />
+              <Btn title="Enregistrer le nouveau mot de passe" onPress={submit} loading={saving} disabled={!password || !confirm || !token || saving} fullWidth size="lg" style={{ marginTop: spacing.md }} testID="reset-submit" />
             </Card>
           )}
         </ScrollView>
