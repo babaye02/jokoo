@@ -160,8 +160,8 @@ export default function Home() {
                   testID={`hero-cat-${item.key}`}
                   onPress={() =>
                     router.push({
-                      pathname: "/(tabs)/search",
-                      params: { category: item.key },
+                      pathname: "/category/[key]",
+                      params: { key: item.key },
                     })
                   }
                 />
