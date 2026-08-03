@@ -296,7 +296,14 @@ export type Notif = {
   title: string;
   body: string;
   booking_id?: string;
+  family_booking_id?: string;
+  ride_id?: string;
+  parcel_id?: string;
   peer_id?: string;
+  review_id?: string;
+  provider_id?: string;
+  babysitter_id?: string;
+  report_id?: string;
   read: boolean;
   created_at: string;
 };

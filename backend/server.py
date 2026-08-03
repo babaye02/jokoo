@@ -1446,6 +1446,7 @@ async def create_review(body: ReviewIn, user=Depends(current_user)):
         "peer_id": user["id"],
         "booking_id": body.booking_id,
         "review_id": rid,
+        "provider_id": provider_id,
         "read": False,
         "created_at": now_iso(),
     })
@@ -4260,6 +4261,7 @@ async def create_family_review(body: FamilyReviewIn, user=Depends(current_user))
         "peer_id": user["id"],
         "family_booking_id": body.family_booking_id,
         "review_id": rid,
+        "babysitter_id": babysitter_id,
         "read": False,
         "created_at": now_iso(),
     })

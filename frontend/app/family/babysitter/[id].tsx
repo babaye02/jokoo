@@ -11,7 +11,7 @@ import { TrustBadges, AvailabilityChips } from "@/src/components/family-badges";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 export default function BabysitterDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [b, setB] = useState<Babysitter | null>(null);
@@ -20,6 +20,7 @@ export default function BabysitterDetail() {
   const scrollRef = useRef<ScrollView>(null);
   const reviewsRef = useRef<View>(null);
   const reviewsY = useRef(0);
+  const autoScrolledRef = useRef(false);
   const scrollToReviews = () => {
     const sv = scrollRef.current as any;
     const node = reviewsRef.current as any;
@@ -56,6 +57,15 @@ export default function BabysitterDetail() {
         setLoadError(msg.includes("404") || /introuvable/i.test(msg) ? "blocked" : "network");
       });
   }, [id]);
+
+  // Auto-scroll vers la section "Avis parents" quand on arrive depuis
+  // une notification "Nouvel avis" (focus=reviews).
+  useEffect(() => {
+    if (!b || focus !== "reviews" || autoScrolledRef.current) return;
+    autoScrolledRef.current = true;
+    const t = setTimeout(() => scrollToReviews(), 350);
+    return () => clearTimeout(t);
+  }, [b, focus]);
 
   if (!b) {
     if (loadError) {

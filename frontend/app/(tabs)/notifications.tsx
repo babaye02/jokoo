@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Notif } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
@@ -51,8 +52,13 @@ function metaFor(t: string) {
 /**
  * Détermine la destination d'une notification :
  * on ouvre l'écran contextualisé (réservation, chat, colis, etc.).
+ * @param currentUserId — id de l'utilisateur connecté (pour router les avis reçus
+ *   vers son propre profil public afin d'y consulter la liste complète).
  */
-function routeForNotif(n: Notif & { booking_id?: string; ride_id?: string; parcel_id?: string; peer_id?: string; family_booking_id?: string; report_id?: string }): { pathname: string; params?: any } | null {
+function routeForNotif(
+  n: Notif & { booking_id?: string; ride_id?: string; parcel_id?: string; peer_id?: string; family_booking_id?: string; report_id?: string; provider_id?: string; babysitter_id?: string },
+  currentUserId?: string
+): { pathname: string; params?: any } | null {
   const t = n.type || "";
   if (t.startsWith("babysitting")) {
     // Priorité au booking cible s'il est disponible, sinon fallback vers la liste des missions.
@@ -61,9 +67,15 @@ function routeForNotif(n: Notif & { booking_id?: string; ride_id?: string; parce
     return { pathname: "/family/mine" };
   }
   if (t === "review_received") {
-    // Le prestataire tape sur la notif → détail de la réservation notée
-    // (où l'avis est visible via le champ review_id sur le booking).
-    if (n.booking_id) return { pathname: `/booking/detail/${n.booking_id}` };
+    // Le prestataire/baby-sitter tape sur la notif → sa propre fiche publique,
+    // section "Avis clients" auto-scrollée (voir provider/babysitter [id].tsx).
+    if (n.babysitter_id) {
+      return { pathname: `/family/babysitter/${n.babysitter_id}`, params: { focus: "reviews" } };
+    }
+    const providerId = n.provider_id || currentUserId;
+    if (providerId) {
+      return { pathname: `/provider/${providerId}`, params: { focus: "reviews" } };
+    }
     return { pathname: "/(tabs)/profile" };
   }
   if (t.startsWith("booking") && n.booking_id) {
@@ -105,6 +117,7 @@ function routeForNotif(n: Notif & { booking_id?: string; ride_id?: string; parce
 export default function Notifications() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [items, setItems] = useState<Notif[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -124,7 +137,7 @@ export default function Notifications() {
     // Marquage lu optimiste + navigation contextuelle.
     setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
     api.post(`/notifications/${n.id}/read`).catch(() => {});
-    const dest = routeForNotif(n as any);
+    const dest = routeForNotif(n as any, user?.id);
     if (dest) {
       router.push(dest as any);
     } else {
@@ -160,7 +173,7 @@ export default function Notifications() {
         }
         renderItem={({ item }) => {
           const m = metaFor(item.type);
-          const canOpen = routeForNotif(item as any) !== null;
+          const canOpen = routeForNotif(item as any, user?.id) !== null;
           return (
             <Pressable
               onPress={() => onTap(item)}

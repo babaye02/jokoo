@@ -11,7 +11,7 @@ import { Btn, Card, Stars, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 export default function ProviderDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, focus } = useLocalSearchParams<{ id: string; focus?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [p, setP] = useState<Provider | null>(null);
@@ -20,6 +20,7 @@ export default function ProviderDetail() {
   const scrollRef = useRef<ScrollView>(null);
   const reviewsRef = useRef<View>(null);
   const reviewsY = useRef(0);
+  const autoScrolledRef = useRef(false);
 
   const scrollToReviews = () => {
     const sv = scrollRef.current as any;
@@ -63,6 +64,16 @@ export default function ProviderDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-scroll vers la section "Avis clients" lorsqu'on arrive depuis
+  // une notification "Nouvel avis" (focus=reviews).
+  useEffect(() => {
+    if (!p || focus !== "reviews" || autoScrolledRef.current) return;
+    autoScrolledRef.current = true;
+    // Laisse le layout s'établir puis scrolle.
+    const t = setTimeout(() => scrollToReviews(), 350);
+    return () => clearTimeout(t);
+  }, [p, focus]);
 
   const toggleFav = async () => {
     if (!id) return;
