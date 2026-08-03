@@ -20,6 +20,7 @@ const NAV_ITEMS: {
   { key: "promos",   title: "Offres promo",            sub: "Landing pages /promo/{slug}",                icon: "pricetag-outline",       route: "/admin/promos",             perm: "ads:read" },
   { key: "partners", title: "Partenaires",             sub: "Annuaire des partenaires Jokoo",             icon: "business-outline",       route: "/admin/partners",           perm: "ads:read" },
   { key: "sponsors", title: "Sponsorisations",         sub: "Valider les campagnes payantes",             icon: "rocket-outline",         route: "/admin/sponsorships",       superOnly: true },
+  { key: "suggestions", title: "Suggestions de métiers", sub: "Valider les nouveaux métiers proposés",    icon: "bulb-outline",           route: "/admin/service-suggestions" },
   { key: "assist",   title: "Inscription assistée",    sub: "Créer un compte client/prestataire",         icon: "person-add-outline",     route: "/admin/assisted-register", perm: "operator:create_account" },
   { key: "reports",  title: "Signalements",            sub: "Réclamations et modération",                 icon: "flag-outline",           route: "/admin/reports",            perm: "reports:handle" },
   { key: "legal",    title: "Centre juridique",        sub: "Éditer les 22 documents & versions",         icon: "document-text-outline",  route: "/admin/legal" },
@@ -31,6 +32,7 @@ export default function AdminHub() {
   const { user } = useAuth();
   const [stats, setStats] = useState<AdStats | null>(null);
   const [pendingSponsor, setPendingSponsor] = useState(0);
+  const [pendingSuggestions, setPendingSuggestions] = useState(0);
 
   const load = useCallback(async () => {
     if (hasPerm(user, "ads:read") || isSuperAdmin(user)) {
@@ -40,6 +42,12 @@ export default function AdminHub() {
       try {
         const sp = await api.get<any[]>("/admin/sponsorships");
         setPendingSponsor(sp.filter((x) => x.status === "pending").length);
+      } catch {}
+    }
+    if (isStaff(user)) {
+      try {
+        const sg = await api.get<any[]>("/admin/service-suggestions?status_filter=pending");
+        setPendingSuggestions((sg || []).length);
       } catch {}
     }
   }, [user]);
@@ -100,6 +108,8 @@ export default function AdminHub() {
             </View>
             {it.key === "sponsors" && pendingSponsor > 0 ? (
               <View style={styles.badge}><Txt size="xxs" weight="700" color={colors.white}>{pendingSponsor}</Txt></View>
+            ) : it.key === "suggestions" && pendingSuggestions > 0 ? (
+              <View style={styles.badge}><Txt size="xxs" weight="700" color={colors.white}>{pendingSuggestions}</Txt></View>
             ) : (
               <Ionicons name="chevron-forward" size={20} color={colors.textSubtle} />
             )}
