@@ -1,8 +1,5 @@
 {
-  "/page": "app/page.js",
-  "/legal/page": "app/legal/page.js",
-  "/blog/page": "app/blog/page.js",
-  "/prestataires/page": "app/prestataires/page.js",
-  "/contact/page": "app/contact/page.js",
-  "/apropos/page": "app/apropos/page.js"
+  "/login/page": "app/login/page.js",
+  "/dashboard/prestataire/page": "app/dashboard/prestataire/page.js",
+  "/dashboard/client/page": "app/dashboard/client/page.js"
 }

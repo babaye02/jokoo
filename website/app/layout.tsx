@@ -3,6 +3,8 @@ import Link from "next/link";
 import Script from "next/script";
 import "./globals.css";
 import { DownloadButton } from "./components/DownloadButton";
+import SiteHeader from "./components/SiteHeader";
+import { AuthProvider } from "./lib/auth";
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://jokooservices.com";
 
@@ -77,15 +79,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             }),
           }}
         />
-        <Header />
-        <main>{children}</main>
-        <Footer />
+        <AuthProvider>
+          <SiteHeader />
+          <main>{children}</main>
+          <Footer />
+        </AuthProvider>
       </body>
     </html>
   );
 }
 
-function Header() {
+function _OldHeader() {
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-gray-100">
       <nav className="max-w-6xl mx-auto flex items-center justify-between p-4">
