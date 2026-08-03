@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, RefreshControl } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Text } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -68,11 +68,11 @@ export default function FamilyHub() {
   const topLanguages = useMemo(() => LANGUAGES.slice(0, 5), []);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <SafeAreaView edges={["top"]} style={styles.headerWrap}>
         <View style={styles.headerHero}>
           <LinearGradient
-            colors={["#7C3AED", "#EC4899"]}
+            colors={["#0B1F3A", "#1F1F1F"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
@@ -85,14 +85,14 @@ export default function FamilyHub() {
               <Ionicons name="briefcase-outline" size={20} color={colors.white} />
             </Pressable>
           </View>
-          <View style={{ marginTop: 16 }}>
-            <Txt size="xxs" weight="700" color="rgba(255,255,255,0.85)">JOKOO FAMILY 👨‍👩‍👧</Txt>
-            <Txt size="xxxl" weight="800" color={colors.white} style={{ marginTop: 4 }}>
-              Baby-sitting,{"\n"}devoirs & activités
-            </Txt>
-            <Txt size="sm" color="rgba(255,255,255,0.9)" style={{ marginTop: 8, lineHeight: 18 }}>
-              Étudiants & professeurs vérifiés, multilingues — partenaires de votre famille.
-            </Txt>
+          <View style={{ marginTop: 20 }}>
+            <Text style={{ fontSize: 11, letterSpacing: 1.6, color: colors.accent, fontWeight: "700", textTransform: "uppercase" }}>Jokoo Family</Text>
+            <Text style={{ fontFamily: "InstrumentSerif", fontSize: 40, lineHeight: 44, letterSpacing: -1, color: colors.white, marginTop: 6 }}>
+              Confiance.{"\n"}Sérénité.
+            </Text>
+            <Text style={{ fontSize: 14, lineHeight: 20, color: "rgba(255,255,255,0.82)", marginTop: 10 }}>
+              Étudiants & professeurs vérifiés — partenaires de votre famille.
+            </Text>
           </View>
           <View style={{ flexDirection: "row", gap: 6, marginTop: spacing.md, flexWrap: "wrap" }}>
             <Badge icon="🛡️" label="Verified+" />

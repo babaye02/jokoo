@@ -1,4 +1,4 @@
-import { View, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Text } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,20 +11,20 @@ export default function MobilityHub() {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <SafeAreaView edges={["top"]} style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.back} testID="mobility-back">
-          <Ionicons name="chevron-back" size={22} color={colors.midnight} />
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </Pressable>
-        <View>
-          <Txt size="xl" weight="700">Mobilité</Txt>
-          <Txt size="xs" color={colors.textMuted}>Bougez malin, partagez la route</Txt>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <Text style={{ fontSize: 11, letterSpacing: 1.6, color: colors.primary, fontWeight: "700", textTransform: "uppercase" }}>Jokoo Mobilité</Text>
+          <Text style={{ fontFamily: "InstrumentSerif", fontSize: 30, lineHeight: 34, letterSpacing: -0.6, color: colors.text, marginTop: 2 }}>Bougez malin.</Text>
         </View>
         <View style={{ width: 40 }} />
       </SafeAreaView>
 
       <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 120 + insets.bottom }} showsVerticalScrollIndicator={false}>
-        <Txt size="lg" weight="700" style={{ marginBottom: spacing.md }}>Que souhaitez-vous faire ?</Txt>
+        <Text style={{ fontFamily: "InstrumentSerif", fontSize: 22, lineHeight: 28, letterSpacing: -0.3, color: colors.text, marginBottom: spacing.lg }}>Que souhaitez-vous faire ?</Text>
 
         {/* Covoiturage */}
         <Pressable
