@@ -13,6 +13,8 @@ type AuthState = {
   signInWithApple: (identityToken: string, name?: string, email?: string) => Promise<User>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
+  switchRole: () => Promise<User>;
+  activateRole: (role: "client" | "prestataire") => Promise<User>;
 };
 
 const Ctx = createContext<AuthState | null>(null);
@@ -99,8 +101,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   };
 
+  const switchRole = async () => {
+    const r = await api.post<{ user: User }>("/auth/switch-role", {});
+    setUser(r.user);
+    return r.user;
+  };
+
+  const activateRole = async (role: "client" | "prestataire") => {
+    const r = await api.post<{ user: User }>("/auth/activate-role", { role });
+    setUser(r.user);
+    return r.user;
+  };
+
   return (
-    <Ctx.Provider value={{ user, token, loading, signIn, signInWithOtp, requestOtp, signUp, signInWithApple, signOut, refresh }}>
+    <Ctx.Provider value={{ user, token, loading, signIn, signInWithOtp, requestOtp, signUp, signInWithApple, signOut, refresh, switchRole, activateRole }}>
       {children}
     </Ctx.Provider>
   );

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,149 @@ import { api, Booking } from "@/src/api";
 import { Avatar, Card, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 import { ConfirmDialog } from "@/src/components/ActionSheet";
+
+/** RoleSwitcher — Bouton pour basculer ou activer le second profil. */
+function RoleSwitcher() {
+  const { user, switchRole, activateRole } = useAuth();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  if (!user) return null;
+  const roles = user.roles || [user.role];
+  const active = user.active_role || user.role;
+  const hasBoth = roles.includes("client") && roles.includes("prestataire");
+  const other = active === "client" ? "prestataire" : "client";
+
+  const onSwitch = async () => {
+    try {
+      setBusy(true);
+      const u = await switchRole();
+      // Si on bascule vers prestataire pour la 1re fois, direction provider-profile.
+      if (u.active_role === "prestataire") {
+        router.push("/provider-profile");
+      }
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Impossible de basculer.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onActivate = async () => {
+    try {
+      setBusy(true);
+      const u = await activateRole("prestataire");
+      if (u.roles?.includes("prestataire")) {
+        // Puis on bascule directement + on ouvre le hub profil pro
+        await switchRole();
+        router.push("/provider-profile");
+      }
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Impossible d'activer.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={{ marginTop: spacing.md, width: "100%", paddingHorizontal: spacing.xl }}>
+      {hasBoth ? (
+        <Pressable
+          onPress={onSwitch}
+          disabled={busy}
+          style={roleSwitcherStyles.btn}
+          testID="role-switch"
+        >
+          {busy ? (
+            <ActivityIndicator color={colors.white} size="small" />
+          ) : (
+            <>
+              <Ionicons name="swap-horizontal" size={16} color={colors.white} />
+              <Txt weight="700" color={colors.white} style={{ marginLeft: 8 }}>
+                Basculer vers {other === "prestataire" ? "Prestataire" : "Client"}
+              </Txt>
+            </>
+          )}
+        </Pressable>
+      ) : active === "client" ? (
+        <Pressable
+          onPress={onActivate}
+          disabled={busy}
+          style={roleSwitcherStyles.ctaProvider}
+          testID="role-activate-provider"
+        >
+          {busy ? (
+            <ActivityIndicator color={colors.midnight} size="small" />
+          ) : (
+            <>
+              <Ionicons name="briefcase" size={16} color={colors.midnight} />
+              <Txt weight="700" color={colors.midnight} style={{ marginLeft: 8 }}>
+                Devenir prestataire sur Jokoo
+              </Txt>
+              <Ionicons name="chevron-forward" size={14} color={colors.midnight} style={{ marginLeft: 6 }} />
+            </>
+          )}
+        </Pressable>
+      ) : (
+        <Pressable
+          onPress={async () => {
+            try {
+              setBusy(true);
+              await activateRole("client");
+              await switchRole();
+            } finally { setBusy(false); }
+          }}
+          style={roleSwitcherStyles.ctaClient}
+          disabled={busy}
+          testID="role-activate-client"
+        >
+          {busy ? (
+            <ActivityIndicator color={colors.white} size="small" />
+          ) : (
+            <>
+              <Ionicons name="person" size={16} color={colors.white} />
+              <Txt weight="700" color={colors.white} style={{ marginLeft: 8 }}>
+                Activer le profil Client
+              </Txt>
+            </>
+          )}
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+const roleSwitcherStyles = StyleSheet.create({
+  btn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.turquoise,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    ...shadow.soft,
+  },
+  ctaProvider: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FDE68A",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+  },
+  ctaClient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.midnight,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+  },
+});
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "En attente",
@@ -80,6 +223,8 @@ export default function Profile() {
                 {user.role === "prestataire" ? "PRESTATAIRE" : "CLIENT"}
               </Txt>
             </View>
+            {/* v2.2 — Bouton bascule / activation second profil */}
+            <RoleSwitcher />
           </View>
         </SafeAreaView>
 

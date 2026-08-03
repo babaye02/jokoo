@@ -1023,7 +1023,9 @@ async def register(body: RegisterIn, request: Request):
         "email": body.email.lower(),
         "password_hash": await hash_password_async(body.password),
         "name": body.name,
-        "role": body.role,
+        "role": body.role,                    # legacy (== active_role à tout instant)
+        "roles": [body.role],                  # v2 : profils actifs
+        "active_role": body.role,              # v2 : profil courant
         "is_admin": False,
         "phone": body.phone,
         "city": body.city or "Dakar",
@@ -1061,6 +1063,59 @@ async def login(body: LoginIn, request: Request):
 @api.get("/auth/me")
 async def me(user=Depends(current_user)):
     return user
+
+
+# ---------- v2.2 : double profil client/prestataire ----------
+_VALID_ROLES = {"client", "prestataire"}
+
+
+@api.post("/auth/switch-role")
+async def switch_active_role(user=Depends(current_user)):
+    """Bascule entre les profils actifs de l'utilisateur (client ⇄ prestataire).
+    L'utilisateur doit avoir activé les 2 rôles au préalable via /auth/activate-role.
+    Le champ legacy `role` est sync avec `active_role` pour ne rien casser."""
+    roles = list(user.get("roles") or [user.get("role")])
+    roles = [r for r in roles if r in _VALID_ROLES]
+    if len(roles) < 2:
+        raise HTTPException(
+            400,
+            "Vous n'avez qu'un seul profil actif. Activez d'abord le second via /auth/activate-role.",
+        )
+    current = user.get("active_role") or user.get("role")
+    target = next((r for r in roles if r != current), None)
+    if not target:
+        raise HTTPException(400, "Impossible de basculer : profil cible introuvable.")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"active_role": target, "role": target}},
+    )
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    return {"user": fresh}
+
+
+class ActivateRoleIn(BaseModel):
+    role: Literal["client", "prestataire"]
+
+
+@api.post("/auth/activate-role")
+async def activate_role(body: ActivateRoleIn, user=Depends(current_user)):
+    """Active un second profil pour l'utilisateur (sans le forcer à basculer dessus).
+    Après activation, un bouton "Basculer vers Prestataire/Client" apparaît."""
+    new_role = body.role
+    if new_role not in _VALID_ROLES:
+        raise HTTPException(400, "Rôle invalide")
+    roles = list(user.get("roles") or [user.get("role")])
+    roles = [r for r in roles if r in _VALID_ROLES]
+    if new_role in roles:
+        return {"user": {k: v for k, v in user.items() if k != "password_hash"}}
+    roles.append(new_role)
+    # On active mais sans basculer d'office (l'utilisateur choisira)
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"roles": roles}},
+    )
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    return {"user": fresh}
 
 
 # ---------- Sign in with Apple ----------
@@ -5767,6 +5822,40 @@ async def _startup_ensure_indexes():
         try:
             logging.getLogger("jokoo.migration").warning(
                 f"[migration] providers v2 skip : {e}"
+            )
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Migration v2.2 : peupler roles[]/active_role sur les users existants.
+    # ------------------------------------------------------------------
+    try:
+        cursor = db.users.find(
+            {"$or": [
+                {"roles": {"$exists": False}},
+                {"active_role": {"$exists": False}},
+            ]},
+            {"_id": 1, "role": 1, "roles": 1, "active_role": 1},
+        )
+        n_u = 0
+        async for u in cursor:
+            r = u.get("role") or "client"
+            roles = list(u.get("roles") or [r])
+            if r not in roles:
+                roles.append(r)
+            await db.users.update_one(
+                {"_id": u["_id"]},
+                {"$set": {"roles": roles, "active_role": u.get("active_role") or r}},
+            )
+            n_u += 1
+        if n_u:
+            logging.getLogger("jokoo.migration").info(
+                f"[migration] users v2.2 : {n_u} docs mis à jour (roles/active_role)"
+            )
+    except Exception as e:
+        try:
+            logging.getLogger("jokoo.migration").warning(
+                f"[migration] users v2.2 skip : {e}"
             )
         except Exception:
             pass

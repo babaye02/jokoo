@@ -97,6 +97,8 @@ export type User = {
   email: string;
   name: string;
   role: "client" | "prestataire";
+  roles?: ("client" | "prestataire")[];
+  active_role?: "client" | "prestataire";
   is_admin?: boolean;
   staff_role?: StaffRole | null;
   permissions?: string[];
