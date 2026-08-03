@@ -144,9 +144,12 @@ export type PriceType = "fixed" | "from" | "quote";
 export type Provider = {
   id: string;
   name: string;
+  city: string;
   service: string;
   service_key: string;
-  city: string;
+  categories?: string[];
+  trades?: string[];
+  cover_photo?: string;
   price_type?: PriceType;
   price_amount?: number | null;
   rating: number;

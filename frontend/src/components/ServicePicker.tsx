@@ -1,17 +1,13 @@
 /**
- * ServicePicker — Modal plein écran pour choisir un métier.
+ * ServicePicker — Modal plein écran pour choisir un ou plusieurs métiers.
  *
- * - Barre de recherche en haut (filtre live sur label + catégorie)
- * - Métiers regroupés par catégorie avec accordéons
- * - Bouton "Mon métier n'est pas listé" → ouvre le SuggestServiceSheet
+ * Modes :
+ *   - single (défaut) : ancien comportement, on ferme après sélection.
+ *   - multi           : cases à cocher, bouton "Valider" en bas.
  *
- * Usage :
- *   <ServicePicker
- *     visible={open}
- *     currentKey={serviceKey}
- *     onClose={() => setOpen(false)}
- *     onPick={(svc) => { setKey(svc.key); setOpen(false); }}
- *   />
+ * Props optionnelles :
+ *   - filterCategories : n'afficher que les catégories cochées (utilisé
+ *     dans le flow provider où l'utilisateur choisit d'abord ses catégories).
  */
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -26,57 +22,92 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api, ServiceCategory, ServiceItem, ServiceSuggestion } from "@/src/api";
-import { Txt } from "@/src/components/ui";
+import { Btn, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 import SuggestServiceSheet from "./SuggestServiceSheet";
 
-type Props = {
+type SingleProps = {
   visible: boolean;
   currentKey?: string;
   title?: string;
+  mode?: "single";
   onClose: () => void;
   onPick: (svc: ServiceItem) => void;
 };
 
-export default function ServicePicker({ visible, currentKey, title, onClose, onPick }: Props) {
+type MultiProps = {
+  visible: boolean;
+  mode: "multi";
+  selectedKeys: string[];
+  filterCategories?: string[];
+  title?: string;
+  onClose: () => void;
+  onConfirmMulti: (services: ServiceItem[]) => void;
+};
+
+type Props = SingleProps | MultiProps;
+
+export default function ServicePicker(props: Props) {
+  const { visible, onClose } = props;
+  const mode = props.mode || "single";
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [cats, setCats] = useState<ServiceCategory[]>([]);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [multiPicked, setMultiPicked] = useState<Set<string>>(new Set());
+
+  const currentKey = mode === "single" ? (props as SingleProps).currentKey : undefined;
+  const filterCategories =
+    mode === "multi" ? (props as MultiProps).filterCategories : undefined;
 
   useEffect(() => {
     if (!visible) return;
+    setQuery("");
     setLoading(true);
     api
       .get<{ categories: ServiceCategory[] }>("/services/categories")
       .then((res) => {
-        setCats(res.categories || []);
-        // Pré-ouvre la catégorie du métier courant si applicable.
-        if (currentKey) {
-          const cat = (res.categories || []).find((c) =>
-            c.services.some((s) => s.key === currentKey)
-          );
-          if (cat) setExpanded((e) => ({ ...e, [cat.key]: true }));
+        const list = res.categories || [];
+        setCats(list);
+        if (mode === "multi") {
+          setMultiPicked(new Set((props as MultiProps).selectedKeys || []));
+          const initialExpand: Record<string, boolean> = {};
+          for (const c of list) {
+            if (!filterCategories || filterCategories.includes(c.key)) {
+              initialExpand[c.key] = true;
+            }
+          }
+          setExpanded(initialExpand);
+        } else {
+          if (currentKey) {
+            const cat = list.find((c) => c.services.some((s) => s.key === currentKey));
+            if (cat) setExpanded((e) => ({ ...e, [cat.key]: true }));
+          }
         }
       })
       .finally(() => setLoading(false));
-  }, [visible, currentKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
-  // Résultat filtré : quand une requête est saisie on écrase l'accordéon
-  // pour montrer tous les résultats à plat.
+  const visibleCats = useMemo(() => {
+    if (mode === "multi" && filterCategories && filterCategories.length > 0) {
+      return cats.filter((c) => filterCategories.includes(c.key));
+    }
+    return cats;
+  }, [cats, mode, filterCategories]);
+
   const q = query.trim().toLowerCase();
   const flatSearchResults: ServiceItem[] = useMemo(() => {
     if (q.length < 1) return [];
     const bag: ServiceItem[] = [];
-    for (const cat of cats) {
+    for (const cat of visibleCats) {
       for (const svc of cat.services) {
         const hay = `${svc.label} ${svc.key} ${cat.label}`.toLowerCase();
         if (hay.includes(q)) bag.push(svc);
       }
     }
-    // Prioriser les correspondances en début de label
     bag.sort((a, b) => {
       const ai = a.label.toLowerCase().startsWith(q) ? 0 : 1;
       const bi = b.label.toLowerCase().startsWith(q) ? 0 : 1;
@@ -84,21 +115,45 @@ export default function ServicePicker({ visible, currentKey, title, onClose, onP
       return a.label.localeCompare(b.label);
     });
     return bag;
-  }, [q, cats]);
+  }, [q, visibleCats]);
 
   const toggleCat = (k: string) => setExpanded((e) => ({ ...e, [k]: !e[k] }));
 
+  const handlePress = (svc: ServiceItem) => {
+    if (mode === "single") {
+      (props as SingleProps).onPick(svc);
+    } else {
+      setMultiPicked((prev) => {
+        const next = new Set(prev);
+        if (next.has(svc.key)) next.delete(svc.key);
+        else next.add(svc.key);
+        return next;
+      });
+    }
+  };
+
+  const confirmMulti = () => {
+    if (mode !== "multi") return;
+    const flat: ServiceItem[] = [];
+    for (const cat of cats) {
+      for (const svc of cat.services) {
+        if (multiPicked.has(svc.key)) flat.push(svc);
+      }
+    }
+    (props as MultiProps).onConfirmMulti(flat);
+  };
+
   const handlePickBySuggestion = (s: ServiceSuggestion) => {
-    // Optimistic : on considère que la suggestion pending sert de "métier temporaire".
-    // Le prestataire pourra continuer son inscription.
     setSuggestOpen(false);
-    onPick({
+    const svc: ServiceItem = {
       key: s.generated_key || `pending_${s.id}`,
       label: s.label,
       icon: "briefcase-outline",
       color: "#64748B",
       category: s.category || "other",
-    });
+    };
+    if (mode === "single") (props as SingleProps).onPick(svc);
+    else setMultiPicked((prev) => new Set([...prev, svc.key]));
   };
 
   return (
@@ -114,12 +169,11 @@ export default function ServicePicker({ visible, currentKey, title, onClose, onP
           <Ionicons name="chevron-back" size={22} color={colors.midnight} />
         </Pressable>
         <Txt size="lg" weight="700" numberOfLines={1} style={{ flex: 1, textAlign: "center" }}>
-          {title || "Choisir un métier"}
+          {props.title || (mode === "multi" ? "Choisir mes métiers" : "Choisir un métier")}
         </Txt>
         <View style={{ width: 40 }} />
       </SafeAreaView>
 
-      {/* Barre de recherche */}
       <View style={styles.searchWrap}>
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color={colors.textMuted} />
@@ -150,13 +204,12 @@ export default function ServicePicker({ visible, currentKey, title, onClose, onP
         <ScrollView
           contentContainerStyle={{
             paddingHorizontal: spacing.xl,
-            paddingBottom: 120 + insets.bottom,
+            paddingBottom: (mode === "multi" ? 130 : 120) + insets.bottom,
             paddingTop: spacing.sm,
           }}
           keyboardShouldPersistTaps="handled"
         >
           {q.length >= 1 ? (
-            // Résultats de recherche à plat
             <View style={{ gap: 8 }}>
               <Txt size="sm" color={colors.textMuted} style={{ marginTop: 4 }}>
                 {flatSearchResults.length === 0
@@ -167,8 +220,9 @@ export default function ServicePicker({ visible, currentKey, title, onClose, onP
                 <ServiceRow
                   key={svc.key}
                   svc={svc}
-                  selected={svc.key === currentKey}
-                  onPress={() => onPick(svc)}
+                  mode={mode}
+                  selected={mode === "single" ? svc.key === currentKey : multiPicked.has(svc.key)}
+                  onPress={() => handlePress(svc)}
                 />
               ))}
               {flatSearchResults.length === 0 ? (
@@ -177,7 +231,7 @@ export default function ServicePicker({ visible, currentKey, title, onClose, onP
             </View>
           ) : (
             <View style={{ gap: 10 }}>
-              {cats.map((cat) => {
+              {visibleCats.map((cat) => {
                 if (cat.count === 0) return null;
                 const isOpen = expanded[cat.key];
                 return (
@@ -211,8 +265,13 @@ export default function ServicePicker({ visible, currentKey, title, onClose, onP
                           <ServiceRow
                             key={svc.key}
                             svc={svc}
-                            selected={svc.key === currentKey}
-                            onPress={() => onPick(svc)}
+                            mode={mode}
+                            selected={
+                              mode === "single"
+                                ? svc.key === currentKey
+                                : multiPicked.has(svc.key)
+                            }
+                            onPress={() => handlePress(svc)}
                           />
                         ))}
                       </View>
@@ -220,12 +279,27 @@ export default function ServicePicker({ visible, currentKey, title, onClose, onP
                   </View>
                 );
               })}
-              {/* CTA suggérer à la fin de la liste */}
               <SuggestCta onPress={() => setSuggestOpen(true)} />
             </View>
           )}
         </ScrollView>
       )}
+
+      {mode === "multi" ? (
+        <View style={[styles.footer, { paddingBottom: 16 + insets.bottom }]}>
+          <Txt size="xs" color={colors.textMuted}>
+            {multiPicked.size === 0
+              ? "Aucun métier sélectionné"
+              : `${multiPicked.size} métier${multiPicked.size > 1 ? "s" : ""} sélectionné${multiPicked.size > 1 ? "s" : ""}`}
+          </Txt>
+          <Btn
+            title="Valider"
+            onPress={confirmMulti}
+            testID="svc-picker-confirm-multi"
+            disabled={multiPicked.size === 0}
+          />
+        </View>
+      ) : null}
 
       <SuggestServiceSheet
         visible={suggestOpen}
@@ -241,10 +315,12 @@ export default function ServicePicker({ visible, currentKey, title, onClose, onP
 function ServiceRow({
   svc,
   selected,
+  mode,
   onPress,
 }: {
   svc: ServiceItem;
   selected?: boolean;
+  mode: "single" | "multi";
   onPress: () => void;
 }) {
   return (
@@ -263,7 +339,13 @@ function ServiceRow({
       <Txt size="sm" weight="600" style={{ flex: 1 }}>
         {svc.label}
       </Txt>
-      {selected ? (
+      {mode === "multi" ? (
+        selected ? (
+          <Ionicons name="checkbox" size={22} color={colors.turquoise} />
+        ) : (
+          <Ionicons name="square-outline" size={22} color={colors.borderStrong} />
+        )
+      ) : selected ? (
         <Ionicons name="checkmark-circle" size={20} color={colors.turquoise} />
       ) : (
         <Ionicons name="chevron-forward" size={16} color={colors.textSubtle} />
@@ -388,5 +470,13 @@ const styles = StyleSheet.create({
     borderColor: colors.turquoise,
     borderStyle: "dashed",
     marginTop: 12,
+  },
+  footer: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: 8,
   },
 });

@@ -1,13 +1,35 @@
-// Prestataire: create / edit provider profile with the new pricing model.
+/**
+ * Provider Profile (v2) — Hub complet du prestataire.
+ *
+ * Blocs :
+ *   1. Bandeau (cover_photo + avatar) éditables
+ *   2. Catégories (multi-sélection via CategoryPicker)
+ *   3. Métiers regroupés par catégorie (multi-sélection via ServicePicker mode="multi")
+ *   4. Description
+ *   5. Tarification globale (fixe / dès / devis) — reste, sert de fallback
+ *   6. Ville / zones / horaires
+ *   7. Lien vers "Gérer mes prestations & prix"
+ */
 import { useEffect, useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert } from "react-native";
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+} from "react-native";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
-import { api, ServiceItem, PriceType } from "@/src/api";
+import { api, PriceType, ServiceCategory, ServiceItem } from "@/src/api";
 import { Btn, Input, Txt } from "@/src/components/ui";
 import ServicePicker from "@/src/components/ServicePicker";
+import CategoryPicker from "@/src/components/CategoryPicker";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 const PRICE_TYPES: { key: PriceType; title: string; subtitle: string; icon: any }[] = [
@@ -20,45 +42,105 @@ export default function ProviderProfile() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [services, setServices] = useState<ServiceItem[]>([]);
-  const [serviceKey, setServiceKey] = useState("plombier");
-  const [customLabel, setCustomLabel] = useState<string | null>(null); // suggestion en attente
-  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // catalogue complet groupé par catégorie
+  const [catalog, setCatalog] = useState<ServiceCategory[]>([]);
+  // sélection v2
+  const [categories, setCategories] = useState<string[]>([]);
+  const [trades, setTrades] = useState<string[]>([]);
+  // photos
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [coverPhoto, setCoverPhoto] = useState<string | null>(null);
+  // autres champs
   const [description, setDescription] = useState("");
-  const [priceType, setPriceType] = useState<PriceType>("fixed");
-  const [priceAmount, setPriceAmount] = useState("15000");
+  const [priceType, setPriceType] = useState<PriceType>("quote");
+  const [priceAmount, setPriceAmount] = useState("");
   const [city, setCity] = useState(user?.city || "Dakar");
   const [zonesStr, setZonesStr] = useState("Dakar, Almadies, Plateau");
   const [hoursStr, setHoursStr] = useState("Lun-Sam · 8h-19h");
+  // pickers
+  const [catPickerOpen, setCatPickerOpen] = useState(false);
+  const [tradesPickerOpen, setTradesPickerOpen] = useState(false);
+  // state
   const [loading, setLoading] = useState(false);
 
-  const currentService = useMemo(
-    () => services.find((s) => s.key === serviceKey),
-    [services, serviceKey]
-  );
-  const isPending = serviceKey.startsWith("pending_");
-
+  // ---- Load catalog + existing profile ----
   useEffect(() => {
-    api.get<ServiceItem[]>("/services").then(setServices).catch(() => {});
-    api.get(`/providers/${user?.id}`).then((p: any) => {
-      if (!p) return;
-      setServiceKey(p.service_key || "plombier");
-      setDescription(p.description || "");
-      const pt = (p.price_type as PriceType) || "quote";
-      setPriceType(pt);
-      setPriceAmount(p.price_amount != null ? String(p.price_amount) : "");
-      setCity(p.city || "Dakar");
-      setZonesStr((p.zones || []).join(", ") || "Dakar");
-      setHoursStr(p.hours || "");
-    }).catch(() => {});
+    api
+      .get<{ categories: ServiceCategory[] }>("/services/categories")
+      .then((r) => setCatalog(r.categories || []))
+      .catch(() => {});
+    if (!user?.id) return;
+    api
+      .get(`/providers/${user.id}`)
+      .then((p: any) => {
+        if (!p) return;
+        setCategories(p.categories || []);
+        setTrades(p.trades || (p.service_key ? [p.service_key] : []));
+        setPhoto(p.photo || null);
+        setCoverPhoto(p.cover_photo || null);
+        setDescription(p.description || "");
+        const pt = (p.price_type as PriceType) || "quote";
+        setPriceType(pt);
+        setPriceAmount(p.price_amount != null ? String(p.price_amount) : "");
+        setCity(p.city || "Dakar");
+        setZonesStr((p.zones || []).join(", ") || "Dakar");
+        setHoursStr(p.hours || "");
+      })
+      .catch(() => {});
   }, [user?.id]);
 
+  // Métiers regroupés par catégorie sélectionnée (pour l'affichage en chips)
+  const tradesByCategory = useMemo(() => {
+    const out: Record<string, { key: string; label: string; icon: string; color: string }[]> = {};
+    for (const cat of catalog) {
+      const inCat = cat.services.filter((s) => trades.includes(s.key));
+      if (inCat.length) out[cat.key] = inCat;
+    }
+    // Ajouter aussi les métiers pending (générés depuis suggestion)
+    const pending = trades.filter((t) => t.startsWith("pending_"));
+    if (pending.length) {
+      out.__pending__ = pending.map((k) => ({
+        key: k,
+        label: k.replace("pending_", "En attente #"),
+        icon: "time-outline",
+        color: "#F59E0B",
+      }));
+    }
+    return out;
+  }, [catalog, trades]);
+
+  const catLabels = useMemo(() => {
+    const m: Record<string, { emoji: string; label: string }> = {};
+    for (const c of catalog) m[c.key] = { emoji: c.emoji, label: c.label };
+    return m;
+  }, [catalog]);
+
+  // ---- Image pickers ----
+  const pickImage = async (kind: "photo" | "cover") => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour continuer.");
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.6,
+      base64: true,
+      allowsEditing: true,
+      aspect: kind === "cover" ? [16, 9] : [1, 1],
+    });
+    if (res.canceled || !res.assets?.length) return;
+    const asset = res.assets[0];
+    const dataUrl = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+    if (kind === "photo") setPhoto(dataUrl);
+    else setCoverPhoto(dataUrl);
+  };
+
+  // ---- Save ----
   const save = async () => {
-    if (isPending) {
-      Alert.alert(
-        "Métier en attente de validation",
-        "Votre métier est en attente d'approbation. Vous pourrez enregistrer votre profil dès qu'il aura été validé, ou choisissez un métier existant en attendant."
-      );
+    if (trades.length === 0) {
+      Alert.alert("Métier requis", "Choisissez au moins un métier avant d'enregistrer votre profil.");
       return;
     }
     if (priceType !== "quote") {
@@ -71,28 +153,36 @@ export default function ProviderProfile() {
     setLoading(true);
     try {
       await api.post("/providers/me", {
-        service: serviceKey,
+        categories,
+        trades,
+        // legacy compat
+        service: undefined,
         description,
         price_type: priceType,
         price_amount: priceType === "quote" ? null : parseFloat(priceAmount || "0"),
         city,
         zones: zonesStr.split(",").map((s) => s.trim()).filter(Boolean),
         hours: hoursStr,
+        photo,
+        cover_photo: coverPhoto,
         id_card: "mock-id-card-uploaded",
       });
       Alert.alert("Profil enregistré", "Votre profil prestataire est à jour.");
       router.back();
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      Alert.alert("Erreur", e?.message || "Impossible d'enregistrer.");
     } finally {
       setLoading(false);
     }
   };
 
+  const totalTrades = trades.length;
+  const totalCategories = categories.length;
+
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface }}>
+    <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
       <SafeAreaView edges={["top"]} style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
+        <Pressable onPress={() => router.back()} style={styles.back} testID="pp-back">
           <Ionicons name="chevron-back" size={22} color={colors.midnight} />
         </Pressable>
         <Txt size="lg" weight="700">Profil prestataire</Txt>
@@ -100,125 +190,343 @@ export default function ProviderProfile() {
       </SafeAreaView>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 120 + insets.bottom }} keyboardShouldPersistTaps="handled">
-          <Txt size="md" weight="700" style={{ marginBottom: spacing.md }}>Votre métier</Txt>
-          <Pressable
-            onPress={() => setPickerOpen(true)}
-            style={styles.pickerBtn}
-            testID="open-service-picker"
-            accessibilityRole="button"
-          >
-            <View style={[styles.pickerIcon, { backgroundColor: (currentService?.color || colors.turquoise) + "22" }]}>
-              <Ionicons
-                name={(currentService?.icon as any) || "briefcase-outline"}
-                size={22}
-                color={currentService?.color || colors.turquoise}
-              />
-            </View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Txt size="md" weight="700" numberOfLines={1}>
-                {currentService?.label || customLabel || "Choisir mon métier"}
-              </Txt>
-              <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 2 }}>
-                {isPending
-                  ? "En attente de validation Jokoo"
-                  : "Appuyez pour parcourir ou rechercher"}
-              </Txt>
-            </View>
-            {isPending ? (
-              <View style={styles.pendingPill}>
-                <Ionicons name="time-outline" size={12} color="#B45309" />
-                <Txt size="xxs" weight="700" color="#B45309" style={{ marginLeft: 4 }}>
-                  En attente
-                </Txt>
-              </View>
-            ) : null}
-            <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} style={{ marginLeft: 6 }} />
-          </Pressable>
-          <View style={{ height: spacing.xl }} />
-
-          <Input
-            label="Description"
-            icon="document-text-outline"
-            placeholder="Présentez-vous, précisez ce que vous facturez par prestation…"
-            multiline
-            numberOfLines={4}
-            style={{ height: 110, textAlignVertical: "top", paddingTop: 12 }}
-            value={description}
-            onChangeText={setDescription}
-          />
-
-          {/* Pricing block */}
-          <Txt size="md" weight="700" style={{ marginBottom: spacing.md, marginTop: spacing.sm }}>
-            Comment facturez-vous ?
-          </Txt>
-          <Txt size="xs" color={colors.textMuted} style={{ marginBottom: spacing.md, lineHeight: 18 }}>
-            {"Choisissez le mode qui convient à votre activité. Jokoo ne facture jamais à l'heure."}
-          </Txt>
-
-          {PRICE_TYPES.map((opt) => (
-            <Pressable
-              key={opt.key}
-              onPress={() => setPriceType(opt.key)}
-              style={[styles.optRow, priceType === opt.key && styles.optRowActive]}
-              testID={`price-type-${opt.key}`}
-            >
-              <View style={[styles.optIcon, { backgroundColor: priceType === opt.key ? colors.brandTertiary : colors.surface2 }]}>
-                <Ionicons name={opt.icon} size={20} color={priceType === opt.key ? colors.turquoise : colors.midnight} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Txt weight="700">{opt.title}</Txt>
-                <Txt size="xs" color={colors.textMuted} style={{ marginTop: 2 }}>{opt.subtitle}</Txt>
-              </View>
-              <View style={[styles.radio, priceType === opt.key && styles.radioActive]}>
-                {priceType === opt.key ? <View style={styles.radioDot} /> : null}
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Bandeau : cover + avatar */}
+          <View style={styles.coverWrap}>
+            <Pressable onPress={() => pickImage("cover")} style={styles.cover} testID="pp-cover">
+              {coverPhoto ? (
+                <Image source={{ uri: coverPhoto }} style={StyleSheet.absoluteFill} contentFit="cover" />
+              ) : (
+                <View style={[StyleSheet.absoluteFill, styles.coverPlaceholder]}>
+                  <Ionicons name="image-outline" size={26} color={colors.textMuted} />
+                  <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4 }}>
+                    Ajouter une photo de couverture
+                  </Txt>
+                </View>
+              )}
+              <View style={styles.coverEdit}>
+                <Ionicons name="camera" size={14} color={colors.midnight} />
               </View>
             </Pressable>
-          ))}
 
-          {priceType !== "quote" ? (
-            <Input
-              label={priceType === "from" ? "Prix de départ (F CFA)" : "Prix fixe (F CFA)"}
-              icon="cash-outline"
-              placeholder="Ex : 15000"
-              keyboardType="numeric"
-              value={priceAmount}
-              onChangeText={setPriceAmount}
-              testID="price-amount-input"
-            />
-          ) : (
-            <View style={styles.info}>
-              <Ionicons name="information-circle" size={18} color={colors.turquoise} />
-              <Txt size="sm" color={colors.text} style={{ flex: 1, marginLeft: 8, lineHeight: 20 }}>
-                {"Aucun montant n'est affiché aux clients. Vous leur enverrez un devis personnalisé après avoir lu leur demande."}
-              </Txt>
-            </View>
-          )}
-
-          <View style={{ height: spacing.lg }} />
-          <Input label="Ville" icon="location-outline" value={city} onChangeText={setCity} />
-          <Input label="Zones d'intervention" icon="map-outline" placeholder="Dakar, Almadies, Plateau" value={zonesStr} onChangeText={setZonesStr} />
-          <Input label="Horaires" icon="time-outline" placeholder="Lun-Sam · 8h-19h" value={hoursStr} onChangeText={setHoursStr} />
-
-          <View style={styles.upload}>
-            <Ionicons name="cloud-upload-outline" size={28} color={colors.turquoise} />
-            <Txt weight="700" style={{ marginTop: 8 }}>{"Vérification d'identité"}</Txt>
-            <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4, textAlign: "center" }}>{"Téléchargement de pièce d'identité (démo)"}</Txt>
-            <Btn title="Simuler l'upload" variant="secondary" style={{ marginTop: 10 }} onPress={() => Alert.alert("Vérifié", "Pièce d'identité téléchargée (démo)")} />
+            <Pressable onPress={() => pickImage("photo")} style={styles.avatarBtn} testID="pp-avatar">
+              {photo ? (
+                <Image source={{ uri: photo }} style={styles.avatarImg} contentFit="cover" />
+              ) : (
+                <View style={styles.avatarImg}>
+                  <Ionicons name="person" size={30} color={colors.textMuted} />
+                </View>
+              )}
+              <View style={styles.avatarEdit}>
+                <Ionicons name="camera" size={12} color={colors.white} />
+              </View>
+            </Pressable>
           </View>
 
-          <Btn title="Enregistrer" onPress={save} loading={loading} fullWidth size="lg" style={{ marginTop: spacing.xl }} testID="provider-save" />
+          <View style={{ padding: spacing.xl, paddingTop: 40 }}>
+            {/* Bloc catégories */}
+            <View style={styles.block}>
+              <View style={styles.blockHeader}>
+                <View style={{ flex: 1 }}>
+                  <Txt size="md" weight="700">Mes catégories</Txt>
+                  <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 2 }}>
+                    Sélectionnez toutes les catégories qui correspondent à votre activité
+                  </Txt>
+                </View>
+                <Pressable
+                  onPress={() => setCatPickerOpen(true)}
+                  style={styles.editBtn}
+                  testID="pp-edit-cats"
+                  hitSlop={8}
+                >
+                  <Ionicons name="create-outline" size={16} color={colors.turquoise} />
+                  <Txt size="xs" weight="700" color={colors.turquoise} style={{ marginLeft: 4 }}>
+                    Modifier
+                  </Txt>
+                </Pressable>
+              </View>
+              {totalCategories === 0 ? (
+                <Pressable
+                  onPress={() => setCatPickerOpen(true)}
+                  style={styles.emptyState}
+                  testID="pp-add-cats"
+                >
+                  <Ionicons name="add-circle" size={22} color={colors.turquoise} />
+                  <Txt size="sm" weight="700" color={colors.midnight} style={{ marginLeft: 8 }}>
+                    Ajouter des catégories
+                  </Txt>
+                </Pressable>
+              ) : (
+                <View style={styles.chipsRow}>
+                  {categories.map((k) => {
+                    const meta = catLabels[k];
+                    return (
+                      <View key={k} style={styles.chipCat}>
+                        <Txt size="sm">{meta?.emoji || "✨"}</Txt>
+                        <Txt size="xs" weight="700" style={{ marginLeft: 6 }}>
+                          {meta?.label || k}
+                        </Txt>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+
+            {/* Bloc métiers */}
+            <View style={styles.block}>
+              <View style={styles.blockHeader}>
+                <View style={{ flex: 1 }}>
+                  <Txt size="md" weight="700">Mes métiers</Txt>
+                  <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 2 }}>
+                    {totalTrades > 0
+                      ? `${totalTrades} métier${totalTrades > 1 ? "s" : ""} · vous pouvez en avoir plusieurs`
+                      : "Vous pouvez sélectionner plusieurs métiers"}
+                  </Txt>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    if (categories.length === 0) {
+                      Alert.alert(
+                        "Catégories requises",
+                        "Choisissez d'abord au moins une catégorie."
+                      );
+                      return;
+                    }
+                    setTradesPickerOpen(true);
+                  }}
+                  style={styles.editBtn}
+                  testID="pp-edit-trades"
+                  hitSlop={8}
+                >
+                  <Ionicons name="create-outline" size={16} color={colors.turquoise} />
+                  <Txt size="xs" weight="700" color={colors.turquoise} style={{ marginLeft: 4 }}>
+                    Modifier
+                  </Txt>
+                </Pressable>
+              </View>
+
+              {totalTrades === 0 ? (
+                <Pressable
+                  onPress={() => {
+                    if (categories.length === 0) {
+                      Alert.alert(
+                        "Catégories requises",
+                        "Choisissez d'abord au moins une catégorie."
+                      );
+                      return;
+                    }
+                    setTradesPickerOpen(true);
+                  }}
+                  style={styles.emptyState}
+                  testID="pp-add-trades"
+                >
+                  <Ionicons name="add-circle" size={22} color={colors.turquoise} />
+                  <Txt size="sm" weight="700" color={colors.midnight} style={{ marginLeft: 8 }}>
+                    Ajouter des métiers
+                  </Txt>
+                </Pressable>
+              ) : (
+                <View style={{ gap: 12 }}>
+                  {Object.entries(tradesByCategory).map(([catKey, items]) => {
+                    const meta =
+                      catKey === "__pending__"
+                        ? { emoji: "⏱", label: "En attente de validation" }
+                        : catLabels[catKey] || { emoji: "✨", label: catKey };
+                    return (
+                      <View key={catKey}>
+                        <Txt size="xxs" weight="700" color={colors.textMuted} style={{ marginBottom: 6 }}>
+                          {meta.emoji}  {meta.label.toUpperCase()}
+                        </Txt>
+                        <View style={styles.chipsRow}>
+                          {items.map((it) => (
+                            <View
+                              key={it.key}
+                              style={[
+                                styles.chipTrade,
+                                catKey === "__pending__" && styles.chipTradePending,
+                              ]}
+                            >
+                              <Ionicons
+                                name={it.icon as any}
+                                size={12}
+                                color={it.color || colors.midnight}
+                              />
+                              <Txt
+                                size="xs"
+                                weight="700"
+                                style={{ marginLeft: 5 }}
+                                numberOfLines={1}
+                              >
+                                {it.label}
+                              </Txt>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+
+            {/* Description */}
+            <View style={styles.block}>
+              <Txt size="md" weight="700" style={{ marginBottom: 6 }}>
+                À propos de vous
+              </Txt>
+              <Input
+                icon="document-text-outline"
+                placeholder="Présentez-vous, précisez vos spécialités, votre expérience…"
+                multiline
+                numberOfLines={4}
+                style={{ height: 110, textAlignVertical: "top", paddingTop: 12 }}
+                value={description}
+                onChangeText={setDescription}
+              />
+            </View>
+
+            {/* Tarification globale (fallback) */}
+            <View style={styles.block}>
+              <Txt size="md" weight="700" style={{ marginBottom: 4 }}>
+                Tarification globale
+              </Txt>
+              <Txt size="xs" color={colors.textMuted} style={{ marginBottom: spacing.md, lineHeight: 18 }}>
+                Utilisée en affichage rapide sur les cartes. Vous pourrez fixer des prix précis pour chaque prestation dans « Gérer mes prestations ».
+              </Txt>
+              {PRICE_TYPES.map((opt) => (
+                <Pressable
+                  key={opt.key}
+                  onPress={() => setPriceType(opt.key)}
+                  style={[styles.optRow, priceType === opt.key && styles.optRowActive]}
+                  testID={`price-type-${opt.key}`}
+                >
+                  <View
+                    style={[
+                      styles.optIcon,
+                      { backgroundColor: priceType === opt.key ? colors.brandTertiary : colors.surface2 },
+                    ]}
+                  >
+                    <Ionicons
+                      name={opt.icon}
+                      size={20}
+                      color={priceType === opt.key ? colors.turquoise : colors.midnight}
+                    />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Txt weight="700">{opt.title}</Txt>
+                    <Txt size="xs" color={colors.textMuted} style={{ marginTop: 2 }}>
+                      {opt.subtitle}
+                    </Txt>
+                  </View>
+                  <View style={[styles.radio, priceType === opt.key && styles.radioActive]}>
+                    {priceType === opt.key ? <View style={styles.radioDot} /> : null}
+                  </View>
+                </Pressable>
+              ))}
+              {priceType !== "quote" ? (
+                <Input
+                  label={priceType === "from" ? "Prix de départ (F CFA)" : "Prix fixe (F CFA)"}
+                  icon="cash-outline"
+                  placeholder="Ex : 15000"
+                  keyboardType="numeric"
+                  value={priceAmount}
+                  onChangeText={setPriceAmount}
+                  testID="price-amount-input"
+                />
+              ) : null}
+            </View>
+
+            {/* Ville / zones / horaires */}
+            <View style={styles.block}>
+              <Txt size="md" weight="700" style={{ marginBottom: 6 }}>
+                Zone de service
+              </Txt>
+              <Input label="Ville" icon="location-outline" value={city} onChangeText={setCity} />
+              <Input
+                label="Zones d'intervention"
+                icon="map-outline"
+                placeholder="Dakar, Almadies, Plateau"
+                value={zonesStr}
+                onChangeText={setZonesStr}
+              />
+              <Input
+                label="Horaires"
+                icon="time-outline"
+                placeholder="Lun-Sam · 8h-19h"
+                value={hoursStr}
+                onChangeText={setHoursStr}
+              />
+            </View>
+
+            {/* CTA gérer prestations */}
+            <Pressable
+              onPress={() => router.push("/my-services")}
+              style={styles.myServicesCta}
+              testID="pp-my-services"
+            >
+              <View style={styles.myServicesIcon}>
+                <Ionicons name="pricetags" size={22} color={colors.turquoise} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Txt size="md" weight="700">
+                  Gérer mes prestations & prix
+                </Txt>
+                <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 2 }}>
+                  Ajoutez le détail de vos services avec leurs prix (recommandé)
+                </Txt>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+            </Pressable>
+
+            <Btn
+              title="Enregistrer"
+              onPress={save}
+              loading={loading}
+              fullWidth
+              size="lg"
+              style={{ marginTop: spacing.xl }}
+              testID="provider-save"
+            />
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
+      <CategoryPicker
+        visible={catPickerOpen}
+        selected={categories}
+        onClose={() => setCatPickerOpen(false)}
+        onConfirm={(ks) => {
+          setCategories(ks);
+          // Purge les métiers dont la catégorie n'est plus sélectionnée
+          setTrades((prev) =>
+            prev.filter((tk) => {
+              if (tk.startsWith("pending_")) return true;
+              const cat = catalog.find((c) => c.services.some((s) => s.key === tk));
+              return cat ? ks.includes(cat.key) : true;
+            })
+          );
+          setCatPickerOpen(false);
+        }}
+      />
+
       <ServicePicker
-        visible={pickerOpen}
-        currentKey={serviceKey}
-        onClose={() => setPickerOpen(false)}
-        onPick={(svc) => {
-          setServiceKey(svc.key);
-          setCustomLabel(svc.label);
-          setPickerOpen(false);
+        visible={tradesPickerOpen}
+        mode="multi"
+        selectedKeys={trades}
+        filterCategories={categories}
+        onClose={() => setTradesPickerOpen(false)}
+        onConfirmMulti={(services: ServiceItem[]) => {
+          const keys = services.map((s) => s.key);
+          setTrades(keys);
+          // Merge des catégories dérivées si besoin
+          const derived = new Set(categories);
+          for (const s of services) if (s.category) derived.add(s.category);
+          setCategories(Array.from(derived));
+          setTradesPickerOpen(false);
         }}
       />
     </View>
@@ -226,50 +534,186 @@ export default function ProviderProfile() {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.xl, paddingBottom: spacing.md, backgroundColor: colors.surface, ...shadow.soft },
-  back: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
-  pickerBtn: {
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
+    ...shadow.soft,
+  },
+  back: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  coverWrap: {
+    position: "relative",
+    marginBottom: 32, // laisser dépasser l'avatar
+  },
+  cover: {
+    width: "100%",
+    height: 160,
+    backgroundColor: colors.surface3,
+    overflow: "hidden",
+  },
+  coverPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface3,
+  },
+  coverEdit: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+    backgroundColor: colors.white,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.soft,
+  },
+  avatarBtn: {
+    position: "absolute",
+    left: spacing.xl,
+    bottom: -40,
+    borderRadius: 44,
+    borderWidth: 3,
+    borderColor: colors.surface,
+    ...shadow.soft,
+  },
+  avatarImg: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarEdit: {
+    position: "absolute",
+    right: 0,
+    bottom: 2,
+    backgroundColor: colors.turquoise,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
+  block: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  blockHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 10,
+  },
+  editBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.brandTertiary,
+  },
+  emptyState: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.turquoise,
+    borderStyle: "dashed",
+    borderRadius: radius.md,
+    backgroundColor: colors.brandTertiary,
+  },
+  chipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  chipCat: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chipTrade: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.brandTertiary,
+    borderWidth: 1,
+    borderColor: colors.turquoise,
+  },
+  chipTradePending: {
+    backgroundColor: "#FEF3C7",
+    borderColor: "#F59E0B",
+  },
+  optRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 10,
+  },
+  optRowActive: { borderColor: colors.turquoise, backgroundColor: "#F0FBF8" },
+  optIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioActive: { borderColor: colors.turquoise },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.turquoise },
+  myServicesCta: {
     flexDirection: "row",
     alignItems: "center",
     padding: 14,
     borderRadius: radius.lg,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.turquoise,
+    marginTop: spacing.md,
   },
-  pickerIcon: {
+  myServicesIcon: {
     width: 44,
     height: 44,
     borderRadius: 12,
+    backgroundColor: colors.brandTertiary,
     alignItems: "center",
     justifyContent: "center",
   },
-  pendingPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  chip: { flexDirection: "row", alignItems: "center", height: 34, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  chipActive: { backgroundColor: colors.midnight, borderColor: colors.midnight },
-  optRow: {
-    flexDirection: "row", alignItems: "center",
-    padding: spacing.md, borderRadius: radius.lg,
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    marginBottom: 10,
-  },
-  optRowActive: { borderColor: colors.turquoise, backgroundColor: "#F0FBF8" },
-  optIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
-  radioActive: { borderColor: colors.turquoise },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.turquoise },
-  info: {
-    flexDirection: "row", alignItems: "flex-start",
-    padding: 12, borderRadius: radius.md,
-    backgroundColor: colors.brandTertiary,
-    marginBottom: spacing.md, marginTop: 4,
-  },
-  upload: { marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, borderStyle: "dashed", alignItems: "center", backgroundColor: colors.surface2 },
 });

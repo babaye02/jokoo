@@ -344,14 +344,17 @@ PriceType = Literal["fixed", "from", "quote"]
 
 
 class ProviderProfileIn(BaseModel):
-    service: str  # e.g. "Plombier"
+    service: Optional[str] = None  # legacy — auto-rempli depuis trades[0]
+    categories: List[str] = []     # v2 : catégories choisies
+    trades: List[str] = []          # v2 : métiers choisis (clés du catalogue)
     description: Optional[str] = ""
     price_type: PriceType = "quote"
     price_amount: Optional[float] = None  # None si "quote"
     city: str
     zones: List[str] = []
     hours: Optional[str] = ""
-    photo: Optional[str] = None  # base64 or url
+    photo: Optional[str] = None  # base64 or url (avatar)
+    cover_photo: Optional[str] = None  # base64 ou url (bannière)
     gallery: List[str] = []
     diplomas: List[str] = []
     id_card: Optional[str] = None
@@ -1386,6 +1389,8 @@ async def _has_confirmed_booking(client_id: str, provider_id: str) -> bool:
 @api.get("/providers")
 async def list_providers(
     service: Optional[str] = None,
+    category: Optional[str] = None,  # v2 : filtre par catégorie(s) — CSV possible
+    trade: Optional[str] = None,     # v2 : filtre par métier(s) — CSV possible
     city: Optional[str] = None,
     zone: Optional[str] = None,  # quartier/commune : match sur zones[] ou city
     q: Optional[str] = None,
@@ -1393,23 +1398,41 @@ async def list_providers(
     limit: int = 50,
     user=Depends(optional_user),
 ):
-    query: dict = {}
+    and_clauses: list[dict] = []
+    if category:
+        cats = [c.strip() for c in category.split(",") if c.strip()]
+        if cats:
+            and_clauses.append({"categories": {"$in": cats}})
+    if trade:
+        trades = [t.strip() for t in trade.split(",") if t.strip()]
+        if trades:
+            and_clauses.append({"$or": [
+                {"trades": {"$in": trades}},
+                {"service_key": {"$in": trades}},
+            ]})
     if service:
-        query["service_key"] = service
+        # Rétro-compat : accepte la clé unique historique OU un métier v2.
+        and_clauses.append({"$or": [
+            {"service_key": service},
+            {"trades": service},
+        ]})
+    query: dict = {}
     if city:
         query["city"] = {"$regex": city, "$options": "i"}
     if zone:
-        query["$or"] = [
+        and_clauses.append({"$or": [
             {"zones": {"$regex": zone, "$options": "i"}},
             {"city": {"$regex": zone, "$options": "i"}},
-        ]
+        ]})
     if q:
-        query.setdefault("$or", [])
-        query["$or"] += [
+        and_clauses.append({"$or": [
             {"name": {"$regex": q, "$options": "i"}},
             {"service": {"$regex": q, "$options": "i"}},
             {"description": {"$regex": q, "$options": "i"}},
-        ]
+            {"trades": {"$regex": q, "$options": "i"}},
+        ]})
+    if and_clauses:
+        query["$and"] = and_clauses
     # Exclure les prestataires bloqués (mutuellement) via l'utilisateur courant.
     blocked = await _blocked_ids(user["id"] if user else None)
     if blocked:
@@ -1468,16 +1491,58 @@ async def upsert_my_provider(body: ProviderProfileIn, user=Depends(current_user)
         raise HTTPException(403, "Compte prestataire requis")
     # Catalogue enrichi : base + suggestions validées (services_extra).
     full_catalog = await _get_full_services_catalog()
-    label = next(
-        (s["label"] for s in full_catalog
-         if s["label"].lower() == body.service.lower() or s["key"] == body.service.lower()),
-        body.service,
-    )
-    key = next(
-        (s["key"] for s in full_catalog
-         if s["label"].lower() == body.service.lower() or s["key"] == body.service.lower()),
-        body.service.lower(),
-    )
+    cat_map = {s["key"]: s.get("category") or "other" for s in full_catalog}
+    label_map = {s["key"]: s["label"] for s in full_catalog}
+
+    # ------------ Résolution multi-métiers / multi-catégories (v2) ------------
+    trades_in = list(body.trades or [])
+    cats_in = list(body.categories or [])
+
+    # Retro-compat : si le client envoie encore `service` unique, on l'injecte.
+    if not trades_in and body.service:
+        legacy = body.service.strip()
+        # essayer de résoudre la clé exacte
+        matched_key = next(
+            (s["key"] for s in full_catalog
+             if s["label"].lower() == legacy.lower() or s["key"] == legacy.lower()),
+            legacy.lower(),
+        )
+        trades_in = [matched_key]
+
+    # Dédoublonner et filtrer les clés inconnues (garder au moins celle envoyée
+    # pour permettre les "pending_*" en attente de validation admin).
+    seen: set[str] = set()
+    trades_clean: list[str] = []
+    for t in trades_in:
+        if not t:
+            continue
+        t = t.strip()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        trades_clean.append(t)
+
+    # Déduire les catégories à partir des trades (union catégories envoyées + celles des trades)
+    derived_cats: set[str] = set()
+    for t in trades_clean:
+        c = cat_map.get(t)
+        if c:
+            derived_cats.add(c)
+        elif t.startswith("pending_"):
+            derived_cats.add("other")
+    for c in cats_in:
+        if c:
+            derived_cats.add(c.strip().lower())
+
+    _valid_cat_keys = {c["key"] for c in SERVICE_CATEGORIES}
+    categories_clean = [c for c in sorted(derived_cats) if c in _valid_cat_keys] or ["other"]
+
+    if not trades_clean:
+        raise HTTPException(400, "Sélectionnez au moins un métier.")
+
+    # Label & clé primaires (compat rétro affichage listes/cartes) : premier métier.
+    primary_key = trades_clean[0]
+    primary_label = label_map.get(primary_key, primary_key.replace("_", " ").title())
     # Récupérer le doc existant pour préserver les champs computed (rating, reviews_count, sponsored_until, etc.)
     existing = await db.providers.find_one({"id": user["id"]}, {"_id": 0}) or {}
     # CRITICAL FIX : ne PAS écraser rating / reviews_count / subscription — ils sont computed ou gérés par d'autres endpoints.
@@ -1487,8 +1552,12 @@ async def upsert_my_provider(body: ProviderProfileIn, user=Depends(current_user)
         "name": user["name"],
         "avatar": user.get("avatar"),
         "phone": user.get("phone"),
-        "service": label,
-        "service_key": key,
+        # Legacy simple fields — utilisés par les cartes/search actuelles
+        "service": primary_label,
+        "service_key": primary_key,
+        # v2 — multi-catégories / multi-métiers
+        "categories": categories_clean,
+        "trades": trades_clean,
         "description": body.description or "",
         "price_type": body.price_type,
         "price_amount": body.price_amount if body.price_type != "quote" else None,
@@ -1496,6 +1565,7 @@ async def upsert_my_provider(body: ProviderProfileIn, user=Depends(current_user)
         "zones": body.zones,
         "hours": body.hours or "",
         "photo": body.photo,
+        "cover_photo": body.cover_photo,
         "gallery": body.gallery,
         "diplomas": body.diplomas,
         "id_card": body.id_card,
@@ -5467,11 +5537,59 @@ async def _startup_ensure_indexes():
         await db.blocked_users.create_index([("user_id", 1), ("blocked_id", 1)], unique=True)
         await db.blocked_users.create_index("blocked_id")
         await db.providers.create_index([("service_key", 1), ("city", 1)])
+        await db.providers.create_index("categories")
+        await db.providers.create_index("trades")
+        await db.services_extra.create_index("key", unique=True, sparse=True)
+        await db.service_suggestions.create_index([("status", 1), ("created_at", -1)])
         await db.bookings.create_index([("client_id", 1), ("created_at", -1)])
         await db.bookings.create_index([("provider_id", 1), ("created_at", -1)])
         await db.messages.create_index([("conv_id", 1), ("created_at", 1)])
     except Exception:
         pass
+
+    # ------------------------------------------------------------------
+    # Migration one-shot (idempotente) : peupler categories[]/trades[]
+    # sur les providers existants qui n'ont que `service_key` (legacy v1).
+    # ------------------------------------------------------------------
+    try:
+        catalog = await _get_full_services_catalog()
+        key_to_cat = {s["key"]: s.get("category") or "other" for s in catalog}
+        cursor = db.providers.find(
+            {
+                "$or": [
+                    {"categories": {"$exists": False}},
+                    {"categories": {"$size": 0}},
+                    {"trades": {"$exists": False}},
+                    {"trades": {"$size": 0}},
+                ]
+            },
+            {"_id": 1, "id": 1, "service_key": 1, "categories": 1, "trades": 1},
+        )
+        n_migrated = 0
+        async for p in cursor:
+            sk = (p.get("service_key") or "").strip()
+            if not sk:
+                continue
+            new_trades = list(p.get("trades") or []) or [sk]
+            existing_cats = list(p.get("categories") or [])
+            if not existing_cats:
+                existing_cats = [key_to_cat.get(sk, "other")]
+            await db.providers.update_one(
+                {"_id": p["_id"]},
+                {"$set": {"categories": existing_cats, "trades": new_trades}},
+            )
+            n_migrated += 1
+        if n_migrated:
+            logging.getLogger("jokoo.migration").info(
+                f"[migration] providers v2 : {n_migrated} docs mis à jour (categories/trades)"
+            )
+    except Exception as e:
+        try:
+            logging.getLogger("jokoo.migration").warning(
+                f"[migration] providers v2 skip : {e}"
+            )
+        except Exception:
+            pass
 
 
 @app.on_event("shutdown")
