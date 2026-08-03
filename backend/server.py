@@ -1574,7 +1574,12 @@ async def list_providers(
     city: Optional[str] = None,
     zone: Optional[str] = None,  # quartier/commune : match sur zones[] ou city
     q: Optional[str] = None,
-    sort: Optional[str] = None,  # "rating" | "price"
+    sort: Optional[str] = None,  # "rating" | "price" | "reviews" | "nearest"
+    verified: Optional[bool] = None,     # verified only
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    languages: Optional[str] = None,     # CSV
+    min_rating: Optional[float] = None,  # e.g. 4.5
     limit: int = 50,
     user=Depends(optional_user),
 ):
@@ -1611,6 +1616,22 @@ async def list_providers(
             {"description": {"$regex": q, "$options": "i"}},
             {"trades": {"$regex": q, "$options": "i"}},
         ]})
+    if verified is True:
+        and_clauses.append({"verified": True})
+    if min_rating is not None:
+        and_clauses.append({"rating": {"$gte": float(min_rating)}})
+    if min_price is not None:
+        and_clauses.append({"price_amount": {"$gte": int(min_price)}})
+    if max_price is not None:
+        # NB : on inclut les devis (price_type == "quote") en n'écartant que ceux dont le prix numérique dépasse max_price
+        and_clauses.append({"$or": [
+            {"price_type": "quote"},
+            {"price_amount": {"$lte": int(max_price)}},
+        ]})
+    if languages:
+        langs = [l.strip() for l in languages.split(",") if l.strip()]
+        if langs:
+            and_clauses.append({"languages": {"$in": langs}})
     if and_clauses:
         query["$and"] = and_clauses
     # Exclure les prestataires bloqués (mutuellement) via l'utilisateur courant.
@@ -1628,6 +1649,12 @@ async def list_providers(
         items.sort(key=lambda p: (not sponsored(p), -p.get("rating", 0)))
     elif sort == "price":
         items.sort(key=lambda p: (not sponsored(p), p.get("price_type") == "quote", p.get("price_amount") or 10**12))
+    elif sort == "reviews":
+        items.sort(key=lambda p: (not sponsored(p), -int(p.get("reviews_count") or 0)))
+    elif sort == "nearest":
+        # Sans géoloc précise : les prestataires ayant `city` == city du user en premier.
+        user_city = (user or {}).get("city", "") if user else ""
+        items.sort(key=lambda p: (not sponsored(p), 0 if user_city and (p.get("city") or "").lower() == user_city.lower() else 1, -p.get("rating", 0)))
     else:
         items.sort(key=lambda p: (not sponsored(p), -p.get("rating", 0)))
     # Masquer les numéros/emails de la liste publique (anti-contournement)
