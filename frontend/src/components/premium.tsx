@@ -29,7 +29,7 @@ export function HeroPhoto({
   children,
   style,
 }: {
-  source: string | { uri: string };
+  source: string | number | { uri: string };
   height?: number;
   aspectRatio?: number;
   radius?: number;
@@ -39,7 +39,12 @@ export function HeroPhoto({
   children?: ReactNode;
   style?: ViewStyle;
 }) {
-  const uri = typeof source === "string" ? source : source.uri;
+  const src: any =
+    typeof source === "string"
+      ? { uri: source }
+      : typeof source === "number"
+      ? source
+      : source;
   const gradientColors =
     overlay === "top"
       ? [`rgba(11,31,58,${overlayStrength})`, "transparent"]
@@ -62,7 +67,7 @@ export function HeroPhoto({
       ]}
     >
       <Image
-        source={{ uri }}
+        source={src}
         style={StyleSheet.absoluteFillObject}
         contentFit={contentFit}
         transition={300}
@@ -153,13 +158,13 @@ export function CategoryCard({
   label: string;
   emoji?: string;
   icon?: keyof typeof Ionicons.glyphMap;
-  photo: string;
+  photo: string | number | { uri: string };
   onPress?: () => void;
   color?: string;
   size?: "sm" | "md" | "lg";
   testID?: string;
 }) {
-  const heights = { sm: 120, md: 180, lg: 240 };
+  const heights = { sm: 120, md: 180, lg: 260 };
   return (
     <Pressable
       onPress={onPress}
@@ -171,11 +176,11 @@ export function CategoryCard({
       testID={testID}
     >
       <HeroPhoto
-        source={photo}
+        source={photo as any}
         height={heights[size]}
         radius={radius.xl}
         overlay="bottom"
-        overlayStrength={0.7}
+        overlayStrength={0.72}
         style={shadow.card}
       >
         <View style={styles.catInner}>
@@ -189,7 +194,7 @@ export function CategoryCard({
             </View>
           ) : null}
           <View style={{ flex: 1 }} />
-          <Txt style={[typo.h3, { color: colors.white }]} numberOfLines={2}>
+          <Txt style={[typo.h3, { color: colors.white, fontSize: 22, letterSpacing: -0.3 }]} numberOfLines={2}>
             {label}
           </Txt>
         </View>

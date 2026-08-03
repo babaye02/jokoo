@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, TextInput, RefreshControl, FlatList } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, TextInput, RefreshControl, FlatList, Dimensions } from "react-native";
 import { Image } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { LinearGradient } from "expo-linear-gradient";
@@ -11,7 +11,29 @@ import { api, Provider, ServiceItem, Ad } from "@/src/api";
 import { openAdDestination } from "@/src/navigation/adDestination";
 import { priceLabel } from "@/src/pricing";
 import { Txt, Avatar, Stars, SectionHeader } from "@/src/components/ui";
-import { colors, fs, radius, shadow, spacing } from "@/src/theme";
+import { CategoryCard } from "@/src/components/premium";
+import { getCategoryPhoto, getCategoryIcon } from "@/src/utils/categoryAssets";
+import { colors, fs, radius, shadow, spacing, typo } from "@/src/theme";
+
+const { width: SCREEN_W } = Dimensions.get("window");
+const CAT_CARD_W = SCREEN_W * 0.72;
+
+// Catégories phares affichées sur le Home avec grandes photos immersives IA.
+// Cohérent avec SERVICE_CATEGORIES backend (subset des plus populaires).
+const HERO_CATEGORIES: { key: string; label: string; color: string }[] = [
+  { key: "beauty",    label: "Beauté & Coiffure",       color: "#EC4899" },
+  { key: "repair",    label: "Bâtiment & Réparations",  color: "#F59E0B" },
+  { key: "home",      label: "Maison & Ménage",         color: "#10B981" },
+  { key: "kids",      label: "Enfants & Baby-sitting",  color: "#EC4899" },
+  { key: "transport", label: "Transport & Livraison",   color: "#0B1F3A" },
+  { key: "food",      label: "Restauration",            color: "#F97316" },
+  { key: "tech",      label: "Tech & Digital",          color: "#6366F1" },
+  { key: "education", label: "Cours & Formation",       color: "#3B82F6" },
+  { key: "events",    label: "Événementiel",            color: "#8B5CF6" },
+  { key: "health",    label: "Santé",                   color: "#0EA5E9" },
+  { key: "laundry",   label: "Pressing & Couture",      color: "#22C55E" },
+  { key: "moving",    label: "Déménagement",            color: "#F97316" },
+];
 
 export default function Home() {
   const router = useRouter();
@@ -102,7 +124,53 @@ export default function Home() {
           </View>
         ) : null}
 
-        {/* Categories */}
+        {/* Explorer par catégorie — grandes cartes immersives (photos IA hero) */}
+        <View style={{ marginTop: spacing.xl }}>
+          <View style={styles.premiumHead}>
+            <View style={{ flex: 1 }}>
+              <Txt style={[typo.overline, { color: colors.turquoise }]}>UNIVERS JOKOO</Txt>
+              <Txt style={[typo.h2, { marginTop: 4 }]}>Explorer par catégorie</Txt>
+            </View>
+            <Pressable
+              onPress={() => router.push("/(tabs)/search")}
+              hitSlop={12}
+              testID="cat-all"
+            >
+              <Txt style={{ color: colors.turquoise, fontWeight: "700", fontSize: 13 }}>
+                Tout voir →
+              </Txt>
+            </Pressable>
+          </View>
+          <FlatList
+            data={HERO_CATEGORIES}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={CAT_CARD_W + 12}
+            decelerationRate="fast"
+            contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: 12, paddingBottom: spacing.md }}
+            keyExtractor={(c) => c.key}
+            renderItem={({ item }) => (
+              <View style={{ width: CAT_CARD_W }}>
+                <CategoryCard
+                  label={item.label}
+                  photo={getCategoryPhoto(item.key)}
+                  icon={getCategoryIcon(item.key) as any}
+                  color={item.color}
+                  size="lg"
+                  testID={`hero-cat-${item.key}`}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(tabs)/search",
+                      params: { category: item.key },
+                    })
+                  }
+                />
+              </View>
+            )}
+          />
+        </View>
+
+        {/* Categories (icônes compactes) */}
         <SectionHeader title="Services populaires" action="Tout voir" onAction={() => router.push("/(tabs)/search")} testID="section-services" />
         <FlatList
           data={services}
@@ -351,6 +419,13 @@ function ProviderRow({ p, onPress }: { p: Provider; onPress: () => void }) {
 
 const styles = StyleSheet.create({
   header: { backgroundColor: colors.surface, paddingBottom: spacing.md, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, ...shadow.soft },
+  premiumHead: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.md,
+  },
   iconBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
   searchWrap: {
     marginTop: spacing.lg,
