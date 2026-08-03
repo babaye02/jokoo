@@ -1,0 +1,84 @@
+{
+  "iteration": 32,
+  "summary": "Système de notation Family (parent → baby-sitter) — 12/12 tests backend PASSÉS et 4/4 flux UI validés (login parent → CTA 'Laissez un avis' → 5 étoiles + commentaire → submit → redirect booking?just_reviewed=1 → section 'Avis parents' sur profil baby-sitter). 1 bug MINEUR frontend : après redirection via router.replace, l'écran de détail booking ne recharge pas ses données donc la carte CTA reste visible jusqu'à un hard-reload. Backend endpoints POST /api/family/reviews, GET /api/family/reviews, GET /api/family/bookings/{bid}/review-eligibility tous conformes.",
+  "critical": [],
+  "major": [],
+  "minor": [
+    {
+      "component": "frontend/app/family/booking/[id]/index.tsx",
+      "issue": "Après soumission de l'avis (router.replace vers ?just_reviewed=1), la carte 'Laissez un avis' (testID=family-leave-review-btn) reste visible parce que useEffect(load) ne se redéclenche pas quand l'id est identique. Un hard-reload de la page fait bien disparaître la CTA (review_id désormais présent). Fix suggéré : ajouter useFocusEffect(load) OU écouter le param just_reviewed via useLocalSearchParams et retrigger load().",
+      "priority": "MINOR",
+      "reproduction": "Login parent → /family/booking/{completed_id} → tap CTA → submit avis → écran booking rechargé via router.replace avec just_reviewed=1 mais CTA toujours affichée."
+    },
+    {
+      "component": "GET /api/family/babysitters/{id}",
+      "issue": "reviews_count et rating sont bien recalculés côté babysitters, mais l'endpoint public /family/reviews expose author_id + author_avatar (données personnelles minimales). Vérifier RGPD si besoin de masquer author_id à des tiers non-authentifiés.",
+      "priority": "MINOR"
+    }
+  ],
+  "resolved": [
+    "POST /family/reviews 404 sur family_booking_id invalide",
+    "POST /family/reviews 403 pour la baby-sitter (message contient 'parent')",
+    "POST /family/reviews 400 si status != completed (message 'mission terminée')",
+    "POST /family/reviews 200 valide → doc {id, rating=5, comment, author_id, babysitter_id, family_booking_id, created_at}",
+    "babysitters.rating & reviews_count recalculés (GET /family/babysitters/{id})",
+    "Notification 'review_received' créée chez la baby-sitter (GET /notifications)",
+    "POST /family/reviews 400 sur duplicate (message 'déjà')",
+    "POST /family/reviews 422 pour rating=0, rating=6, rating=-1",
+    "POST /family/reviews 200 avec comment vide",
+    "GET /family/reviews?babysitter_id=X liste triée created_at desc",
+    "GET /family/bookings/{bid}/review-eligibility → {eligible:false, reason:'already_reviewed', existing_review_id}",
+    "Self-review guard 400 si parent_id == babysitter_user_id (injection Mongo)",
+    "UI: CTA 'Laissez un avis' (testID=family-leave-review-btn) visible sur booking completed sans review_id",
+    "UI: écran /family/booking/{id}/review avec star-1..star-5 + review-comment + review-submit tous opérationnels",
+    "UI: submit → redirect /family/booking/{id}?just_reviewed=1",
+    "UI: section 'Avis parents (N)' sur /family/babysitter/{id} affiche étoiles + auteur + commentaire"
+  ],
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "family/booking/[id]/index.tsx",
+        "issue": "CTA 'Laissez un avis' ne disparaît pas après submit (router.replace ne relance pas load()). Hard-reload OK.",
+        "testID": "family-leave-review-btn",
+        "priority": "MINOR"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter32_family_reviews.py",
+    "/app/test_reports/pytest/iter32.xml",
+    "/app/test_reports/iter32_review_form.png",
+    "/app/test_reports/iter32_babysitter_reviews.png",
+    "/app/test_reports/iter32_hardreload.png"
+  ],
+  "action_items": [
+    "MINEUR — Rafraîchir la donnée booking après retour depuis l'écran review : dans frontend/app/family/booking/[id]/index.tsx, remplacer useEffect(load) par useFocusEffect(useCallback(load, [load])) OU lire useLocalSearchParams().just_reviewed et rappeler load() quand la valeur change.",
+    "OPTIONNEL — Ajouter test de charge léger : plusieurs parents notant la même sitter et vérifier moyenne (déjà couvert via reviews_count>=1 mais pas la moyenne pondérée avec ratings variés).",
+    "OPTIONNEL — Vérifier politique RGPD sur exposition author_id/author_avatar dans GET /family/reviews public."
+  ],
+  "critical_code_review_comments": [
+    "Bonne pratique : recompute de babysitters.rating basé sur ALL family_reviews (pas d'accumulation additive → robuste aux updates).",
+    "Bonne pratique : self-review guard défensif même si booking creation bloque déjà parent==sitter — protège contre injections directes.",
+    "Suggestion : idempotence via review_id sur babysitting_bookings est correcte (unique par booking), pas besoin de contrainte DB.",
+    "Pydantic Field(ge=1, le=5) génère 422 (unprocessable entity) au lieu de 400 sur rating hors bornes — conforme à FastAPI, testé OK."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter32_family_reviews.py (nouveau)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12)",
+    "frontend": "95% (4/4 flux validés, 1 refresh mineur)"
+  },
+  "seed_data_creation": "Aucune modif seed. Bookings de test créés dynamiquement dans le module fixture puis cleanup partiel (users self-review + booking self-review supprimés via pymongo). Les bookings principaux restent en base (petit volume, pas impactant).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Le bug mineur (CTA persistante après submit) peut être vérifié rapidement : navigation via router.replace vers la même route ne remonte pas le composant expo-router. Utiliser useFocusEffect corrige. Backend 100% opérationnel — pas besoin de retester iter32 sauf si le fix frontend touche aussi les endpoints.",
+  "rca_of_issue": "Bug rapporté par user 'vous pouvez maintenant noter mais je ne peux pas noter' — RÉSOLU. Cause : la notif babysitting_report suggérait la notation mais aucun endpoint/UI n'existait. Fix appliqué (endpoints POST/GET + écran review + CTA sur booking) validé de bout en bout. Reste 1 bug d'UX mineur sur le refresh après submit."
+}

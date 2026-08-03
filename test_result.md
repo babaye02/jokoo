@@ -231,16 +231,62 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.11"
-  test_sequence: 12
+  version: "1.12"
+  test_sequence: 13
   run_ui: true
 
 test_plan:
   current_focus:
-    - "AUDIT SYSTÈME DE NOTATION — backend + frontend E2E"
+    - "FAMILY NOTATION — Nouveau système de notation parent → baby-sitter (backend + UI)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Bug user : « Je n'arrive toujours pas à noter malgré que je vois "vous pouvez maintenant noter" ».
+
+      **Cause racine** : le message vient du flux **Family / babysitting**. Le parent était notifié qu'il peut noter, MAIS aucun endpoint ni UI n'existait pour noter une baby-sitter (le système reviews existant ne couvrait QUE les prestataires).
+
+      **Fix — Nouveau système end-to-end créé** :
+
+      Backend (`backend/server.py`) :
+      - `POST /api/family/reviews {family_booking_id, rating, comment}` — mêmes garde-fous que provider reviews : parent-only, completed-only, 1..5, un seul, pas d'auto-notation. Recompute `babysitters.rating` + `reviews_count`. Notif `review_received` livrée à la baby-sitter.
+      - `GET /api/family/reviews?babysitter_id=X&limit=N` — liste publique.
+      - `GET /api/family/bookings/{bid}/review-eligibility` — utilitaire UI.
+      - Collection `family_reviews` (nouvelle, séparée de `reviews`).
+
+      Frontend :
+      - `frontend/app/family/booking/[id]/review.tsx` (NOUVEAU) — formulaire 5 étoiles + commentaire optionnel + submit.
+      - `frontend/app/family/booking/[id]/index.tsx` — nouvelle carte CTA "Laissez un avis" (`testID=family-leave-review-btn`) visible si `isParent && status==="completed" && !review_id`.
+      - `frontend/app/family/babysitter/[id].tsx` — section "Avis parents (N)" avec les 5 derniers avis (auteur, stars, commentaire).
+
+      Tests attendus :
+
+      **Backend** (`test_iter32_family_reviews.py`) :
+      1. `POST /family/reviews` sans `family_booking_id` → 422.
+      2. `POST` avec booking bidon → 404.
+      3. `POST` par la baby-sitter (pas le parent) → 403.
+      4. `POST` sur booking `confirmed` (pas completed) → 400.
+      5. `POST` valide → 200, doc créé, `babysitters.rating` recomputé, `reviews_count += 1`, notif `review_received` chez la sitter.
+      6. `POST` 2e fois → 400 "déjà laissé".
+      7. Rating 0 ou 6 → 422.
+      8. Self-review si sitter_user_id == parent_id → 400.
+      9. `GET /family/reviews?babysitter_id=X` → liste triée récent→ancien.
+      10. `GET /family/bookings/{bid}/review-eligibility` → true/false + reason.
+
+      **Frontend UI** (playwright localhost:3000) :
+      1. Login parent, ouvrir `/family/booking/{bid}` d'une session completed sans review → carte "Laissez un avis" visible + `family-leave-review-btn`.
+      2. Tap → `/family/booking/{bid}/review` avec `star-1..5` + `review-comment` + `review-submit`.
+      3. Publier → retour à `/family/booking/{bid}?just_reviewed=1`, carte review disparue.
+      4. Aller sur `/family/babysitter/{sitter_id}` → section "Avis parents (1)" avec le nouvel avis.
+
+      Livrable : `/app/test_reports/iteration_32.json`. Nettoyage post-run.
+
+      Backend : `http://localhost:8001/api/*`.
+      Credentials : `/app/memory/test_credentials.md`.
+
 
 agent_communication:
   - agent: "main"

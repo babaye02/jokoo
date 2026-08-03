@@ -89,6 +89,7 @@ export default function FamilyBookingDetail() {
 
   const canStartSession = isSitter && b.status === "confirmed" && !b.checkin_photo;
   const canComplete = isSitter && b.status === "in_progress" && !b.report_id;
+  const canRateSitter = isParent && b.status === "completed" && !(b as any).review_id;
   const showSOS = (isParent || isSitter) && (b.status === "in_progress" || b.status === "confirmed");
 
   return (
@@ -229,6 +230,30 @@ export default function FamilyBookingDetail() {
               {report.meals ? <><Txt size="xs" color={colors.textMuted}>Repas</Txt><Txt size="sm" style={{ marginBottom: 8 }}>{report.meals}</Txt></> : null}
               {report.notes ? <><Txt size="xs" color={colors.textMuted}>Notes</Txt><Txt size="sm" style={{ lineHeight: 20 }}>{report.notes}</Txt></> : null}
               {report.photo ? <Image source={{ uri: report.photo }} style={styles.checkinImg} /> : null}
+            </Card>
+          </View>
+        ) : null}
+
+        {/* Review CTA (parent uniquement, mission terminée, avis non encore laissé) */}
+        {canRateSitter ? (
+          <View style={{ marginTop: spacing.md }}>
+            <Card>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Ionicons name="star" size={22} color="#F59E0B" />
+                <Txt weight="700" style={{ marginLeft: 8 }}>Laissez un avis</Txt>
+              </View>
+              <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4 }}>
+                Aidez d'autres parents en notant votre expérience avec {b.babysitter_name}.
+              </Txt>
+              <Btn
+                title="Noter la baby-sitter"
+                icon="star"
+                onPress={() => router.push(`/family/booking/${b.id}/review` as any)}
+                fullWidth
+                size="lg"
+                style={{ marginTop: 12 }}
+                testID="family-leave-review-btn"
+              />
             </Card>
           </View>
         ) : null}

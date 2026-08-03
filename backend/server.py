@@ -4168,6 +4168,96 @@ async def get_session_report(bid: str, user=Depends(current_user)):
     return r
 
 
+# ---------- Family reviews (parent → baby-sitter) ----------
+class FamilyReviewIn(BaseModel):
+    family_booking_id: str
+    rating: int = Field(ge=1, le=5)
+    comment: str = ""
+
+
+@api.post("/family/reviews")
+async def create_family_review(body: FamilyReviewIn, user=Depends(current_user)):
+    """
+    Notation d'une baby-sitter après une mission Famille terminée.
+    Règles identiques au système Provider : uniquement le parent, uniquement completed, un seul avis, 1..5, comment optionnel, pas d'auto-notation.
+    """
+    b = await db.babysitting_bookings.find_one({"id": body.family_booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if b.get("parent_id") != user["id"]:
+        raise HTTPException(403, "Seul le parent peut noter la baby-sitter")
+    if b.get("status") != "completed":
+        raise HTTPException(400, "Vous ne pouvez noter qu'une mission terminée")
+    if b.get("review_id"):
+        raise HTTPException(400, "Un avis a déjà été laissé pour cette mission")
+    sitter_user_id = b.get("babysitter_user_id")
+    babysitter_id = b.get("babysitter_id")
+    if not sitter_user_id or not babysitter_id:
+        raise HTTPException(400, "Baby-sitter introuvable pour cette réservation")
+    if sitter_user_id == user["id"]:
+        raise HTTPException(400, "Vous ne pouvez pas noter votre propre profil")
+    rid = str(uuid.uuid4())
+    doc = {
+        "id": rid,
+        "babysitter_id": babysitter_id,
+        "babysitter_user_id": sitter_user_id,
+        "family_booking_id": body.family_booking_id,
+        "author_id": user["id"],
+        "author_name": user["name"],
+        "author_avatar": user.get("avatar"),
+        "rating": body.rating,
+        "comment": (body.comment or "").strip(),
+        "created_at": now_iso(),
+    }
+    await db.family_reviews.insert_one(doc)
+    await db.babysitting_bookings.update_one({"id": body.family_booking_id}, {"$set": {"review_id": rid}})
+    # Notifier la baby-sitter
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": sitter_user_id,
+        "type": "review_received",
+        "title": f"⭐ Nouvel avis {body.rating}/5",
+        "body": (doc["comment"][:120] + "…") if doc["comment"] and len(doc["comment"]) > 120
+                 else (doc["comment"] or f"{user['name']} vous a laissé une note."),
+        "peer_id": user["id"],
+        "family_booking_id": body.family_booking_id,
+        "review_id": rid,
+        "read": False,
+        "created_at": now_iso(),
+    })
+    # Recompute rating + count sur la fiche babysitter
+    rs = await db.family_reviews.find({"babysitter_id": babysitter_id}, {"_id": 0, "rating": 1}).to_list(10000)
+    avg = round(sum(r["rating"] for r in rs) / len(rs), 2) if rs else 0
+    await db.babysitters.update_one(
+        {"id": babysitter_id},
+        {"$set": {"rating": avg, "reviews_count": len(rs)}},
+    )
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/family/reviews")
+async def list_family_reviews(babysitter_id: str, limit: int = 50):
+    """Liste publique des avis d'une baby-sitter."""
+    if limit < 1: limit = 1
+    if limit > 200: limit = 200
+    cur = db.family_reviews.find({"babysitter_id": babysitter_id}, {"_id": 0}).sort("created_at", -1).limit(limit)
+    return await cur.to_list(limit)
+
+
+@api.get("/family/bookings/{bid}/review-eligibility")
+async def family_review_eligibility(bid: str, user=Depends(current_user)):
+    b = await db.babysitting_bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if b.get("parent_id") != user["id"]:
+        return {"eligible": False, "reason": "not_owner"}
+    if b.get("status") != "completed":
+        return {"eligible": False, "reason": "not_completed", "status": b.get("status")}
+    if b.get("review_id"):
+        return {"eligible": False, "reason": "already_reviewed", "existing_review_id": b["review_id"]}
+    return {"eligible": True}
+
+
 # ---------- Legal Center ----------
 LEGAL_STAFF_ROLES = {"super_admin", "admin", "support"}
 

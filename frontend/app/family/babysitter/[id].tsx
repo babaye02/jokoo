@@ -15,13 +15,18 @@ export default function BabysitterDetail() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [b, setB] = useState<Babysitter | null>(null);
+  const [reviews, setReviews] = useState<any[]>([]);
   const [loadError, setLoadError] = useState<null | "blocked" | "network">(null);
 
   useEffect(() => {
     if (!id) return;
     setLoadError(null);
     api.get<Babysitter>(`/family/babysitters/${id}`)
-      .then(setB)
+      .then((res) => {
+        setB(res);
+        // Charger les avis publics (best-effort)
+        api.get<any[]>(`/family/reviews?babysitter_id=${id}&limit=20`).then(setReviews).catch(() => setReviews([]));
+      })
       .catch((e: any) => {
         const msg = String(e?.message || "");
         setLoadError(msg.includes("404") || /introuvable/i.test(msg) ? "blocked" : "network");
@@ -211,6 +216,43 @@ export default function BabysitterDetail() {
             </Card>
           </View>
         ) : null}
+
+        {/* Avis clients */}
+        <View style={{ marginTop: spacing.md }}>
+          <Card>
+            <Txt size="sm" weight="700" style={{ marginBottom: spacing.sm }}>
+              Avis parents ({b.reviews_count || 0})
+            </Txt>
+            {reviews.length === 0 ? (
+              <Txt size="xs" color={colors.textMuted}>
+                Aucun avis pour le moment. Soyez le premier parent à laisser une note.
+              </Txt>
+            ) : (
+              reviews.slice(0, 5).map((r: any) => (
+                <View key={r.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.divider }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Txt weight="700" size="sm">{r.author_name || "Parent"}</Txt>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Ionicons
+                          key={s}
+                          name={s <= r.rating ? "star" : "star-outline"}
+                          size={12}
+                          color="#F59E0B"
+                        />
+                      ))}
+                    </View>
+                  </View>
+                  {r.comment ? (
+                    <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4, lineHeight: 18 }}>
+                      {r.comment}
+                    </Txt>
+                  ) : null}
+                </View>
+              ))
+            )}
+          </Card>
+        </View>
       </ScrollView>
 
       {/* Bottom booking bar */}
