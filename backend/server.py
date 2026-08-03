@@ -791,6 +791,13 @@ async def register(body: RegisterIn, request: Request):
     await db.users.insert_one(doc)
     token = make_token(uid)
     user = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
+    # Email de bienvenue (non-bloquant : si échoue, log seulement)
+    try:
+        from services.emails import send_email, tpl_welcome, EmailPayload
+        subject, html = tpl_welcome(body.name)
+        await send_email(EmailPayload(to=body.email.lower(), subject=subject, html=html))
+    except Exception:
+        pass
     return {"token": token, "user": user}
 
 
@@ -1139,6 +1146,30 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
         "read": False,
         "created_at": now_iso(),
     })
+    # Emails de confirmation (client) + notification (prestataire), non-bloquants
+    try:
+        from services.emails import send_email, tpl_booking_confirmed, tpl_booking_new_for_provider, EmailPayload
+        # Client
+        s1, h1 = tpl_booking_confirmed(
+            provider_name=provider.get("name", "votre prestataire"),
+            date=doc.get("date", "à définir"),
+            time=doc.get("time", ""),
+            address=doc.get("address", ""),
+            price_label=(f"{doc.get('quote_amount')} FCFA" if doc.get("quote_amount") else "Sur devis"),
+        )
+        await send_email(EmailPayload(to=user["email"], subject=s1, html=h1))
+        # Prestataire (email seulement si on a un doc user pour lui)
+        pu = await db.users.find_one({"id": body.provider_id}, {"_id": 0, "email": 1})
+        if pu and pu.get("email"):
+            s2, h2 = tpl_booking_new_for_provider(
+                client_name=user["name"],
+                service=provider.get("service", ""),
+                date=doc.get("date", ""),
+                time=doc.get("time", ""),
+            )
+            await send_email(EmailPayload(to=pu["email"], subject=s2, html=h2))
+    except Exception:
+        pass
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
@@ -1226,8 +1257,9 @@ async def forgot_password(body: ForgotPasswordIn):
     """
     Génère un token de réinitialisation à usage unique (60 min).
     Pour ne pas fuiter l'existence d'un email, on renvoie toujours `{ok: true}`.
-    En dev (RESEND_API_KEY absent), le token est retourné dans `dev_token` pour tests manuels.
+    En dev (aucune clé email configurée), le token est retourné dans `dev_token` pour tests manuels.
     """
+    from services.emails import send_email, tpl_reset_password, EmailPayload, _current_mode
     email = body.email.lower().strip()
     u = await db.users.find_one({"email": email}, {"_id": 0, "id": 1, "name": 1})
     dev_token: Optional[str] = None
@@ -1242,10 +1274,16 @@ async def forgot_password(body: ForgotPasswordIn):
             "created_at": now_iso(),
         })
         dev_token = token
-        # TODO(prod) : envoyer par email via Resend/Sendgrid le lien /reset-password?token=xxx
+        # Envoi email si Resend/Emergent configuré
+        reset_link = f"{os.environ.get('APP_URL', 'https://jokooservices.com').rstrip('/')}/reset-password?token={token}"
+        subject, html = tpl_reset_password(reset_link)
+        # Envoi non-bloquant : si l'API email tombe, le user peut toujours utiliser le dev_token en dev.
+        await send_email(EmailPayload(to=email, subject=subject, html=html))
     resp = {"ok": True}
-    if os.environ.get("APP_ENV", "development") != "production":
-        resp["dev_token"] = dev_token  # visible uniquement en dev
+    # Retourner dev_token uniquement si aucun provider email actif (mode dev pur)
+    from services.emails import _current_mode as _mode
+    if _mode() == "dev" and os.environ.get("APP_ENV", "development") != "production":
+        resp["dev_token"] = dev_token
     return resp
 
 
