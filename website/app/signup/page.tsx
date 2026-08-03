@@ -2,13 +2,21 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { Btn, Card, ErrorBanner, Field, Input } from "../components/ui";
 
 type Role = "client" | "prestataire";
 
 export default function SignupPage() {
+  return (
+    <Suspense fallback={<div className="min-h-[calc(100vh-4rem)]" />}>
+      <SignupForm />
+    </Suspense>
+  );
+}
+
+function SignupForm() {
   const router = useRouter();
   const sp = useSearchParams();
   const { signUp } = useAuth();

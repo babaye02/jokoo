@@ -1,0 +1,127 @@
+"use strict";(()=>{var a={};a.id=831,a.ids=[831],a.modules={261:a=>{a.exports=require("next/dist/shared/lib/router/utils/app-paths")},3295:a=>{a.exports=require("next/dist/server/app-render/after-task-async-storage.external.js")},10846:a=>{a.exports=require("next/dist/compiled/next-server/app-page.runtime.prod.js")},19121:a=>{a.exports=require("next/dist/server/app-render/action-async-storage.external.js")},26713:a=>{a.exports=require("next/dist/shared/lib/router/utils/is-bot")},28354:a=>{a.exports=require("util")},29294:a=>{a.exports=require("next/dist/server/app-render/work-async-storage.external.js")},33873:a=>{a.exports=require("path")},37473:(a,b,c)=>{c.r(b),c.d(b,{GlobalError:()=>E.a,__next_app__:()=>K,handler:()=>M,pages:()=>J,routeModule:()=>L,tree:()=>I});var d=c(49754),e=c(9117),f=c(46595),g=c(32324),h=c(39326),i=c(38928),j=c(20175),k=c(12),l=c(54290),m=c(12696),n=c(52574),o=c(82802),p=c(77533),q=c(45229),r=c(32822),s=c(261),t=c(26453),u=c(52474),v=c(26713),w=c(51356),x=c(62685),y=c(36225),z=c(63446),A=c(2762),B=c(45742),C=c(86439),D=c(81170),E=c.n(D),F=c(62506),G=c(91203),H={};for(let a in F)0>["default","tree","pages","GlobalError","__next_app__","routeModule","handler"].indexOf(a)&&(H[a]=()=>F[a]);c.d(b,H);let I={children:["",{children:["blog",{children:["__PAGE__",{},{page:[()=>Promise.resolve().then(c.bind(c,69701)),"/app/website/app/blog/page.tsx"]}]},{}]},{layout:[()=>Promise.resolve().then(c.bind(c,16953)),"/app/website/app/layout.tsx"],"global-error":[()=>Promise.resolve().then(c.t.bind(c,81170,23)),"next/dist/client/components/builtin/global-error.js"],"not-found":[()=>Promise.resolve().then(c.bind(c,8595)),"/app/website/app/not-found.tsx"],forbidden:[()=>Promise.resolve().then(c.t.bind(c,90461,23)),"next/dist/client/components/builtin/forbidden.js"],unauthorized:[()=>Promise.resolve().then(c.t.bind(c,32768,23)),"next/dist/client/components/builtin/unauthorized.js"]}]}.children,J=["/app/website/app/blog/page.tsx"],K={require:c,loadChunk:()=>Promise.resolve()},L=new d.AppPageRouteModule({definition:{kind:e.RouteKind.APP_PAGE,page:"/blog/page",pathname:"/blog",bundlePath:"",filename:"",appPaths:[]},userland:{loaderTree:I},distDir:".next",relativeProjectDir:""});async function M(a,b,d){var D;let H="/blog/page";"/index"===H&&(H="/");let N=(0,h.getRequestMeta)(a,"postponed"),O=(0,h.getRequestMeta)(a,"minimalMode"),P=await L.prepare(a,b,{srcPage:H,multiZoneDraftMode:!1});if(!P)return b.statusCode=400,b.end("Bad Request"),null==d.waitUntil||d.waitUntil.call(d,Promise.resolve()),null;let{buildId:Q,query:R,params:S,parsedUrl:T,pageIsDynamic:U,buildManifest:V,nextFontManifest:W,reactLoadableManifest:X,serverActionsManifest:Y,clientReferenceManifest:Z,subresourceIntegrityManifest:$,prerenderManifest:_,isDraftMode:aa,resolvedPathname:ab,revalidateOnlyGenerated:ac,routerServerContext:ad,nextConfig:ae,interceptionRoutePatterns:af}=P,ag=T.pathname||"/",ah=(0,s.normalizeAppPath)(H),{isOnDemandRevalidate:ai}=P,aj=L.match(ag,_),ak=!!_.routes[ab],al=!!(aj||ak||_.routes[ah]),am=a.headers["user-agent"]||"",an=(0,v.getBotType)(am),ao=(0,q.isHtmlBotRequest)(a),ap=(0,h.getRequestMeta)(a,"isPrefetchRSCRequest")??"1"===a.headers[u.NEXT_ROUTER_PREFETCH_HEADER],aq=(0,h.getRequestMeta)(a,"isRSCRequest")??(0,n.f)(a.headers[u.RSC_HEADER]),ar=(0,t.getIsPossibleServerAction)(a),as=(0,m.checkIsAppPPREnabled)(ae.experimental.ppr)&&(null==(D=_.routes[ah]??_.dynamicRoutes[ah])?void 0:D.renderingMode)==="PARTIALLY_STATIC",at=!1,au=!1,av=as?N:void 0,aw=as&&aq&&!ap,ax=(0,h.getRequestMeta)(a,"segmentPrefetchRSCRequest"),ay=!am||(0,q.shouldServeStreamingMetadata)(am,ae.htmlLimitedBots);ao&&as&&(al=!1,ay=!1);let az=!0===L.isDev||!al||"string"==typeof N||aw,aA=ao&&as,aB=null;aa||!al||az||ar||av||aw||(aB=ab);let aC=aB;!aC&&L.isDev&&(aC=ab),L.isDev||aa||!al||!aq||aw||(0,k.d)(a.headers);let aD={...F,tree:I,pages:J,GlobalError:E(),handler:M,routeModule:L,__next_app__:K};Y&&Z&&(0,p.setReferenceManifestsSingleton)({page:H,clientReferenceManifest:Z,serverActionsManifest:Y,serverModuleMap:(0,r.createServerModuleMap)({serverActionsManifest:Y})});let aE=a.method||"GET",aF=(0,g.getTracer)(),aG=aF.getActiveScopeSpan();try{let f=L.getVaryHeader(ab,af);b.setHeader("Vary",f);let k=async(c,d)=>{let e=new l.NodeNextRequest(a),f=new l.NodeNextResponse(b);return L.render(e,f,d).finally(()=>{if(!c)return;c.setAttributes({"http.status_code":b.statusCode,"next.rsc":!1});let d=aF.getRootSpanAttributes();if(!d)return;if(d.get("next.span_type")!==i.BaseServerSpan.handleRequest)return void console.warn(`Unexpected root span type '${d.get("next.span_type")}'. Please report this Next.js issue https://github.com/vercel/next.js`);let e=d.get("next.route");if(e){let a=`${aE} ${e}`;c.setAttributes({"next.route":e,"http.route":e,"next.span_name":a}),c.updateName(a)}else c.updateName(`${aE} ${a.url}`)})},m=async({span:e,postponed:f,fallbackRouteParams:g})=>{let i={query:R,params:S,page:ah,sharedContext:{buildId:Q},serverComponentsHmrCache:(0,h.getRequestMeta)(a,"serverComponentsHmrCache"),fallbackRouteParams:g,renderOpts:{App:()=>null,Document:()=>null,pageConfig:{},ComponentMod:aD,Component:(0,j.T)(aD),params:S,routeModule:L,page:H,postponed:f,shouldWaitOnAllReady:aA,serveStreamingMetadata:ay,supportsDynamicResponse:"string"==typeof f||az,buildManifest:V,nextFontManifest:W,reactLoadableManifest:X,subresourceIntegrityManifest:$,serverActionsManifest:Y,clientReferenceManifest:Z,setIsrStatus:null==ad?void 0:ad.setIsrStatus,dir:c(33873).join(process.cwd(),L.relativeProjectDir),isDraftMode:aa,isRevalidate:al&&!f&&!aw,botType:an,isOnDemandRevalidate:ai,isPossibleServerAction:ar,assetPrefix:ae.assetPrefix,nextConfigOutput:ae.output,crossOrigin:ae.crossOrigin,trailingSlash:ae.trailingSlash,previewProps:_.preview,deploymentId:ae.deploymentId,enableTainting:ae.experimental.taint,htmlLimitedBots:ae.htmlLimitedBots,devtoolSegmentExplorer:ae.experimental.devtoolSegmentExplorer,reactMaxHeadersLength:ae.reactMaxHeadersLength,multiZoneDraftMode:!1,incrementalCache:(0,h.getRequestMeta)(a,"incrementalCache"),cacheLifeProfiles:ae.experimental.cacheLife,basePath:ae.basePath,serverActions:ae.experimental.serverActions,...at?{nextExport:!0,supportsDynamicResponse:!1,isStaticGeneration:!0,isRevalidate:!0,isDebugDynamicAccesses:at}:{},experimental:{isRoutePPREnabled:as,expireTime:ae.expireTime,staleTimes:ae.experimental.staleTimes,cacheComponents:!!ae.experimental.cacheComponents,clientSegmentCache:!!ae.experimental.clientSegmentCache,clientParamParsing:!!ae.experimental.clientParamParsing,dynamicOnHover:!!ae.experimental.dynamicOnHover,inlineCss:!!ae.experimental.inlineCss,authInterrupts:!!ae.experimental.authInterrupts,clientTraceMetadata:ae.experimental.clientTraceMetadata||[]},waitUntil:d.waitUntil,onClose:a=>{b.on("close",a)},onAfterTaskError:()=>{},onInstrumentationRequestError:(b,c,d)=>L.onRequestError(a,b,d,ad),err:(0,h.getRequestMeta)(a,"invokeError"),dev:L.isDev}},l=await k(e,i),{metadata:m}=l,{cacheControl:n,headers:o={},fetchTags:p}=m;if(p&&(o[z.NEXT_CACHE_TAGS_HEADER]=p),a.fetchMetrics=m.fetchMetrics,al&&(null==n?void 0:n.revalidate)===0&&!L.isDev&&!as){let a=m.staticBailoutInfo,b=Object.defineProperty(Error(`Page changed from static to dynamic at runtime ${ab}${(null==a?void 0:a.description)?`, reason: ${a.description}`:""}
+see more here https://nextjs.org/docs/messages/app-static-to-dynamic-error`),"__NEXT_ERROR_CODE",{value:"E132",enumerable:!1,configurable:!0});if(null==a?void 0:a.stack){let c=a.stack;b.stack=b.message+c.substring(c.indexOf("\n"))}throw b}return{value:{kind:w.CachedRouteKind.APP_PAGE,html:l,headers:o,rscData:m.flightData,postponed:m.postponed,status:m.statusCode,segmentData:m.segmentData},cacheControl:n}},n=async({hasResolved:c,previousCacheEntry:f,isRevalidating:g,span:i})=>{let j,k=!1===L.isDev,l=c||b.writableEnded;if(ai&&ac&&!f&&!O)return(null==ad?void 0:ad.render404)?await ad.render404(a,b):(b.statusCode=404,b.end("This page could not be found")),null;if(aj&&(j=(0,x.parseFallbackField)(aj.fallback)),j===x.FallbackMode.PRERENDER&&(0,v.isBot)(am)&&(!as||ao)&&(j=x.FallbackMode.BLOCKING_STATIC_RENDER),(null==f?void 0:f.isStale)===-1&&(ai=!0),ai&&(j!==x.FallbackMode.NOT_FOUND||f)&&(j=x.FallbackMode.BLOCKING_STATIC_RENDER),!O&&j!==x.FallbackMode.BLOCKING_STATIC_RENDER&&aC&&!l&&!aa&&U&&(k||!ak)){let b;if((k||aj)&&j===x.FallbackMode.NOT_FOUND)throw new C.NoFallbackError;if(as&&!aq){let c="string"==typeof(null==aj?void 0:aj.fallback)?aj.fallback:k?ah:null;if(b=await L.handleResponse({cacheKey:c,req:a,nextConfig:ae,routeKind:e.RouteKind.APP_PAGE,isFallback:!0,prerenderManifest:_,isRoutePPREnabled:as,responseGenerator:async()=>m({span:i,postponed:void 0,fallbackRouteParams:k||au?(0,o.u)(ah):null}),waitUntil:d.waitUntil}),null===b)return null;if(b)return delete b.cacheControl,b}}let n=ai||g||!av?void 0:av;if(at&&void 0!==n)return{cacheControl:{revalidate:1,expire:void 0},value:{kind:w.CachedRouteKind.PAGES,html:y.default.EMPTY,pageData:{},headers:void 0,status:void 0}};let p=U&&as&&((0,h.getRequestMeta)(a,"renderFallbackShell")||au)?(0,o.u)(ag):null;return m({span:i,postponed:n,fallbackRouteParams:p})},p=async c=>{var f,g,i,j,k;let l,o=await L.handleResponse({cacheKey:aB,responseGenerator:a=>n({span:c,...a}),routeKind:e.RouteKind.APP_PAGE,isOnDemandRevalidate:ai,isRoutePPREnabled:as,req:a,nextConfig:ae,prerenderManifest:_,waitUntil:d.waitUntil});if(aa&&b.setHeader("Cache-Control","private, no-cache, no-store, max-age=0, must-revalidate"),L.isDev&&b.setHeader("Cache-Control","no-store, must-revalidate"),!o){if(aB)throw Object.defineProperty(Error("invariant: cache entry required but not generated"),"__NEXT_ERROR_CODE",{value:"E62",enumerable:!1,configurable:!0});return null}if((null==(f=o.value)?void 0:f.kind)!==w.CachedRouteKind.APP_PAGE)throw Object.defineProperty(Error(`Invariant app-page handler received invalid cache entry ${null==(i=o.value)?void 0:i.kind}`),"__NEXT_ERROR_CODE",{value:"E707",enumerable:!1,configurable:!0});let p="string"==typeof o.value.postponed;al&&!aw&&(!p||ap)&&(O||b.setHeader("x-nextjs-cache",ai?"REVALIDATED":o.isMiss?"MISS":o.isStale?"STALE":"HIT"),b.setHeader(u.NEXT_IS_PRERENDER_HEADER,"1"));let{value:q}=o;if(av)l={revalidate:0,expire:void 0};else if(O&&aq&&!ap&&as)l={revalidate:0,expire:void 0};else if(!L.isDev)if(aa)l={revalidate:0,expire:void 0};else if(al){if(o.cacheControl)if("number"==typeof o.cacheControl.revalidate){if(o.cacheControl.revalidate<1)throw Object.defineProperty(Error(`Invalid revalidate configuration provided: ${o.cacheControl.revalidate} < 1`),"__NEXT_ERROR_CODE",{value:"E22",enumerable:!1,configurable:!0});l={revalidate:o.cacheControl.revalidate,expire:(null==(j=o.cacheControl)?void 0:j.expire)??ae.expireTime}}else l={revalidate:z.CACHE_ONE_YEAR,expire:void 0}}else b.getHeader("Cache-Control")||(l={revalidate:0,expire:void 0});if(o.cacheControl=l,"string"==typeof ax&&(null==q?void 0:q.kind)===w.CachedRouteKind.APP_PAGE&&q.segmentData){b.setHeader(u.NEXT_DID_POSTPONE_HEADER,"2");let c=null==(k=q.headers)?void 0:k[z.NEXT_CACHE_TAGS_HEADER];O&&al&&c&&"string"==typeof c&&b.setHeader(z.NEXT_CACHE_TAGS_HEADER,c);let d=q.segmentData.get(ax);return void 0!==d?(0,B.sendRenderResult)({req:a,res:b,generateEtags:ae.generateEtags,poweredByHeader:ae.poweredByHeader,result:y.default.fromStatic(d,u.RSC_CONTENT_TYPE_HEADER),cacheControl:o.cacheControl}):(b.statusCode=204,(0,B.sendRenderResult)({req:a,res:b,generateEtags:ae.generateEtags,poweredByHeader:ae.poweredByHeader,result:y.default.EMPTY,cacheControl:o.cacheControl}))}let r=(0,h.getRequestMeta)(a,"onCacheEntry");if(r&&await r({...o,value:{...o.value,kind:"PAGE"}},{url:(0,h.getRequestMeta)(a,"initURL")}))return null;if(p&&av)throw Object.defineProperty(Error("Invariant: postponed state should not be present on a resume request"),"__NEXT_ERROR_CODE",{value:"E396",enumerable:!1,configurable:!0});if(q.headers){let a={...q.headers};for(let[c,d]of(O&&al||delete a[z.NEXT_CACHE_TAGS_HEADER],Object.entries(a)))if(void 0!==d)if(Array.isArray(d))for(let a of d)b.appendHeader(c,a);else"number"==typeof d&&(d=d.toString()),b.appendHeader(c,d)}let s=null==(g=q.headers)?void 0:g[z.NEXT_CACHE_TAGS_HEADER];if(O&&al&&s&&"string"==typeof s&&b.setHeader(z.NEXT_CACHE_TAGS_HEADER,s),!q.status||aq&&as||(b.statusCode=q.status),!O&&q.status&&G.RedirectStatusCode[q.status]&&aq&&(b.statusCode=200),p&&b.setHeader(u.NEXT_DID_POSTPONE_HEADER,"1"),aq&&!aa){if(void 0===q.rscData){if(q.postponed)throw Object.defineProperty(Error("Invariant: Expected postponed to be undefined"),"__NEXT_ERROR_CODE",{value:"E372",enumerable:!1,configurable:!0});return(0,B.sendRenderResult)({req:a,res:b,generateEtags:ae.generateEtags,poweredByHeader:ae.poweredByHeader,result:q.html,cacheControl:aw?{revalidate:0,expire:void 0}:o.cacheControl})}return(0,B.sendRenderResult)({req:a,res:b,generateEtags:ae.generateEtags,poweredByHeader:ae.poweredByHeader,result:y.default.fromStatic(q.rscData,u.RSC_CONTENT_TYPE_HEADER),cacheControl:o.cacheControl})}let t=q.html;if(!p||O||aq)return(0,B.sendRenderResult)({req:a,res:b,generateEtags:ae.generateEtags,poweredByHeader:ae.poweredByHeader,result:t,cacheControl:o.cacheControl});if(at)return t.push(new ReadableStream({start(a){a.enqueue(A.ENCODED_TAGS.CLOSED.BODY_AND_HTML),a.close()}})),(0,B.sendRenderResult)({req:a,res:b,generateEtags:ae.generateEtags,poweredByHeader:ae.poweredByHeader,result:t,cacheControl:{revalidate:0,expire:void 0}});let v=new TransformStream;return t.push(v.readable),m({span:c,postponed:q.postponed,fallbackRouteParams:null}).then(async a=>{var b,c;if(!a)throw Object.defineProperty(Error("Invariant: expected a result to be returned"),"__NEXT_ERROR_CODE",{value:"E463",enumerable:!1,configurable:!0});if((null==(b=a.value)?void 0:b.kind)!==w.CachedRouteKind.APP_PAGE)throw Object.defineProperty(Error(`Invariant: expected a page response, got ${null==(c=a.value)?void 0:c.kind}`),"__NEXT_ERROR_CODE",{value:"E305",enumerable:!1,configurable:!0});await a.value.html.pipeTo(v.writable)}).catch(a=>{v.writable.abort(a).catch(a=>{console.error("couldn't abort transformer",a)})}),(0,B.sendRenderResult)({req:a,res:b,generateEtags:ae.generateEtags,poweredByHeader:ae.poweredByHeader,result:t,cacheControl:{revalidate:0,expire:void 0}})};if(!aG)return await aF.withPropagatedContext(a.headers,()=>aF.trace(i.BaseServerSpan.handleRequest,{spanName:`${aE} ${a.url}`,kind:g.SpanKind.SERVER,attributes:{"http.method":aE,"http.target":a.url}},p));await p(aG)}catch(b){throw b instanceof C.NoFallbackError||await L.onRequestError(a,b,{routerKind:"App Router",routePath:H,routeType:"render",revalidateReason:(0,f.c)({isRevalidate:al,isOnDemandRevalidate:ai})},ad),b}}},41025:a=>{a.exports=require("next/dist/server/app-render/dynamic-access-async-storage.external.js")},63033:a=>{a.exports=require("next/dist/server/app-render/work-unit-async-storage.external.js")},69701:(a,b,c)=>{c.r(b),c.d(b,{default:()=>j,metadata:()=>h});var d=c(75338),e=c(65169),f=c.n(e),g=c(82513);let h={title:"Blog Jokoo — Conseils, guides et actualit\xe9s sur les services au S\xe9n\xe9gal",description:"Trouver un plombier, un chauffeur ou une baby-sitter au S\xe9n\xe9gal. Nos guides pratiques, tarifs et conseils pour bien choisir vos prestataires."},i={Guides:"bg-turquoise/10 text-turquoise",Mobilité:"bg-blue-100 text-blue-700",Family:"bg-pink-100 text-pink-700"};function j(){let a=[...g.M].sort((a,b)=>a.date<b.date?1:-1),b=a[0],c=a.slice(1);return(0,d.jsxs)(d.Fragment,{children:[(0,d.jsx)("section",{className:"bg-gradient-to-br from-midnight to-midnight-dark text-white py-20",children:(0,d.jsxs)("div",{className:"max-w-4xl mx-auto px-6 text-center",children:[(0,d.jsx)("div",{className:"inline-flex items-center gap-2 bg-turquoise/20 border border-turquoise/30 text-turquoise px-4 py-2 rounded-full text-sm font-bold mb-6",children:"\uD83D\uDCDD Blog Jokoo"}),(0,d.jsxs)("h1",{className:"text-4xl md:text-6xl font-black leading-tight",children:["Conseils, guides & ",(0,d.jsx)("span",{className:"text-turquoise",children:"actualit\xe9s"}),"."]}),(0,d.jsx)("p",{className:"mt-6 text-lg text-white/80 max-w-2xl mx-auto",children:"Tout ce qu'il faut savoir pour trouver les meilleurs services au S\xe9n\xe9gal."})]})}),(0,d.jsx)("section",{className:"py-16 bg-white",children:(0,d.jsxs)("div",{className:"max-w-6xl mx-auto px-6",children:[b&&(0,d.jsx)(f(),{href:`/blog/${b.slug}`,className:"block group mb-16",children:(0,d.jsxs)("div",{className:"grid md:grid-cols-2 gap-8 items-center rounded-3xl overflow-hidden border border-gray-100 hover:border-turquoise transition",children:[(0,d.jsx)("div",{className:"aspect-[4/3] bg-gradient-to-br from-turquoise/10 via-turquoise/5 to-midnight/5 flex items-center justify-center text-9xl",children:b.cover}),(0,d.jsxs)("div",{className:"p-8",children:[(0,d.jsxs)("div",{className:"flex items-center gap-3 text-xs",children:[(0,d.jsx)("span",{className:`px-3 py-1 rounded-full font-bold ${i[b.category]||"bg-gray-100 text-gray-700"}`,children:b.category}),(0,d.jsx)("span",{className:"text-gray-500",children:new Date(b.date).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}),(0,d.jsxs)("span",{className:"text-gray-500",children:["\xb7 ",b.readingTime]})]}),(0,d.jsx)("h2",{className:"mt-4 text-3xl font-black text-midnight group-hover:text-turquoise transition leading-tight",children:b.title}),(0,d.jsx)("p",{className:"mt-3 text-gray-600",children:b.description}),(0,d.jsx)("div",{className:"mt-6 text-turquoise font-bold",children:"Lire l'article →"})]})]})}),(0,d.jsx)("div",{className:"grid md:grid-cols-2 lg:grid-cols-3 gap-6",children:c.map(a=>(0,d.jsxs)(f(),{href:`/blog/${a.slug}`,className:"group rounded-3xl overflow-hidden border border-gray-100 hover:border-turquoise hover:shadow-md transition bg-white",children:[(0,d.jsx)("div",{className:"aspect-[16/9] bg-gradient-to-br from-turquoise/10 to-midnight/10 flex items-center justify-center text-7xl",children:a.cover}),(0,d.jsxs)("div",{className:"p-6",children:[(0,d.jsxs)("div",{className:"flex items-center gap-2 text-xs",children:[(0,d.jsx)("span",{className:`px-2 py-0.5 rounded-full font-bold ${i[a.category]||"bg-gray-100 text-gray-700"}`,children:a.category}),(0,d.jsx)("span",{className:"text-gray-500",children:a.readingTime})]}),(0,d.jsx)("h3",{className:"mt-3 font-black text-midnight group-hover:text-turquoise transition leading-tight",children:a.title}),(0,d.jsx)("p",{className:"mt-2 text-sm text-gray-600 line-clamp-2",children:a.description})]})]},a.slug))})]})})]})}},82513:(a,b,c)=>{c.d(b,{M:()=>d,f:()=>e});let d=[{slug:"trouver-plombier-dakar",title:"Comment trouver un bon plombier \xe0 Dakar en 2026",description:"Guide complet pour trouver un plombier fiable, rapide et abordable \xe0 Dakar. Prix, d\xe9lais, urgences 24/7 — tout ce qu'il faut savoir.",date:"2026-07-30",category:"Guides",readingTime:"5 min",cover:"\uD83D\uDD27",content:`
+## Le probl\xe8me : trouver un plombier fiable \xe0 Dakar
+
+Une fuite un dimanche soir, un chauffe-eau qui rend l'\xe2me avant la Tabaski, un WC bouch\xe9 en pleine r\xe9ception… Trouver un plombier comp\xe9tent \xe0 Dakar peut vite virer au casse-t\xeate.
+
+Voici notre guide 2026 pour trouver **le bon plombier**, sans se faire arnaquer.
+
+## 1. V\xe9rifiez les avis clients
+
+Les vrais avis (avec photos, pr\xe9noms complets, dates) sont la meilleure garantie. Sur Jokoo, chaque prestataire affiche sa note moyenne et ses derniers avis v\xe9rifi\xe9s.
+
+> Astuce : m\xe9fiez-vous d'un profil qui n'a que des 5★ sans commentaires d\xe9taill\xe9s.
+
+## 2. Demandez un devis avant intervention
+
+Un professionnel s\xe9rieux vous donnera :
+- Un tarif horaire clair (5 000 \xe0 15 000 FCFA/h \xe0 Dakar)
+- Une estimation du temps d'intervention
+- Le prix des pi\xe8ces s\xe9par\xe9ment
+
+## 3. Privil\xe9giez les urgences 24/7
+
+Les vraies urgences (fuite majeure, WC bouch\xe9, chauffe-eau HS) ne peuvent pas attendre. Sur Jokoo, vous filtrez directement par **disponibilit\xe9 imm\xe9diate**.
+
+## 4. Choisissez la localisation proche
+
+Un plombier \xe0 Yoff pour une urgence \xe0 Ouakam mettra 45 min. Filtrez par quartier pour gagner du temps et payer moins de frais de d\xe9placement.
+
+## Les tarifs moyens \xe0 Dakar en 2026
+
+| Prestation | Prix moyen |
+|-----------|-----------|
+| Fuite simple | 5 000 – 10 000 FCFA |
+| D\xe9bouchage WC | 8 000 – 15 000 FCFA |
+| Installation chauffe-eau | 25 000 – 50 000 FCFA |
+| Urgence nuit/weekend | +50% |
+
+## Conclusion
+
+Trouver un bon plombier \xe0 Dakar ne devrait plus \xeatre un pari. Avec **Jokoo**, vous avez acc\xe8s \xe0 des prestataires v\xe9rifi\xe9s, not\xe9s, disponibles pr\xe8s de chez vous, avec paiement s\xe9curis\xe9.
+
+[T\xe9l\xe9chargez l'app](/#download) et trouvez votre plombier en 2 minutes.
+    `.trim()},{slug:"covoiturage-dakar-saint-louis",title:"Covoiturage Dakar ↔ Saint-Louis : tarifs, temps, conseils",description:"Combien co\xfbte un covoiturage Dakar → Saint-Louis en 2026 ? Temps de trajet, conseils s\xe9curit\xe9, avantages \xe9cologiques. Le guide complet.",date:"2026-07-28",category:"Mobilit\xe9",readingTime:"6 min",cover:"\uD83D\uDE97",content:`
+## Dakar ↔ Saint-Louis : l'axe le plus fr\xe9quent\xe9 du S\xe9n\xe9gal
+
+Chaque semaine, des milliers de S\xe9n\xe9galais empruntent l'axe Dakar → Saint-Louis pour le travail, la famille ou le tourisme. Le **covoiturage** est devenu la solution la plus \xe9conomique et conviviale.
+
+## Combien \xe7a co\xfbte ?
+
+En 2026, le covoiturage Dakar → Saint-Louis co\xfbte en moyenne **6 000 \xe0 8 000 FCFA par passager**, contre :
+- **12 000 FCFA** en bus climatis\xe9
+- **35 000 – 50 000 FCFA** en location de voiture avec chauffeur
+- **80 000+ FCFA** en avion
+
+## Combien de temps ?
+
+- **3h30 \xe0 4h** en conditions normales
+- **5h+** les vendredis soir et dimanches (bouchons Rufisque)
+
+## Conseils s\xe9curit\xe9
+
+1. **V\xe9rifiez le badge V\xe9rifi\xe9** du conducteur sur Jokoo (permis, assurance, CNI).
+2. **Consultez les avis** des passagers pr\xe9c\xe9dents.
+3. **Partagez votre trajet** avec un proche via le bouton d\xe9di\xe9 dans l'app.
+4. **Bouton SOS** disponible en cas de probl\xe8me.
+
+## Un impact \xe9cologique r\xe9el
+
+Chaque covoiturage \xe9vite en moyenne **0,2 tonne de CO₂** par trajet Dakar → Saint-Louis. Sur un an, si 100 personnes covoiturent 2x/semaine, c'est **2 000 tonnes** de CO₂ \xe9conomis\xe9es.
+
+## Envie de partir ?
+
+[Trouvez un covoiturage](/#mobilite) sur Jokoo en 30 secondes.
+    `.trim()},{slug:"baby-sitter-verifiee-senegal",title:"Comment choisir une baby-sitter de confiance au S\xe9n\xe9gal ?",description:"Crit\xe8res, tarifs, v\xe9rifications \xe0 faire, questions \xe0 poser — le guide complet pour choisir une baby-sitter fiable pour vos enfants.",date:"2026-07-25",category:"Family",readingTime:"7 min",cover:"\uD83D\uDC76",content:`
+## Confier ses enfants : une d\xe9cision qui ne s'improvise pas
+
+Que ce soit pour une soir\xe9e, un mariage \xe0 l'int\xe9rieur du pays ou un besoin r\xe9gulier, choisir une **baby-sitter** est une d\xe9cision qui touche \xe0 ce qu'on a de plus cher. Voici comment faire le bon choix.
+
+## Les 5 crit\xe8res indispensables
+
+### 1. La formation
+Une bonne baby-sitter conna\xeet :
+- Les gestes de premiers secours
+- La nutrition adapt\xe9e aux enfants
+- Les techniques d'endormissement
+- Les activit\xe9s d'\xe9veil selon l'\xe2ge
+
+### 2. Les v\xe9rifications d'identit\xe9
+Sur Jokoo Family, **toutes les baby-sitters V\xe9rifi\xe9es+** ont fourni :
+- Carte Nationale d'Identit\xe9
+- Casier judiciaire vierge
+- R\xe9f\xe9rences v\xe9rifi\xe9es (anciens employeurs)
+- Certification premiers secours
+
+### 3. Les langues parl\xe9es
+Fran\xe7ais, wolof, anglais, arabe — assurez-vous que la baby-sitter parle la langue de votre enfant.
+
+### 4. Les avis v\xe9rifi\xe9s
+Lisez les commentaires d\xe9taill\xe9s d'autres parents. Attention aux profils sans commentaires.
+
+### 5. Le feeling
+Organisez toujours une **premi\xe8re rencontre courte** (1h max) avant de confier vos enfants pour la premi\xe8re fois.
+
+## Tarifs moyens au S\xe9n\xe9gal
+
+| Type de garde | Tarif horaire |
+|---|---|
+| Baby-sitter standard | 1 500 – 3 000 FCFA/h |
+| Baby-sitter V\xe9rifi\xe9e+ | 3 000 – 5 000 FCFA/h |
+| Garde de nuit | 15 000 – 25 000 FCFA/nuit |
+| Weekend complet | 40 000 – 80 000 FCFA |
+
+## Questions \xe0 poser lors du premier \xe9change
+
+1. Depuis combien de temps gardez-vous des enfants ?
+2. Quel est votre plus jeune / plus \xe2g\xe9 ?
+3. Que faites-vous si l'enfant refuse de dormir ?
+4. Que faites-vous en cas de blessure l\xe9g\xe8re ?
+5. Avez-vous des r\xe9f\xe9rences que je peux appeler ?
+
+## Le bouton SOS Jokoo Family
+
+Toutes les gardes r\xe9serv\xe9es via **Jokoo Family** incluent un bouton SOS 24/7 qui alerte imm\xe9diatement notre \xe9quipe et vos contacts d'urgence.
+
+[Trouvez une baby-sitter](/#family) sur Jokoo Family.
+    `.trim()}];function e(a){return d.find(b=>b.slug===a)||null}},86439:a=>{a.exports=require("next/dist/shared/lib/no-fallback-error.external")}};var b=require("../../webpack-runtime.js");b.C(a);var c=b.X(0,[124,210,603],()=>b(b.s=37473));module.exports=c})();

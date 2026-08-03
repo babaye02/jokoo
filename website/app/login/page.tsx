@@ -2,11 +2,19 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { Btn, Card, ErrorBanner, Field, Input } from "../components/ui";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-[calc(100vh-4rem)]" />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const sp = useSearchParams();
   const next = sp.get("next") || null;
