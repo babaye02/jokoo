@@ -109,7 +109,7 @@ export default function OnboardingPremium() {
   const finish = useCallback(async () => {
     try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
     try { await storage.setItem("onboarding_done", true); } catch {}
-    router.replace("/signup");
+    router.replace("/register");
   }, [router]);
 
   const skip = useCallback(async () => {

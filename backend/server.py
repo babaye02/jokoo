@@ -2658,8 +2658,11 @@ async def admin_fraud_alerts(user=Depends(current_user), limit: int = 100):
 
 # ---------- notifications ----------
 @api.get("/notifications")
-async def list_notifications(user=Depends(current_user)):
-    cur = db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(100)
+async def list_notifications(include_archived: bool = False, user=Depends(current_user)):
+    query: dict = {"user_id": user["id"]}
+    if not include_archived:
+        query["archived"] = {"$ne": True}
+    cur = db.notifications.find(query, {"_id": 0}).sort("created_at", -1).limit(100)
     return await cur.to_list(100)
 
 
@@ -2764,6 +2767,31 @@ async def unregister_push_token(body: dict, user=Depends(current_user)):
     else:
         await db.push_tokens.delete_many({"user_id": user["id"]})
     return {"ok": True}
+
+
+# ---------- Notifications item operations (must come AFTER literal register-token route) ----------
+@api.post("/notifications/{nid}/unread")
+async def unread_one_notif(nid: str, user=Depends(current_user)):
+    """Marque une notification comme non-lue."""
+    await db.notifications.update_one({"id": nid, "user_id": user["id"]}, {"$set": {"read": False}})
+    return {"ok": True}
+
+
+@api.post("/notifications/{nid}/archive")
+async def archive_one_notif(nid: str, user=Depends(current_user)):
+    """Archive une notification (masquée de la liste par défaut, conservée en DB)."""
+    await db.notifications.update_one(
+        {"id": nid, "user_id": user["id"]},
+        {"$set": {"archived": True, "archived_at": now_iso(), "read": True}},
+    )
+    return {"ok": True}
+
+
+@api.delete("/notifications/{nid}")
+async def delete_one_notif(nid: str, user=Depends(current_user)):
+    """Supprime définitivement une notification."""
+    r = await db.notifications.delete_one({"id": nid, "user_id": user["id"]})
+    return {"deleted": r.deleted_count}
 
 
 # ---------- CRM: Admin dashboard overview ----------

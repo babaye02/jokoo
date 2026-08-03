@@ -342,6 +342,7 @@ export type Notif = {
   babysitter_id?: string;
   report_id?: string;
   read: boolean;
+  archived?: boolean;
   created_at: string;
 };
 
