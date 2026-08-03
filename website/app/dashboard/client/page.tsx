@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "../../lib/auth";
 import AuthGate from "../../components/AuthGate";
 import { apiFetch } from "../../lib/api";
@@ -28,15 +29,20 @@ const STATUS: Record<string, { label: string; color: string }> = {
 export default function ClientDashboardPage() {
   return (
     <AuthGate requiredRole="client">
-      <Content />
+      <Suspense fallback={<div className="min-h-[60vh]" />}>
+        <Content />
+      </Suspense>
     </AuthGate>
   );
 }
 
 function Content() {
   const { user } = useAuth();
+  const sp = useSearchParams();
+  const created = sp.get("created");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showBanner, setShowBanner] = useState(!!created);
 
   useEffect(() => {
     apiFetch.get<Booking[]>("/bookings?limit=20")
@@ -45,8 +51,33 @@ function Content() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (showBanner) {
+      const t = setTimeout(() => setShowBanner(false), 8000);
+      return () => clearTimeout(t);
+    }
+  }, [showBanner]);
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
+      {showBanner ? (
+        <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 flex items-start gap-3">
+          <div className="text-2xl">✅</div>
+          <div className="flex-1">
+            <div className="font-bold text-emerald-800">Réservation envoyée !</div>
+            <div className="text-sm text-emerald-700 mt-0.5">
+              Votre demande a bien été transmise au prestataire. Vous serez notifié de sa réponse.
+            </div>
+          </div>
+          <button
+            onClick={() => setShowBanner(false)}
+            className="text-emerald-500 hover:text-emerald-700 text-xl leading-none"
+            aria-label="Fermer"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       <header className="flex items-start justify-between flex-wrap gap-4 mb-8">
         <div>
           <p className="text-sm text-gray-500">Bonjour,</p>

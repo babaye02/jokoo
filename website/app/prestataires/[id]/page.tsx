@@ -167,21 +167,27 @@ export default function ProviderDetailPage() {
       </div>
 
       <Card className="mt-6 bg-gradient-to-br from-turquoise/10 to-turquoise/5 border-turquoise/20 text-center">
-        <div className="text-3xl mb-2">📱</div>
+        <div className="text-3xl mb-2">📅</div>
         <div className="font-bold text-midnight text-lg">
           Réserver ce prestataire
         </div>
         <div className="text-sm text-gray-600 mt-1">
-          La réservation, le chat instantané et le paiement sécurisé se font depuis
-          l&apos;app mobile Jokoo.
+          Envoyez votre demande en 30 secondes.
+          {p.price_type !== "quote" && p.price_amount
+            ? " Paiement carte sécurisé (Stripe)."
+            : " Réponse rapide avec devis personnalisé."}
         </div>
         <div className="mt-4 flex justify-center gap-3 flex-wrap">
-          <Btn href="/" variant="primary">
-            Télécharger l&apos;app
+          <Btn href={`/prestataires/${p.id}/reserver`} variant="primary">
+            Réserver maintenant
           </Btn>
           <Btn href="/recherche" variant="secondary">
             Autres prestataires
           </Btn>
+        </div>
+        <div className="mt-4 text-xs text-gray-400">
+          Réservation, chat instantané et notifications aussi disponibles sur l&apos;
+          <Link href="/" className="underline hover:text-turquoise">app mobile Jokoo</Link>.
         </div>
       </Card>
     </div>
