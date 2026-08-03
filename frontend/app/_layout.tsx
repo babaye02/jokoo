@@ -1,6 +1,6 @@
 import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { LogBox, StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -30,15 +30,24 @@ function AuthRedirector() {
 export default function RootLayout() {
   const [iconsLoaded, iconsError] = useIconFonts();
   const [editorialLoaded] = useEditorialFonts();
+  const [fontsTimeout, setFontsTimeout] = useState(false);
+
+  // Fallback : after 4s, render the app even if fonts didn't finish loading.
+  // Avoids getting stuck on the splash when the icon CDN (jsDelivr / gstatic)
+  // is slow or unreachable on the user's network (typical on Expo Go).
+  useEffect(() => {
+    const t = setTimeout(() => setFontsTimeout(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
-    if ((iconsLoaded || iconsError) && editorialLoaded) {
-      SplashScreen.hideAsync();
+    if ((iconsLoaded || iconsError || fontsTimeout) && (editorialLoaded || fontsTimeout)) {
+      SplashScreen.hideAsync().catch(() => {});
     }
-  }, [iconsLoaded, iconsError, editorialLoaded]);
+  }, [iconsLoaded, iconsError, editorialLoaded, fontsTimeout]);
 
-  // Attendre icons (obligatoires) — éditorial peut arriver après (fallback système)
-  if (!iconsLoaded && !iconsError) return null;
+  // Render as soon as icons are ready (or errored, or timed out).
+  if (!iconsLoaded && !iconsError && !fontsTimeout) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
