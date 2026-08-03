@@ -238,6 +238,69 @@ export default function ProviderDetail() {
             </Section>
           ) : null}
 
+          {/* v2.1 — Mode d'intervention */}
+          {p.service_mode ? (
+            <Section title="Mode d'intervention">
+              <View style={{ gap: 8 }}>
+                {(p.service_mode === "at_client" || p.service_mode === "both") ? (
+                  <View style={styles.modeRow}>
+                    <View style={styles.modeIcon}>
+                      <Ionicons name="car-outline" size={16} color={colors.turquoise} />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Txt size="sm" weight="700">🏠 Déplacement chez le client</Txt>
+                      {p.travel_fee_xof ? (
+                        <Txt size="xxs" color={colors.textMuted}>
+                          Frais de déplacement : {Math.round(p.travel_fee_xof).toLocaleString("fr-FR")} F CFA
+                        </Txt>
+                      ) : (
+                        <Txt size="xxs" color={colors.textMuted}>
+                          Sans frais de déplacement
+                        </Txt>
+                      )}
+                    </View>
+                  </View>
+                ) : null}
+                {(p.service_mode === "at_venue" || p.service_mode === "both") ? (
+                  <View style={styles.modeRow}>
+                    <View style={styles.modeIcon}>
+                      <Ionicons name="storefront-outline" size={16} color={colors.turquoise} />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Txt size="sm" weight="700">🏢 Sur place, à l&apos;établissement</Txt>
+                      {p.venue_address ? (
+                        <>
+                          <Txt size="xxs" color={colors.textMuted} numberOfLines={2}>
+                            {p.venue_address}
+                          </Txt>
+                          <Pressable
+                            onPress={() => {
+                              const q = encodeURIComponent(p.venue_address || "");
+                              const url = Platform.select({
+                                ios: `http://maps.apple.com/?q=${q}`,
+                                android: `geo:0,0?q=${q}`,
+                              }) || `https://www.google.com/maps/search/?api=1&query=${q}`;
+                              Linking.openURL(url).catch(() => {
+                                Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${q}`);
+                              });
+                            }}
+                            style={styles.mapsBtn}
+                            testID="provider-open-maps"
+                          >
+                            <Ionicons name="map-outline" size={14} color={colors.turquoise} />
+                            <Txt size="xxs" weight="700" color={colors.turquoise} style={{ marginLeft: 4 }}>
+                              Voir sur la carte
+                            </Txt>
+                          </Pressable>
+                        </>
+                      ) : null}
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            </Section>
+          ) : null}
+
           {p.zones && p.zones.length > 0 ? (
             <Section title="Zones d'intervention">
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -373,6 +436,35 @@ const styles = StyleSheet.create({
   galleryImg: { width: 140, height: 100, borderRadius: radius.md },
   svcRow: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginBottom: 10 },
   svcImg: { width: 64, height: 64, borderRadius: radius.md },
+  modeRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 10,
+    backgroundColor: colors.surface2,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brandTertiary,
+  },
+  mapsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: colors.brandTertiary,
+    borderWidth: 1,
+    borderColor: colors.turquoise,
+  },
   bottomBar: {
     position: "absolute", left: 0, right: 0, bottom: 0,
     backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,

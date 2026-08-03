@@ -30,12 +30,23 @@ import { api, PriceType, ServiceCategory, ServiceItem } from "@/src/api";
 import { Btn, Input, Txt } from "@/src/components/ui";
 import ServicePicker from "@/src/components/ServicePicker";
 import CategoryPicker from "@/src/components/CategoryPicker";
+import WeeklyAvailabilityEditor, {
+  DEFAULT_WEEKLY_AVAILABILITY,
+  WeeklyAvailability,
+} from "@/src/components/WeeklyAvailabilityEditor";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 const PRICE_TYPES: { key: PriceType; title: string; subtitle: string; icon: any }[] = [
   { key: "fixed", title: "Prix fixe", subtitle: "Ex. 15 000 F par prestation", icon: "pricetag" },
   { key: "from",  title: "À partir de…", subtitle: "Ex. Dès 10 000 F, prix affiné après échange", icon: "trending-up" },
   { key: "quote", title: "Devis sur demande", subtitle: "Vous envoyez un devis après avoir vu la demande", icon: "document-text" },
+];
+
+type ServiceMode = "at_client" | "at_venue" | "both";
+const MODE_OPTIONS: { key: ServiceMode; title: string; subtitle: string; icon: any }[] = [
+  { key: "at_client", title: "🏠 Je me déplace chez le client", subtitle: "Vous vous rendez au domicile ou au bureau du client", icon: "car-outline" },
+  { key: "at_venue",  title: "🏢 Je reçois dans mon établissement", subtitle: "Salon, cabinet ou atelier — vos clients viennent chez vous", icon: "storefront-outline" },
+  { key: "both",      title: "🔄 Les deux", subtitle: "Le client choisira à la réservation", icon: "swap-horizontal-outline" },
 ];
 
 export default function ProviderProfile() {
@@ -58,6 +69,13 @@ export default function ProviderProfile() {
   const [city, setCity] = useState(user?.city || "Dakar");
   const [zonesStr, setZonesStr] = useState("Dakar, Almadies, Plateau");
   const [hoursStr, setHoursStr] = useState("Lun-Sam · 8h-19h");
+  // v2.1 — mode d'intervention & dispos
+  const [serviceMode, setServiceMode] = useState<ServiceMode>("at_client");
+  const [venueAddress, setVenueAddress] = useState("");
+  const [travelFee, setTravelFee] = useState("");
+  const [weekly, setWeekly] = useState<WeeklyAvailability>(DEFAULT_WEEKLY_AVAILABILITY);
+  const [unavailableDates, setUnavailableDates] = useState<{ date: string; reason?: string }[]>([]);
+  const [newUnavDate, setNewUnavDate] = useState("");
   // pickers
   const [catPickerOpen, setCatPickerOpen] = useState(false);
   const [tradesPickerOpen, setTradesPickerOpen] = useState(false);
@@ -86,6 +104,13 @@ export default function ProviderProfile() {
         setCity(p.city || "Dakar");
         setZonesStr((p.zones || []).join(", ") || "Dakar");
         setHoursStr(p.hours || "");
+        setServiceMode((p.service_mode as ServiceMode) || "at_client");
+        setVenueAddress(p.venue_address || "");
+        setTravelFee(p.travel_fee_xof != null ? String(p.travel_fee_xof) : "");
+        if (p.weekly_availability && typeof p.weekly_availability === "object") {
+          setWeekly({ ...DEFAULT_WEEKLY_AVAILABILITY, ...p.weekly_availability });
+        }
+        setUnavailableDates(Array.isArray(p.unavailable_dates) ? p.unavailable_dates : []);
       })
       .catch(() => {});
   }, [user?.id]);
@@ -165,6 +190,13 @@ export default function ProviderProfile() {
         hours: hoursStr,
         photo,
         cover_photo: coverPhoto,
+        // v2.1 — mode d'intervention + dispos
+        service_mode: serviceMode,
+        venue_address: serviceMode === "at_client" ? null : venueAddress || null,
+        venue_city: city,
+        travel_fee_xof: serviceMode === "at_venue" ? null : parseFloat(travelFee || "0") || 0,
+        weekly_availability: weekly,
+        unavailable_dates: unavailableDates,
         id_card: "mock-id-card-uploaded",
       });
       Alert.alert("Profil enregistré", "Votre profil prestataire est à jour.");
@@ -454,12 +486,148 @@ export default function ProviderProfile() {
                 onChangeText={setZonesStr}
               />
               <Input
-                label="Horaires"
+                label="Horaires (texte libre)"
                 icon="time-outline"
                 placeholder="Lun-Sam · 8h-19h"
                 value={hoursStr}
                 onChangeText={setHoursStr}
               />
+            </View>
+
+            {/* Mode d'intervention */}
+            <View style={styles.block}>
+              <Txt size="md" weight="700" style={{ marginBottom: 4 }}>
+                Mode d&apos;intervention
+              </Txt>
+              <Txt size="xs" color={colors.textMuted} style={{ marginBottom: spacing.md, lineHeight: 18 }}>
+                Comment travaillez-vous avec vos clients&nbsp;?
+              </Txt>
+              {MODE_OPTIONS.map((opt) => (
+                <Pressable
+                  key={opt.key}
+                  onPress={() => setServiceMode(opt.key)}
+                  style={[styles.optRow, serviceMode === opt.key && styles.optRowActive]}
+                  testID={`mode-${opt.key}`}
+                >
+                  <View
+                    style={[
+                      styles.optIcon,
+                      { backgroundColor: serviceMode === opt.key ? colors.brandTertiary : colors.surface2 },
+                    ]}
+                  >
+                    <Ionicons
+                      name={opt.icon}
+                      size={20}
+                      color={serviceMode === opt.key ? colors.turquoise : colors.midnight}
+                    />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Txt weight="700">{opt.title}</Txt>
+                    <Txt size="xs" color={colors.textMuted} style={{ marginTop: 2 }}>
+                      {opt.subtitle}
+                    </Txt>
+                  </View>
+                  <View style={[styles.radio, serviceMode === opt.key && styles.radioActive]}>
+                    {serviceMode === opt.key ? <View style={styles.radioDot} /> : null}
+                  </View>
+                </Pressable>
+              ))}
+              {/* Adresse établissement — si receive/both */}
+              {serviceMode !== "at_client" ? (
+                <Input
+                  label="Adresse de votre établissement"
+                  icon="business-outline"
+                  placeholder="Ex : 12 rue Ndar, Almadies, Dakar"
+                  value={venueAddress}
+                  onChangeText={setVenueAddress}
+                  testID="pp-venue-address"
+                />
+              ) : null}
+              {/* Frais de déplacement — si travel/both */}
+              {serviceMode !== "at_venue" ? (
+                <Input
+                  label="Frais de déplacement (F CFA, facultatif)"
+                  icon="cash-outline"
+                  placeholder="Ex : 2000"
+                  keyboardType="numeric"
+                  value={travelFee}
+                  onChangeText={setTravelFee}
+                  testID="pp-travel-fee"
+                />
+              ) : null}
+            </View>
+
+            {/* Disponibilités hebdomadaires */}
+            <View style={styles.block}>
+              <Txt size="md" weight="700" style={{ marginBottom: 4 }}>
+                Disponibilités hebdomadaires
+              </Txt>
+              <Txt size="xs" color={colors.textMuted} style={{ marginBottom: spacing.md, lineHeight: 18 }}>
+                Vos jours et horaires d&apos;ouverture. Les clients ne pourront réserver que sur ces plages.
+              </Txt>
+              <WeeklyAvailabilityEditor value={weekly} onChange={setWeekly} />
+            </View>
+
+            {/* Absences ponctuelles */}
+            <View style={styles.block}>
+              <Txt size="md" weight="700" style={{ marginBottom: 4 }}>
+                Absences ou congés
+              </Txt>
+              <Txt size="xs" color={colors.textMuted} style={{ marginBottom: spacing.md, lineHeight: 18 }}>
+                Ajoutez des dates où vous êtes indisponible (format YYYY-MM-DD).
+              </Txt>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Input
+                    icon="calendar-outline"
+                    placeholder="2026-08-15"
+                    value={newUnavDate}
+                    onChangeText={setNewUnavDate}
+                    testID="pp-unav-date"
+                  />
+                </View>
+                <Pressable
+                  onPress={() => {
+                    const d = newUnavDate.trim();
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+                      Alert.alert("Date invalide", "Format attendu : YYYY-MM-DD");
+                      return;
+                    }
+                    if (unavailableDates.some((u) => u.date === d)) return;
+                    setUnavailableDates([...unavailableDates, { date: d }]);
+                    setNewUnavDate("");
+                  }}
+                  style={styles.addBtn}
+                  testID="pp-unav-add"
+                >
+                  <Ionicons name="add" size={20} color={colors.white} />
+                </Pressable>
+              </View>
+              {unavailableDates.length === 0 ? (
+                <Txt size="xs" color={colors.textSubtle} style={{ fontStyle: "italic" }}>
+                  Aucune absence programmée.
+                </Txt>
+              ) : (
+                <View style={{ gap: 6 }}>
+                  {unavailableDates.map((u) => (
+                    <View key={u.date} style={styles.unavRow}>
+                      <Ionicons name="calendar" size={16} color="#B45309" />
+                      <Txt size="sm" weight="700" style={{ marginLeft: 8, flex: 1 }}>
+                        {u.date}
+                      </Txt>
+                      <Pressable
+                        onPress={() =>
+                          setUnavailableDates(unavailableDates.filter((x) => x.date !== u.date))
+                        }
+                        hitSlop={8}
+                        testID={`pp-unav-rm-${u.date}`}
+                      >
+                        <Ionicons name="close-circle" size={18} color={colors.danger} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
 
             {/* CTA gérer prestations */}
@@ -715,5 +883,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandTertiary,
     alignItems: "center",
     justifyContent: "center",
+  },
+  addBtn: {
+    backgroundColor: colors.turquoise,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  unavRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    backgroundColor: "#FEF3C7",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#F59E0B",
   },
 });

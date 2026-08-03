@@ -150,6 +150,12 @@ export type Provider = {
   categories?: string[];
   trades?: string[];
   cover_photo?: string;
+  service_mode?: "at_client" | "at_venue" | "both";
+  venue_address?: string | null;
+  venue_city?: string | null;
+  travel_fee_xof?: number | null;
+  weekly_availability?: Record<string, { start: string; end: string }[]>;
+  unavailable_dates?: { date: string; reason?: string }[];
   price_type?: PriceType;
   price_amount?: number | null;
   rating: number;
