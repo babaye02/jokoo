@@ -166,7 +166,7 @@ export default function OnboardingPremium() {
             testID="onboarding-login"
             hapticStyle="selection"
           >
-            <Txt style={{ color: colors.white, fontSize: 15, fontWeight: "600" }}>Se connecter</Txt>
+            <Txt style={{ color: colors.white, fontSize: 16, fontWeight: "600" }}>Se connecter</Txt>
           </AnimatedPressable>
           <AnimatedPressable
             onPress={finish}
@@ -174,8 +174,8 @@ export default function OnboardingPremium() {
             testID="onboarding-cta"
             hapticStyle="success"
           >
-            <Txt style={{ color: colors.midnight, fontSize: 15, fontWeight: "700" }}>Créer mon compte</Txt>
-            <Ionicons name="arrow-forward" size={18} color={colors.midnight} style={{ marginLeft: 6 }} />
+            <Txt style={{ color: colors.midnight, fontSize: 16, fontWeight: "700" }}>Créer mon compte</Txt>
+            <Ionicons name="arrow-forward" size={19} color={colors.midnight} style={{ marginLeft: 6 }} />
           </AnimatedPressable>
         </View>
       </View>
@@ -213,15 +213,15 @@ function SlideView({ slide, index, scrollX }: { slide: Slide; index: number; scr
         />
       </Animated.View>
 
-      {/* Scrim gradient (renforcé pour lecture parfaite quelles que soient les photos) */}
+      {/* Scrim gradient renforcé — lecture parfaite garantie sur toutes photos */}
       <LinearGradient
         colors={[
-          "rgba(11,31,58,0.55)",
-          "rgba(11,31,58,0.15)",
-          "rgba(11,31,58,0.75)",
-          "rgba(11,31,58,0.96)",
+          "rgba(11,31,58,0.65)",
+          "rgba(11,31,58,0.20)",
+          "rgba(11,31,58,0.85)",
+          "rgba(11,31,58,0.98)",
         ]}
-        locations={[0, 0.3, 0.65, 1]}
+        locations={[0, 0.28, 0.65, 1]}
         style={StyleSheet.absoluteFillObject}
         pointerEvents="none"
       />
@@ -397,7 +397,7 @@ const styles = StyleSheet.create({
   },
   ctaGhost: {
     flex: 1,
-    height: 54,
+    height: 60,
     borderRadius: radius.pill,
     backgroundColor: "rgba(255,255,255,0.14)",
     borderWidth: 1,
@@ -407,7 +407,7 @@ const styles = StyleSheet.create({
   },
   ctaPrimary: {
     flex: 1.4,
-    height: 54,
+    height: 60,
     borderRadius: radius.pill,
     backgroundColor: colors.white,
     alignItems: "center",
