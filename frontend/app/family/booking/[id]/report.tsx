@@ -1,21 +1,29 @@
-import { useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert, Image } from "react-native";
+import { useEffect, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, Alert, Image, Text } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { api } from "@/src/api";
+import { api, FamilyBooking } from "@/src/api";
 import { MOOD_META } from "@/src/family";
-import { Btn, ErrorBox, Input, Txt } from "@/src/components/ui";
+import { Btn, ErrorBox, Input, Txt, Avatar } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 const MOODS = ["happy", "calm", "tired", "upset"] as const;
+
+function frDate(iso: string): string {
+  try {
+    const d = new Date(iso.length === 10 ? iso + "T00:00:00" : iso);
+    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  } catch { return iso; }
+}
 
 export default function SubmitReport() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
+  const [booking, setBooking] = useState<FamilyBooking | null>(null);
   const [activities, setActivities] = useState("");
   const [meals, setMeals] = useState("");
   const [mood, setMood] = useState<typeof MOODS[number]>("happy");
@@ -23,6 +31,14 @@ export default function SubmitReport() {
   const [photo, setPhoto] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      try { setBooking(await api.get<FamilyBooking>(`/family/bookings/${id}`)); }
+      catch { /* silent */ }
+    })();
+  }, [id]);
 
   const pickImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -72,7 +88,71 @@ export default function SubmitReport() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 140 + insets.bottom }} keyboardShouldPersistTaps="handled">
           <ErrorBox text={err} />
-          <Txt size="sm" color={colors.textMuted} style={{ marginBottom: spacing.md, lineHeight: 20 }}>
+
+          {/* ── MISSION SUMMARY (tappable) ── */}
+          {booking ? (
+            <Pressable
+              onPress={() => router.push({ pathname: "/family/booking/[id]", params: { id: id! } })}
+              style={styles.summaryCard}
+              testID="rep-summary"
+            >
+              <View style={styles.summaryHeader}>
+                <Avatar name={booking.parent_name} size={44} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.summaryOverline}>Détails de la mission</Text>
+                  <Text style={styles.summaryName} numberOfLines={1}>{booking.parent_name}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryGrid}>
+                <View style={styles.summaryCell}>
+                  <Ionicons name="calendar-outline" size={13} color="#0EA5E9" />
+                  <Text style={styles.summaryCellTxt} numberOfLines={1}>{frDate(booking.date)}</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Ionicons name="time-outline" size={13} color="#7C3AED" />
+                  <Text style={styles.summaryCellTxt} numberOfLines={1}>{booking.time_start} – {booking.time_end}</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Ionicons name="hourglass-outline" size={13} color="#D97706" />
+                  <Text style={styles.summaryCellTxt} numberOfLines={1}>{booking.duration_hours} h</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Ionicons name="people-outline" size={13} color="#EC4899" />
+                  <Text style={styles.summaryCellTxt} numberOfLines={1}>
+                    {booking.kids.length} enfant{booking.kids.length > 1 ? "s" : ""}
+                  </Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Ionicons name="location-outline" size={13} color="#DC2626" />
+                  <Text style={styles.summaryCellTxt} numberOfLines={1}>{booking.city}</Text>
+                </View>
+                <View style={styles.summaryCell}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={13} color="#059669" />
+                  <Text style={styles.summaryCellTxt} numberOfLines={1}>Voir consignes</Text>
+                </View>
+              </View>
+              {booking.kids && booking.kids.length > 0 ? (
+                <View style={styles.kidsRow}>
+                  {booking.kids.slice(0, 3).map((k, i) => (
+                    <View key={i} style={styles.kidChip}>
+                      <Text style={styles.kidChipTxt} numberOfLines={1}>
+                        {k.name} · {k.age} an{k.age > 1 ? "s" : ""}
+                      </Text>
+                    </View>
+                  ))}
+                  {booking.kids.length > 3 ? (
+                    <View style={styles.kidChip}>
+                      <Text style={styles.kidChipTxt}>+{booking.kids.length - 3}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
+
+          <Txt size="sm" color={colors.textMuted} style={{ marginTop: spacing.md, marginBottom: spacing.md, lineHeight: 20 }}>
             Racontez au parent comment s&apos;est déroulée la session. Un moment mémorable ? Une nouvelle chanson ? Le parent adorera lire ces détails !
           </Txt>
 
@@ -194,4 +274,79 @@ const styles = StyleSheet.create({
   photo: { width: 140, height: 140, borderRadius: radius.md, backgroundColor: colors.surface3 },
   removePhoto: { position: "absolute", top: -6, right: -6, width: 28, height: 28, borderRadius: 14, backgroundColor: colors.danger, alignItems: "center", justifyContent: "center" },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0, padding: spacing.xl, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.divider },
+
+  // Mission summary
+  summaryCard: {
+    backgroundColor: colors.white,
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.hairline,
+  },
+  summaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  summaryOverline: {
+    fontSize: 11,
+    letterSpacing: 1.4,
+    color: colors.textMuted,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  summaryName: {
+    fontFamily: "InstrumentSerif",
+    fontSize: 20,
+    lineHeight: 24,
+    letterSpacing: -0.3,
+    color: colors.text,
+    marginTop: 2,
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 12,
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  summaryCell: {
+    width: "48%",
+    flexDirection: "row",
+    alignItems: "center",
+    height: 34,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "#FAFAFA",
+    gap: 6,
+  },
+  summaryCellTxt: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.text,
+    letterSpacing: -0.1,
+  },
+  kidsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 10,
+  },
+  kidChip: {
+    paddingHorizontal: 10,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: "#FCE7F3",
+    justifyContent: "center",
+  },
+  kidChipTxt: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#9F1239",
+    letterSpacing: -0.1,
+  },
 });
