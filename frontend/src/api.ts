@@ -243,6 +243,31 @@ export type Promo = {
   created_at?: string;
 };
 
+export type PromoCodeStatus = "applicable" | "available" | "coming_soon" | "not_applicable" | "expired" | "used_up" | "not_found";
+
+export type PromoCode = {
+  id: string;
+  code: string;
+  title: string;
+  description?: string | null;
+  discount_type: "percent" | "fixed";
+  discount_value: number;
+  min_amount_xof?: number | null;
+  max_discount_xof?: number | null;
+  category?: string | null;    // "all" | "family" | "provider" | "mobility"
+  starts_at?: string | null;
+  ends_at?: string | null;
+  usage_limit?: number | null;
+  usage_per_user?: number;
+  first_booking_only?: boolean;
+  active: boolean;
+  // Computed per-user fields (returned by /promo-codes and /promo-codes/validate)
+  status?: PromoCodeStatus;
+  reason?: string | null;
+  discount?: number;
+  final_amount?: number;
+};
+
 export type Partner = {
   id: string;
   name: string;

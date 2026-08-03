@@ -3522,6 +3522,177 @@ async def admin_delete_promo(pid: str, user=Depends(require_perm("ads:write"))):
     return {"ok": True}
 
 
+# ==================================================================
+# PROMO CODES — Discount codes system (user-facing)
+# ==================================================================
+class PromoCodeIn(BaseModel):
+    code: str
+    title: str
+    description: Optional[str] = None
+    discount_type: str  # "percent" | "fixed"
+    discount_value: float
+    min_amount_xof: Optional[int] = None
+    max_discount_xof: Optional[int] = None
+    category: Optional[str] = None  # "all", "family", "provider", "mobility"
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+    usage_limit: Optional[int] = None
+    usage_per_user: int = 1
+    first_booking_only: bool = False
+    active: bool = True
+
+
+def _promo_code_visible(p: dict, now: str) -> bool:
+    if not p.get("active"):
+        return False
+    if p.get("ends_at") and now > p["ends_at"]:
+        return False
+    return True
+
+
+async def _user_promo_usage(user_id: str, code: str) -> int:
+    """Nombre de fois qu'un utilisateur a déjà utilisé un code promo."""
+    return await db.promo_code_uses.count_documents({"user_id": user_id, "code": code.upper()})
+
+
+async def _user_bookings_count(user_id: str) -> int:
+    """Nombre total de réservations de l'utilisateur (tous types confondus)."""
+    a = await db.bookings.count_documents({"client_id": user_id})
+    b = await db.family_bookings.count_documents({"parent_id": user_id})
+    return a + b
+
+
+def _compute_discount(promo: dict, amount: int) -> int:
+    """Retourne le montant de la réduction en FCFA (arrondi à l'entier)."""
+    dtype = promo.get("discount_type", "percent")
+    dvalue = float(promo.get("discount_value", 0))
+    if dtype == "percent":
+        d = int(round(amount * dvalue / 100.0))
+    else:
+        d = int(round(dvalue))
+    max_d = promo.get("max_discount_xof")
+    if max_d:
+        d = min(d, int(max_d))
+    return max(0, min(d, amount))
+
+
+async def _promo_status_for_user(promo: dict, user: dict, amount: Optional[int] = None, category: Optional[str] = None) -> dict:
+    """Détermine le statut d'un code pour un utilisateur donné.
+    Renvoie {status, reason, discount, final_amount}
+    Statuts : available | applicable | not_applicable | expired | coming_soon | used_up
+    """
+    now = now_iso()
+    code = (promo.get("code") or "").upper()
+    # 1. Bornes temporelles
+    if not promo.get("active"):
+        return {"status": "not_applicable", "reason": "Ce code n'est plus actif."}
+    if promo.get("starts_at") and now < promo["starts_at"]:
+        return {"status": "coming_soon", "reason": f"Disponible à partir du {promo['starts_at'][:10]}."}
+    if promo.get("ends_at") and now > promo["ends_at"]:
+        return {"status": "expired", "reason": "Ce code a expiré."}
+    # 2. Limite globale
+    lim = promo.get("usage_limit")
+    if lim:
+        used_total = await db.promo_code_uses.count_documents({"code": code})
+        if used_total >= int(lim):
+            return {"status": "used_up", "reason": "Ce code a atteint sa limite d'utilisation."}
+    # 3. Limite par utilisateur
+    per_user = int(promo.get("usage_per_user", 1))
+    used_by_me = await _user_promo_usage(user["id"], code)
+    if used_by_me >= per_user:
+        return {"status": "not_applicable", "reason": "Vous avez déjà utilisé ce code."}
+    # 4. Première réservation seulement
+    if promo.get("first_booking_only"):
+        n = await _user_bookings_count(user["id"])
+        if n > 0:
+            return {"status": "not_applicable", "reason": "Réservé aux nouvelles inscriptions (1re réservation)."}
+    # 5. Catégorie
+    p_cat = promo.get("category") or "all"
+    if p_cat != "all" and category and category != p_cat:
+        cat_label = {"family": "baby-sitting", "provider": "prestations", "mobility": "mobilité"}.get(p_cat, p_cat)
+        return {"status": "not_applicable", "reason": f"Valable uniquement pour {cat_label}."}
+    # 6. Montant minimum
+    min_a = promo.get("min_amount_xof")
+    if min_a and amount is not None and amount < int(min_a):
+        return {"status": "not_applicable", "reason": f"Minimum requis : {int(min_a):,} F CFA.".replace(",", " ")}
+    # OK — applicable
+    result = {"status": "applicable" if amount is not None else "available", "reason": None}
+    if amount is not None:
+        disc = _compute_discount(promo, int(amount))
+        result["discount"] = disc
+        result["final_amount"] = max(0, int(amount) - disc)
+    return result
+
+
+@api.get("/promo-codes")
+async def list_promo_codes(
+    amount: Optional[int] = None,
+    category: Optional[str] = None,
+    user=Depends(current_user),
+):
+    """Liste tous les codes promo visibles + leur statut personnalisé pour l'utilisateur.
+    Filtres optionnels : amount (contexte checkout), category (family/provider/mobility)."""
+    now = now_iso()
+    cur = db.promo_codes.find({}, {"_id": 0}).sort("created_at", -1)
+    items = await cur.to_list(200)
+    out = []
+    for p in items:
+        if not _promo_code_visible(p, now):
+            continue
+        st = await _promo_status_for_user(p, user, amount=amount, category=category)
+        out.append({**p, **st})
+    # Tri : applicable > available > coming_soon > not_applicable > expired/used_up
+    prio = {"applicable": 0, "available": 1, "coming_soon": 2, "not_applicable": 3, "used_up": 4, "expired": 5}
+    out.sort(key=lambda x: prio.get(x.get("status", "not_applicable"), 9))
+    return out
+
+
+class ValidatePromoIn(BaseModel):
+    code: str
+    amount: int
+    category: Optional[str] = None
+
+
+@api.post("/promo-codes/validate")
+async def validate_promo_code(body: ValidatePromoIn, user=Depends(current_user)):
+    code_up = (body.code or "").strip().upper()
+    if not code_up:
+        raise HTTPException(400, "Code requis")
+    p = await db.promo_codes.find_one({"code": code_up}, {"_id": 0})
+    if not p:
+        return {"valid": False, "status": "not_found", "reason": "Ce code n'existe pas."}
+    st = await _promo_status_for_user(p, user, amount=body.amount, category=body.category)
+    valid = st.get("status") == "applicable"
+    return {
+        "valid": valid,
+        "code": code_up,
+        "title": p.get("title"),
+        "description": p.get("description"),
+        "discount_type": p.get("discount_type"),
+        "discount_value": p.get("discount_value"),
+        **st,
+    }
+
+
+# ---------- Admin CRUD ----------
+@api.get("/admin/promo-codes")
+async def admin_list_promo_codes(user=Depends(require_perm("ads:read"))):
+    cur = db.promo_codes.find({}, {"_id": 0}).sort("created_at", -1)
+    return await cur.to_list(500)
+
+
+@api.post("/admin/promo-codes")
+async def admin_create_promo_code(body: PromoCodeIn, user=Depends(require_perm("ads:write"))):
+    code_up = body.code.strip().upper()
+    exists = await db.promo_codes.find_one({"code": code_up}, {"_id": 0, "code": 1})
+    if exists:
+        raise HTTPException(400, "Ce code existe déjà")
+    pid = str(uuid.uuid4())
+    doc = {"id": pid, **body.model_dump(), "code": code_up, "created_at": now_iso(), "updated_at": now_iso()}
+    await db.promo_codes.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
 # ---------- Partenaires (annuaire léger géré par l'admin) ----------
 @api.get("/partners")
 async def list_public_partners():
@@ -5244,6 +5415,41 @@ async def seed():
     await db.reviews.delete_many({"seeded": True})
     await db.services.delete_many({"seeded": True})
     await db.ads.delete_many({"seeded": True})
+
+    # ------ Sample Promo Codes (idempotent) ------
+    _now = now_iso()
+    _year_ahead = (datetime.utcnow() + timedelta(days=365)).isoformat()
+    _month_ahead = (datetime.utcnow() + timedelta(days=30)).isoformat()
+    _past = (datetime.utcnow() - timedelta(days=10)).isoformat()
+    seed_promos = [
+        {"code": "JOKOO20",    "title": "20% de réduction",             "description": "Sur votre prochaine réservation.",
+         "discount_type": "percent", "discount_value": 20, "min_amount_xof": 5000, "max_discount_xof": 5000,
+         "category": "all", "starts_at": None, "ends_at": _year_ahead, "usage_per_user": 3, "usage_limit": None,
+         "first_booking_only": False, "active": True},
+        {"code": "BIENVENUE",  "title": "3 000 F CFA offerts",           "description": "Cadeau de bienvenue pour votre 1re résa.",
+         "discount_type": "fixed", "discount_value": 3000, "min_amount_xof": 8000, "max_discount_xof": None,
+         "category": "all", "starts_at": None, "ends_at": _year_ahead, "usage_per_user": 1, "usage_limit": None,
+         "first_booking_only": True, "active": True},
+        {"code": "FAMILLE10",  "title": "10% sur Jokoo Family",         "description": "Baby-sitting & tutorat uniquement.",
+         "discount_type": "percent", "discount_value": 10, "min_amount_xof": None, "max_discount_xof": 3000,
+         "category": "family", "starts_at": None, "ends_at": _year_ahead, "usage_per_user": 5, "usage_limit": None,
+         "first_booking_only": False, "active": True},
+        {"code": "MOBILITE500","title": "500 F sur Mobilité",           "description": "Sur vos trajets covoiturage.",
+         "discount_type": "fixed", "discount_value": 500, "min_amount_xof": 1500, "max_discount_xof": None,
+         "category": "mobility", "starts_at": None, "ends_at": _month_ahead, "usage_per_user": 10, "usage_limit": None,
+         "first_booking_only": False, "active": True},
+        {"code": "RAMADAN25",  "title": "25% Spécial Ramadan",           "description": "Offre limitée à durée réduite.",
+         "discount_type": "percent", "discount_value": 25, "min_amount_xof": 10000, "max_discount_xof": 8000,
+         "category": "all", "starts_at": None, "ends_at": _past, "usage_per_user": 1, "usage_limit": None,
+         "first_booking_only": False, "active": True},
+    ]
+    for pc in seed_promos:
+        exists = await db.promo_codes.find_one({"code": pc["code"]}, {"_id": 0, "code": 1})
+        if not exists:
+            await db.promo_codes.insert_one({
+                "id": str(uuid.uuid4()), **pc,
+                "created_at": _now, "updated_at": _now, "seeded": True,
+            })
 
     # Seed super_admin + un membre par rôle (idempotent)
     seed_staff = [
