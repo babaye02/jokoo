@@ -127,7 +127,7 @@ export default function LegalCenter() {
           <Ionicons name="mail" size={20} color={colors.turquoise} />
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Txt weight="700">Une question juridique ?</Txt>
-            <Txt size="xs" color={colors.textMuted}>Écrivez-nous à support@jokoo.sn</Txt>
+            <Txt size="xs" color={colors.textMuted}>Écrivez-nous à support@jokooservices.com</Txt>
           </View>
         </View>
       </ScrollView>

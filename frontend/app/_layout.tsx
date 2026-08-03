@@ -9,6 +9,7 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { useEditorialFonts } from "@/src/hooks/use-editorial-fonts";
 import { AuthProvider } from "@/src/auth";
 import { registerUnauthorizedHandler } from "@/src/api";
+import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 
 LogBox.ignoreAllLogs(true);
 
@@ -42,11 +43,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <AuthRedirector />
-          <StatusBar barStyle="dark-content" />
-          <Stack screenOptions={{ headerShown: false, animation: "fade" }} />
-        </AuthProvider>
+        <ErrorBoundary>
+          <AuthProvider>
+            <AuthRedirector />
+            <StatusBar barStyle="dark-content" />
+            <Stack screenOptions={{ headerShown: false, animation: "fade" }} />
+          </AuthProvider>
+        </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
