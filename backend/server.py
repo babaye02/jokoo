@@ -20,7 +20,8 @@ import secrets
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Literal
+import json
+from typing import Any, List, Optional, Literal
 
 import bcrypt
 import jwt
@@ -34,7 +35,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from payments_local import (
     wave_create_checkout,
@@ -68,8 +69,83 @@ db = client[DB_NAME]
 app = FastAPI(title="Jokoo API")
 api = APIRouter(prefix="/api")
 
-logging.basicConfig(level=logging.INFO)
+# ---------- Structured logging ----------
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"ts":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":%(message)s}',
+)
 log = logging.getLogger("jokoo")
+
+
+def audit_log(event: str, **fields: Any) -> None:
+    """Log structuré JSON pour audit sécurité (login, paiement, RGPD, admin)."""
+    try:
+        safe = {k: v for k, v in fields.items() if k != "password"}
+        log.info(json.dumps({"event": event, **safe}, default=str))
+    except Exception:
+        log.info(json.dumps({"event": event, "error": "log_serialize_failed"}))
+
+
+# ---------- Rate limiter (slowapi) ----------
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+
+    def _rl_key(request: Request) -> str:
+        # Priorité au user_id si authentifié (via header), sinon IP
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            return f"tok:{auth[7:32]}"  # préfixe stable du JWT
+        return get_remote_address(request)
+
+    limiter = Limiter(key_func=_rl_key, default_limits=["600/minute"])
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    RATE_LIMIT_ENABLED = True
+except Exception as _rl_err:
+    log.warning('"rate_limiter_disabled: %s"' % str(_rl_err))
+    limiter = None
+    RATE_LIMIT_ENABLED = False
+
+
+# ---------- Brute-force lockout helper ----------
+BRUTE_MAX_ATTEMPTS = 5
+BRUTE_WINDOW_SEC = 15 * 60   # 15 min
+BRUTE_LOCKOUT_SEC = 30 * 60  # 30 min
+
+async def brute_force_check(identifier: str, ip: str) -> None:
+    """Bloque temporairement après trop d'échecs.
+    Identifie par email et IP conjointement pour limiter les faux positifs partagés."""
+    now = datetime.utcnow()
+    keys = [f"login:email:{identifier.lower()}", f"login:ip:{ip}"]
+    for k in keys:
+        doc = await db.rate_limit.find_one({"_id": k})
+        if not doc:
+            continue
+        locked_until = doc.get("locked_until")
+        if locked_until and now < locked_until:
+            remaining = int((locked_until - now).total_seconds())
+            raise HTTPException(429, f"Trop de tentatives. Réessayez dans {remaining // 60} min.")
+
+
+async def brute_force_record(identifier: str, ip: str, success: bool) -> None:
+    now = datetime.utcnow()
+    keys = [f"login:email:{identifier.lower()}", f"login:ip:{ip}"]
+    for k in keys:
+        if success:
+            await db.rate_limit.delete_one({"_id": k})
+            continue
+        # Sliding window : garde les échecs des BRUTE_WINDOW_SEC dernières s
+        doc = await db.rate_limit.find_one({"_id": k}) or {"_id": k, "attempts": []}
+        cutoff = now - timedelta(seconds=BRUTE_WINDOW_SEC)
+        attempts = [a for a in (doc.get("attempts") or []) if a > cutoff]
+        attempts.append(now)
+        update = {"$set": {"attempts": attempts, "updated_at": now}}
+        if len(attempts) >= BRUTE_MAX_ATTEMPTS:
+            update["$set"]["locked_until"] = now + timedelta(seconds=BRUTE_LOCKOUT_SEC)
+            audit_log("auth.brute_force_lock", key=k, attempts=len(attempts))
+        await db.rate_limit.update_one({"_id": k}, update, upsert=True)
 
 
 # ---------- helpers ----------
@@ -323,11 +399,47 @@ Role = Literal["client", "prestataire"]
 
 class RegisterIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=6)
-    name: str
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field(min_length=2, max_length=80)
     role: Role
-    phone: Optional[str] = None
-    city: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=32)
+    city: Optional[str] = Field(default=None, max_length=80)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        """Politique min : 8 caractères + au moins 1 lettre et 1 chiffre.
+        Refuse les mots de passe évidents."""
+        if not any(c.isalpha() for c in v):
+            raise ValueError("Le mot de passe doit contenir au moins une lettre.")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Le mot de passe doit contenir au moins un chiffre.")
+        # Liste noire minimaliste — mots de passe massivement compromis
+        _weak = {"password", "12345678", "azerty12", "qwerty12", "passw0rd", "motdepasse"}
+        if v.lower() in _weak:
+            raise ValueError("Ce mot de passe est trop courant. Choisissez-en un autre.")
+        return v
+
+    @field_validator("name")
+    @classmethod
+    def _name_no_html(cls, v: str) -> str:
+        v = v.strip()
+        # Anti-XSS basique : refuser les balises HTML dans le nom d'affichage
+        if any(tok in v for tok in ("<", ">", "javascript:", "onerror=")):
+            raise ValueError("Le nom contient des caractères non autorisés.")
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def _phone_format(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return v
+        v = v.strip()
+        # Autorise chiffres, espaces, tirets, parenthèses et le +. Longueur 6-32.
+        import re as _re
+        if not _re.fullmatch(r"[+()\d\s.\-]{6,32}", v):
+            raise ValueError("Numéro de téléphone invalide.")
+        return v
 
 
 class LoginIn(BaseModel):
@@ -1034,6 +1146,7 @@ async def register(body: RegisterIn, request: Request):
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
+    audit_log("auth.register", user_id=uid, email=body.email.lower(), role=body.role, ip=_client_ip(request))
     token = make_token(uid)
     user = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
     # Email de bienvenue (non-bloquant : si échoue, log seulement)
@@ -1050,12 +1163,18 @@ async def register(body: RegisterIn, request: Request):
 async def login(body: LoginIn, request: Request):
     ip = _client_ip(request)
     email_key = body.email.lower()
-    # Deux buckets : par IP (protège contre attaque massive) + par email+IP (protège compte cible)
+    # 1) In-memory sliding-window (fast)
     _rate_check(f"login-ip:{ip}", max_hits=20, window_sec=300)
     _rate_check(f"login-email:{email_key}:{ip}", max_hits=8, window_sec=300)
+    # 2) Persistent DB lockout (survives restarts, cross-worker)
+    await brute_force_check(email_key, ip)
     user = await db.users.find_one({"email": email_key})
     if not user or not await verify_password_async(body.password, user["password_hash"]):
+        await brute_force_record(email_key, ip, success=False)
+        audit_log("auth.login_failed", email=email_key, ip=ip)
         raise HTTPException(401, "Identifiants invalides")
+    await brute_force_record(email_key, ip, success=True)
+    audit_log("auth.login_success", user_id=user["id"], email=email_key, ip=ip)
     token = make_token(user["id"])
     safe = {k: v for k, v in user.items() if k not in ("_id", "password_hash")}
     return {"token": token, "user": safe}
@@ -2046,14 +2165,18 @@ class ResetPasswordIn(BaseModel):
 
 
 @api.post("/auth/forgot-password")
-async def forgot_password(body: ForgotPasswordIn):
+async def forgot_password(body: ForgotPasswordIn, request: Request):
     """
     Génère un token de réinitialisation à usage unique (60 min).
     Pour ne pas fuiter l'existence d'un email, on renvoie toujours `{ok: true}`.
     En dev (aucune clé email configurée), le token est retourné dans `dev_token` pour tests manuels.
     """
-    from services.emails import send_email, tpl_reset_password, EmailPayload, _current_mode
+    # Rate limit anti-abuse : 5 demandes / 15 min / IP + 3 / 15 min / email
+    ip = _client_ip(request)
     email = body.email.lower().strip()
+    _rate_check(f"forgot-ip:{ip}", max_hits=5, window_sec=900)
+    _rate_check(f"forgot-email:{email}", max_hits=3, window_sec=900)
+    from services.emails import send_email, tpl_reset_password, EmailPayload, _current_mode
     u = await db.users.find_one({"email": email}, {"_id": 0, "id": 1, "name": 1})
     dev_token: Optional[str] = None
     if u:
@@ -4537,6 +4660,7 @@ async def delete_my_account(user=Depends(current_user)):
     await db.reviews.update_many({"author_id": uid}, {"$set": {"author_name": "[Compte supprimé]"}})
     # Finally remove the user account itself
     await db.users.delete_one({"id": uid})
+    audit_log("account.deleted", user_id=uid, email=user.get("email"))
     return {"ok": True, "message": "Compte supprimé"}
 
 
