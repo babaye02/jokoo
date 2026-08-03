@@ -34,7 +34,7 @@ const FAQ = [
   },
   {
     q: "Comment supprimer mon compte ?",
-    a: "Depuis votre profil, cliquez sur « Supprimer mon compte ». Vos données personnelles seront effacées sous 30 jours conformément au RGPD.",
+    a: "Depuis votre profil, ouvrez « Sécurité & confidentialité » puis cliquez sur « Supprimer mon compte ». Vos données personnelles seront effacées sous 30 jours conformément au RGPD.",
   },
 ];
 

@@ -7,7 +7,6 @@ import { useAuth } from "@/src/auth";
 import { api, Booking } from "@/src/api";
 import { Avatar, Card, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
-import { ConfirmDialog } from "@/src/components/ActionSheet";
 
 /** RoleSwitcher — Bouton pour basculer ou activer le second profil. */
 function RoleSwitcher() {
@@ -172,9 +171,6 @@ export default function Profile() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [askDelete, setAskDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [delErr, setDelErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -186,25 +182,6 @@ export default function Profile() {
   useEffect(() => { load(); }, [load]);
 
   const logout = async () => { await signOut(); router.replace("/login"); };
-
-  const deleteAccount = () => {
-    setDelErr(null);
-    setAskDelete(true);
-  };
-
-  const doDelete = async () => {
-    setDeleting(true);
-    setDelErr(null);
-    try {
-      await api.del("/users/me");
-      await signOut();
-      router.replace("/login");
-    } catch (e: any) {
-      setDelErr(e?.message || "Impossible de supprimer le compte. Réessayez.");
-    } finally {
-      setDeleting(false);
-    }
-  };
 
   if (!user) return null;
 
@@ -298,33 +275,8 @@ export default function Profile() {
             </View>
             <Txt weight="600" color={colors.danger} style={{ flex: 1, marginLeft: 12 }}>Se déconnecter</Txt>
           </Pressable>
-          <Pressable onPress={deleteAccount} style={styles.row} testID="menu-delete-account">
-            <View style={[styles.iconWrap, { backgroundColor: "#FEE2E2" }]}>
-              <Ionicons name="trash-outline" size={20} color={colors.danger} />
-            </View>
-            <Txt weight="600" color={colors.danger} style={{ flex: 1, marginLeft: 12 }}>Supprimer mon compte</Txt>
-          </Pressable>
-          {delErr ? (
-            <View style={styles.errBanner} testID="delete-error">
-              <Ionicons name="warning" size={16} color={colors.white} />
-              <Txt color={colors.white} weight="600" style={{ flex: 1, marginLeft: 8 }} size="sm">
-                {delErr}
-              </Txt>
-            </View>
-          ) : null}
         </View>
       </ScrollView>
-
-      <ConfirmDialog
-        visible={askDelete}
-        onClose={() => !deleting && setAskDelete(false)}
-        title="Supprimer mon compte ?"
-        message="Cette action est irréversible. Vos données personnelles seront supprimées immédiatement et vos réservations historiques anonymisées."
-        confirmLabel={deleting ? "Suppression…" : "Oui, supprimer"}
-        cancelLabel="Annuler"
-        destructive
-        onConfirm={doDelete}
-      />
     </View>
   );
 }
@@ -359,11 +311,4 @@ const styles = StyleSheet.create({
   },
   iconWrap: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
   pill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill },
-  errBanner: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: colors.danger,
-    borderRadius: radius.md,
-    paddingHorizontal: 14, paddingVertical: 10,
-    marginTop: spacing.sm,
-  },
 });
