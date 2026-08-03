@@ -1,0 +1,70 @@
+{
+  "iteration": 33,
+  "summary": "Audit publication-readiness Jokoo (App Store + Google Play) — PASS. Backend: 46/46 tests pytest passent (100%) contre l'URL publique EXPO_PUBLIC_BACKEND_URL (jokoo-mobile-dev.preview.emergentagent.com). Frontend: onboarding + login + tabs (Accueil, Recherche, Notifications, Profil) validés sur viewport mobile 390x844. Aucun blocker P0/P1 identifié. Payments Stripe test key opérationnel (retourne session), Wave/Orange dégradent gracieusement (400/501/503 attendus avec placeholder keys). RBAC admin OK (401/403 pour client sur /admin/*), pas de fuite MongoDB _id, JWT invalide correctement rejeté. Seuls quelques warnings cosmétiques déjà connus (shadow*→boxShadow, props.pointerEvents, useNativeDriver JS fallback sur RN Web). App prête pour publication côté logique métier + API.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Global (RN Web preview)",
+        "issues": [
+          "2x console 404 sur assets non identifiés (probable favicon/manifest chunks) — non bloquant, à investiguer si Lighthouse est utilisé.",
+          "Warning répété 'shadow* style props are deprecated. Use boxShadow.' — à migrer côté theme/shadow.soft (déjà mentionné iter31).",
+          "Warning 'props.pointerEvents is deprecated. Use style.pointerEvents' — cosmétique.",
+          "Warning 'useNativeDriver is not supported' — limite RN Web, ignoré en build natif iOS/Android."
+        ]
+      }
+    ],
+    "react_native_issues": [
+      {
+        "component": "theme/shadow.soft or Card component",
+        "issue": "shadow* style props deprecated on RN Web (console warnings répétés). Passer à boxShadow ou StyleSheet.compose selon Platform.OS. Reference: /app/frontend/src/theme.ts (déjà signalé iter31)."
+      },
+      {
+        "component": "props.pointerEvents",
+        "issue": "props.pointerEvents deprecated — remplacer par style.pointerEvents. Reference: composants avec Modal ou overlay."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter33_publication_readiness.py",
+    "/app/test_reports/pytest/iter33.xml",
+    "/app/test_reports/iter33_home.png",
+    "/app/test_reports/iter33_login_screen.png",
+    "/app/test_reports/iter33_after_login.png",
+    "/app/test_reports/iter33_search.png",
+    "/app/test_reports/iter33_notifications.png",
+    "/app/test_reports/iter33_profile.png"
+  ],
+  "action_items": [
+    "AVANT BUILD EAS — Restaurer le Privacy Manifest depuis /app/frontend/PRIVACY_MANIFEST_TO_RESTORE.md (retiré temporairement pour Expo Go).",
+    "OPTIONNEL (cosmétique) — Migrer shadow* → boxShadow et props.pointerEvents → style.pointerEvents (déjà consigné iter31, toujours d'actualité).",
+    "OPTIONNEL — Investiguer les 2 x 404 assets côté web preview (favicons ou splash) pour un audit Lighthouse propre. Aucun impact sur build natif.",
+    "RAPPEL — Push notifications volontairement non câblés (EMERGENT_PUSH_KEY=placeholder, register.ts + backend/push.py prêts mais non déclenchés). Confirmer que ce n'est PAS bloquant pour la 1ère release App Store/Play (activable en patch mineur post-lancement).",
+    "VERIFIER MANUELLEMENT côté prod Stripe — la clé sk_test_emergent est bien remplacée par la clé live avant la soumission Apple/Google."
+  ],
+  "critical_code_review_comments": [
+    "Backend server.py atteint ~6700 lignes — recommandation forte de splitter en routers FastAPI (auth.py, bookings.py, payments.py, admin.py, family.py, chat.py). Ce refactor peut se faire post-lancement mais devient risqué pour la maintenance long terme.",
+    "Excellent : toutes les collections MongoDB excluent {_id: 0} dans les projections (vérifié via test_no_mongo_id_leak_* — providers ET babysitters clean).",
+    "Excellent : RBAC admin strict via require_perm — /admin/crm/users retourne 401/403 sans token et pour client role, 200 uniquement pour admin@jokoo.sn.",
+    "Payments : le schéma ValidatePromoIn utilise 'amount' alors que Payments*In utilise 'amount_xof' — cohérence de nommage à envisager pour la doc externe.",
+    "Sécurité : rate-limiting slowapi actif (validé par les tests précédents iter25-30). JWT signé HS256 avec secret 64 chars — OK production."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter33_publication_readiness.py (créé — 46 tests pytest couvrant auth, users, providers, bookings, chat, favorites, notifications, wallet, promos, payments Stripe/Wave/Orange, admin CRM, RBAC, security)",
+    "/app/test_reports/pytest/iter33.xml (JUnit report)"
+  ],
+  "success_rate": {
+    "backend": "100% (46/46)",
+    "frontend": "100% (5/5 flux UI critiques : home, login, search, notifications, profile)"
+  },
+  "seed_data_creation": "Aucune modification seed. Un compte iter33-XXX@test.jokoo créé dynamiquement par test_register_and_me (non nettoyé mais préfixé pour identification). Booking de test créé (id ~ 20ae0401-...) sur le compte client seed, laissé en base (petit volume).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend Jokoo 100% opérationnel pour publication. Tous les endpoints critiques (auth/register/login, users/me via /api/auth/me, /providers, /bookings, /chat, /favorites, /notifications, /wallet, /payments Stripe+Wave+Orange, /admin/crm/*, /admin/ads, /admin/promos, /admin/reports, /admin/staff, /admin/partners, /admin/service-suggestions, /admin/stats/marketplace, /reviews, /promos, /promo-codes/validate) fonctionnent. Payloads corrects : BookingIn{provider_id, date, time, address, description} (pas time_slot/service). Payments*In {booking_id, origin_url, amount_xof}. PromoValidateIn {code, amount}. GET /api/bookings est role-based (client=mine, provider=received). Routes admin ne sont PAS sous /api/admin/users mais /api/admin/crm/users. Réutiliser test_iter33_publication_readiness.py comme régression complète.",
+  "rca_of_issue": "Aucun bug fonctionnel détecté sur les parcours critiques de publication. Les seuls écarts sont cosmétiques (warnings RN Web déjà consignés iter31) et un point d'attention avant build EAS (restaurer Privacy Manifest). L'app est GO pour soumission App Store + Google Play côté backend + UI."
+}
