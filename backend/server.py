@@ -2058,6 +2058,7 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
         "read": False,
         "created_at": now_iso(),
     })
+    # Push mobile : architecture prête (backend/push.py) — activation post-store
     # Emails de confirmation (client) + notification (prestataire), non-bloquants
     try:
         from services.emails import send_email, tpl_booking_confirmed, tpl_booking_new_for_provider, EmailPayload
@@ -2296,6 +2297,7 @@ async def update_booking(bid: str, body: BookingUpdate, user=Depends(current_use
             "read": False,
             "created_at": now_iso(),
         })
+        # Push mobile : architecture prête — activation post-store
 
     if len(updates) == 1:
         raise HTTPException(400, "Aucune mise à jour fournie")
@@ -2578,6 +2580,7 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
             "read": False,
             "created_at": now_iso(),
         })
+        # Push mobile : architecture prête — activation post-store
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
@@ -3385,6 +3388,7 @@ async def payment_status(
             {"id": meta["booking_id"]},
             {"$set": {"paid": True, "paid_at": now_iso()}},
         )
+        # Push mobile : architecture prête — activation post-store
     if paid and meta.get("kind") == "subscription" and user:
         until = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
         await db.providers.update_one(
@@ -4066,6 +4070,7 @@ async def admin_create_promo_code(body: PromoCodeIn, user=Depends(require_perm("
     pid = str(uuid.uuid4())
     doc = {"id": pid, **body.model_dump(), "code": code_up, "created_at": now_iso(), "updated_at": now_iso()}
     await db.promo_codes.insert_one(doc)
+    # Push broadcast : architecture prête — activation post-store
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
@@ -6378,6 +6383,13 @@ async def root():
 
 # ---------- mount ----------
 app.include_router(api)
+
+# Push notifications (Emergent-managed / SuprSend relay) — ARCHITECTURE RESERVED
+# Wired but not called from event triggers yet. To enable: uncomment try/except
+# blocks in create_booking, update_booking, send_message, promo creation, and
+# the Stripe/Wave/Orange payment webhook handlers.
+from push import push_router  # noqa: E402
+app.include_router(push_router)
 
 app.add_middleware(
     CORSMiddleware,

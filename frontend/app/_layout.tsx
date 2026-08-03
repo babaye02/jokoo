@@ -15,6 +15,13 @@ LogBox.ignoreAllLogs(true);
 
 SplashScreen.preventAutoHideAsync();
 
+// NOTE: Push notifications architecture is reserved (backend push.py + src/push/register.ts)
+// but not wired into _layout.tsx yet. To enable later:
+//   1. Uncomment PushTapHandler component + module-scope Notifications setup
+//   2. Add <PushTapHandler /> inside <AuthProvider>
+//   3. Call registerForPush(userId) after login in AuthProvider
+//   4. Add expo-notifications plugin to app.json + google-services.json for Android
+
 function AuthRedirector() {
   const router = useRouter();
   useEffect(() => {
