@@ -10,7 +10,7 @@ import { useAuth } from "@/src/auth";
 import { api, Provider, ServiceItem, Ad } from "@/src/api";
 import { openAdDestination } from "@/src/navigation/adDestination";
 import { priceLabel } from "@/src/pricing";
-import { Txt, Avatar, Stars, SectionHeader } from "@/src/components/ui";
+import { Txt, Avatar, Stars, SectionHeader, Badge } from "@/src/components/ui";
 import { CategoryCard } from "@/src/components/premium";
 import { getCategoryPhoto, getCategoryIcon } from "@/src/utils/categoryAssets";
 import { colors, fs, radius, shadow, spacing, typo } from "@/src/theme";
@@ -211,8 +211,8 @@ export default function Home() {
               <Txt size="xxxl">👨‍👩‍👧</Txt>
             </View>
             <View style={{ flex: 1, marginLeft: spacing.md }}>
-              <View style={styles.familyPill}>
-                <Txt size="xxs" weight="700" color={colors.midnight}>NOUVEAU ✨</Txt>
+              <View style={{ alignSelf: "flex-start" }}>
+                <Badge tone="top" icon="sparkles" label="Nouveau" size="sm" />
               </View>
               <Txt size="lg" weight="800" color={colors.white} style={{ marginTop: 4 }}>Baby-sitting bilingue</Txt>
               <Txt size="xs" color="rgba(255,255,255,0.9)" style={{ marginTop: 2 }} numberOfLines={2}>
@@ -352,9 +352,8 @@ function NearbyCard({ p, onPress }: { p: Provider; onPress: () => void }) {
           <Ionicons name="heart-outline" size={16} color={colors.text} />
         </Pressable>
         {sponsored ? (
-          <View style={styles.sponsoredBadge} testID={`sponsored-${p.id}`}>
-            <Ionicons name="star" size={10} color={colors.white} />
-            <Text style={{ color: colors.white, fontSize: 10, fontWeight: "700", marginLeft: 3 }}>Sponsorisé</Text>
+          <View style={styles.sponsoredWrap} testID={`sponsored-${p.id}`}>
+            <Badge tone="top" icon="star" label="Sponsorisé" size="sm" />
           </View>
         ) : null}
       </View>
@@ -480,12 +479,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  familyPill: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: colors.turquoise,
+  sponsoredWrap: {
+    position: "absolute", top: 12, left: 12,
   },
   nearCard: { width: 240, borderRadius: radius.xl, backgroundColor: colors.card, overflow: "hidden", ...shadow.card },
   nearImgWrap: { width: "100%", height: 180, position: "relative" },
@@ -501,7 +496,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sponsoredBadge: {
+  sponsoredBadgeOld: {
     position: "absolute", top: 12, left: 12,
     flexDirection: "row", alignItems: "center",
     backgroundColor: colors.text,

@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, FamilyBooking } from "@/src/api";
 import { formatXof } from "@/src/pricing";
-import { Txt, Btn, Avatar } from "@/src/components/ui";
+import { Txt, Btn, Avatar, Badge } from "@/src/components/ui";
 import { ConfirmDialog } from "@/src/components/ActionSheet";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
@@ -19,12 +19,12 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "Annulée",
 };
 
-const STATUS_COLOR: Record<string, { bg: string; fg: string }> = {
-  pending: { bg: "#FEF3C7", fg: "#92400E" },
-  confirmed: { bg: "#DBEAFE", fg: "#1E40AF" },
-  in_progress: { bg: "#E0E7FF", fg: "#3730A3" },
-  completed: { bg: "#DCFCE7", fg: "#166534" },
-  cancelled: { bg: "#FEE2E2", fg: "#991B1B" },
+const STATUS_META: Record<string, { tone: any; icon: any }> = {
+  pending:     { tone: "warning",  icon: "hourglass-outline" },
+  confirmed:   { tone: "info",     icon: "checkmark-circle-outline" },
+  in_progress: { tone: "info",     icon: "play-circle-outline" },
+  completed:   { tone: "success",  icon: "checkmark-done-outline" },
+  cancelled:   { tone: "neutral",  icon: "ban-outline" },
 };
 
 export default function MyFamilyBookings() {
@@ -200,12 +200,8 @@ function Empty({ icon, title, body, cta, onCta }: any) {
 }
 
 function StatusPill({ status }: { status: string }) {
-  const c = STATUS_COLOR[status] || STATUS_COLOR.pending;
-  return (
-    <View style={[styles.pill, { backgroundColor: c.bg }]}>
-      <Txt size="xxs" weight="700" color={c.fg}>{STATUS_LABEL[status] || status}</Txt>
-    </View>
-  );
+  const m = STATUS_META[status] || STATUS_META.pending;
+  return <Badge icon={m.icon} label={STATUS_LABEL[status] || status} tone={m.tone} size="sm" />;
 }
 
 function BookingCard({ b, role, onOpen, onCancel, onConfirm }: any) {

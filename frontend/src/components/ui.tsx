@@ -124,6 +124,104 @@ export function Card({ children, style }: { children: React.ReactNode; style?: V
   return <View style={[styles.card, style as any]}>{children}</View>;
 }
 
+// -------- Badge (Premium — Airbnb/Apple/Notion) --------
+// Pill neutre : fond blanc + fine bordure #E5E7EB, texte gris foncé, icône colorée à gauche.
+// Hauteur constante (28px), coins pill, largeur auto selon contenu.
+// Retour à la ligne géré par <BadgeRow> parent (flexWrap: 'wrap').
+
+export type BadgeTone = "neutral" | "verified" | "top" | "language" | "assist" | "info" | "success" | "warning" | "danger";
+
+const BADGE_TONE_COLORS: Record<BadgeTone, string> = {
+  neutral: "#4A4A4A",   // texte + icône = même gris foncé (sobre)
+  verified: "#16A34A",  // vert = vérifié / disponible
+  top: "#D97706",       // doré = top / recommandé / étoile
+  language: "#2563EB",  // bleu = langue / multilingue
+  assist: "#DC2626",    // rouge discret = assistance / urgence
+  info: "#2563EB",
+  success: "#16A34A",
+  warning: "#D97706",
+  danger: "#DC2626",
+};
+
+type BadgeProps = {
+  label: string;
+  icon?: keyof typeof Ionicons.glyphMap;
+  emoji?: string;
+  tone?: BadgeTone;
+  size?: "sm" | "md";
+  testID?: string;
+};
+export function Badge({ label, icon, emoji, tone = "neutral", size = "md", testID }: BadgeProps) {
+  const iconColor = BADGE_TONE_COLORS[tone];
+  const height = size === "sm" ? 24 : 28;
+  const paddingH = size === "sm" ? 9 : 11;
+  const fontSize = size === "sm" ? 11 : 12;
+  const iconSize = size === "sm" ? 11 : 13;
+  return (
+    <View
+      testID={testID}
+      style={{
+        height,
+        paddingHorizontal: paddingH,
+        borderRadius: radius.pill,
+        backgroundColor: colors.white,
+        borderWidth: 1,
+        borderColor: "#E5E7EB",
+        flexDirection: "row",
+        alignItems: "center",
+        alignSelf: "flex-start",
+        flexShrink: 1,
+      }}
+    >
+      {icon ? (
+        <Ionicons name={icon} size={iconSize} color={iconColor} style={{ marginRight: 5 }} />
+      ) : emoji ? (
+        <Text style={{ fontSize: iconSize, marginRight: 5, color: iconColor }}>{emoji}</Text>
+      ) : null}
+      <Text
+        numberOfLines={1}
+        style={{
+          fontSize,
+          fontWeight: "600",
+          color: "#111827",
+          letterSpacing: -0.1,
+          maxWidth: 220,
+        }}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+// -------- BadgeRow — Container flex-wrap uniforme --------
+export function BadgeRow({
+  children,
+  gap = 6,
+  style,
+}: {
+  children: React.ReactNode;
+  gap?: number;
+  style?: ViewStyle | ViewStyle[];
+}) {
+  return (
+    <View
+      style={[
+        {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          alignItems: "center",
+          rowGap: gap,
+          columnGap: gap,
+        },
+        style as any,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
 // -------- Chip --------
 export function Chip({ label, active, onPress, icon, testID }: { label: string; active?: boolean; onPress?: () => void; icon?: keyof typeof Ionicons.glyphMap; testID?: string }) {
   return (

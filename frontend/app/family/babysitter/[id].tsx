@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, Babysitter } from "@/src/api";
 import { LANG_LEVEL_LABEL, LEVEL_LABEL, PROFILE_TYPE_LABEL, ageMeta, langMeta, serviceMeta, skillMeta } from "@/src/family";
 import { formatXof } from "@/src/pricing";
-import { Btn, Card, Txt } from "@/src/components/ui";
+import { Btn, Card, Txt, Badge, BadgeRow } from "@/src/components/ui";
 import { TrustBadges, AvailabilityChips } from "@/src/components/family-badges";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
@@ -197,9 +197,7 @@ export default function BabysitterDetail() {
                 <View key={l.code} style={styles.langRow}>
                   <Txt size="lg">{langMeta(l.code).flag}</Txt>
                   <Txt size="sm" weight="700" style={{ marginLeft: 10, flex: 1 }}>{langMeta(l.code).label}</Txt>
-                  <View style={styles.levelPill}>
-                    <Txt size="xxs" weight="700" color={colors.midnight}>{LANG_LEVEL_LABEL[l.level] || l.level}</Txt>
-                  </View>
+                  <Badge label={LANG_LEVEL_LABEL[l.level] || l.level} tone="neutral" size="sm" />
                 </View>
               ))}
             </View>
@@ -210,14 +208,11 @@ export default function BabysitterDetail() {
         <View style={{ marginTop: spacing.md }}>
           <Card>
             <Txt size="sm" weight="700" style={{ marginBottom: spacing.sm }}>Tranches d&apos;âge maîtrisées</Txt>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <BadgeRow>
               {b.age_specialties.map((a) => (
-                <View key={a} style={styles.pillOutline}>
-                  <Txt>{ageMeta(a)?.icon}</Txt>
-                  <Txt size="xs" weight="600" style={{ marginLeft: 4 }}>{ageMeta(a)?.label}</Txt>
-                </View>
+                <Badge key={a} emoji={ageMeta(a)?.icon || ""} label={ageMeta(a)?.label || a} tone="neutral" size="sm" />
               ))}
-            </View>
+            </BadgeRow>
           </Card>
         </View>
 
@@ -226,17 +221,14 @@ export default function BabysitterDetail() {
           <View style={{ marginTop: spacing.md }}>
             <Card>
               <Txt size="sm" weight="700" style={{ marginBottom: spacing.sm }}>Compétences</Txt>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              <BadgeRow>
                 {b.skills.map((s) => {
                   const m = skillMeta(s);
                   return (
-                    <View key={s} style={styles.pillOutline}>
-                      <Ionicons name={(m?.icon || "star") as any} size={12} color={colors.turquoise} />
-                      <Txt size="xs" weight="600" style={{ marginLeft: 4 }}>{m?.label || s}</Txt>
-                    </View>
+                    <Badge key={s} icon={(m?.icon || "star") as any} label={m?.label || s} tone="verified" size="sm" />
                   );
                 })}
-              </View>
+              </BadgeRow>
             </Card>
           </View>
         ) : null}
@@ -246,14 +238,11 @@ export default function BabysitterDetail() {
           <View style={{ marginTop: spacing.md }}>
             <Card>
               <Txt size="sm" weight="700" style={{ marginBottom: spacing.sm }}>Matières enseignées</Txt>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              <BadgeRow>
                 {b.tutoring_subjects.map((t) => (
-                  <View key={t} style={[styles.pillOutline, { backgroundColor: "#DBEAFE", borderColor: "#DBEAFE" }]}>
-                    <Ionicons name="school" size={11} color="#1E40AF" />
-                    <Txt size="xs" weight="600" color="#1E40AF" style={{ marginLeft: 4 }}>{t}</Txt>
-                  </View>
+                  <Badge key={t} icon="school-outline" label={t} tone="language" size="sm" />
                 ))}
-              </View>
+              </BadgeRow>
             </Card>
           </View>
         ) : null}

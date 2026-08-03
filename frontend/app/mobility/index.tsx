@@ -3,7 +3,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Txt } from "@/src/components/ui";
+import { Txt, Badge } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 export default function MobilityHub() {
@@ -43,8 +43,8 @@ export default function MobilityHub() {
               <Txt size="xxxl">🚗</Txt>
             </View>
             <View style={{ flex: 1, marginLeft: spacing.lg }}>
-              <View style={styles.badge}>
-                <Txt size="xxs" weight="700" color={colors.midnight}>Populaire</Txt>
+              <View style={{ alignSelf: "flex-start", marginBottom: 6 }}>
+                <Badge tone="top" icon="flame" label="Populaire" size="sm" />
               </View>
               <Txt size="xl" weight="700" color={colors.white}>Covoiturage</Txt>
               <Txt size="sm" color="rgba(255,255,255,0.75)" style={{ marginTop: 4 }} numberOfLines={2}>
@@ -72,8 +72,8 @@ export default function MobilityHub() {
               <Txt size="xxxl">📦</Txt>
             </View>
             <View style={{ flex: 1, marginLeft: spacing.lg }}>
-              <View style={[styles.badge, { backgroundColor: colors.turquoise }]}>
-                <Txt size="xxs" weight="700" color={colors.white}>Nouveau</Txt>
+              <View style={{ alignSelf: "flex-start", marginBottom: 6 }}>
+                <Badge tone="top" icon="sparkles" label="Nouveau" size="sm" />
               </View>
               <Txt size="xl" weight="700" color={colors.white}>Livraison</Txt>
               <Txt size="sm" color="rgba(255,255,255,0.85)" style={{ marginTop: 4 }} numberOfLines={2}>

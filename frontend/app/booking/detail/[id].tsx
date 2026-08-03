@@ -9,7 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { formatXof } from "@/src/pricing";
-import { Btn, Card, Txt } from "@/src/components/ui";
+import { Btn, Card, Txt, Badge } from "@/src/components/ui";
 import { ConfirmDialog } from "@/src/components/ActionSheet";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
@@ -34,12 +34,12 @@ type Booking = {
   created_at: string;
 };
 
-const STATUS_META: Record<string, { label: string; color: string; bg: string; icon: any }> = {
-  pending:   { label: "En attente",  color: "#D97706", bg: "#FEF3C7", icon: "hourglass" },
-  accepted:  { label: "Acceptée",    color: "#0EA5E9", bg: "#E0F2FE", icon: "checkmark-circle" },
-  rejected:  { label: "Refusée",     color: "#DC2626", bg: "#FEE2E2", icon: "close-circle" },
-  completed: { label: "Terminée",    color: "#16A34A", bg: "#DCFCE7", icon: "trophy" },
-  cancelled: { label: "Annulée",     color: "#6B7280", bg: "#F3F4F6", icon: "close" },
+const STATUS_META: Record<string, { label: string; tone: any; icon: any }> = {
+  pending:   { label: "En attente",  tone: "warning",  icon: "hourglass-outline" },
+  accepted:  { label: "Acceptée",    tone: "info",     icon: "checkmark-circle-outline" },
+  rejected:  { label: "Refusée",     tone: "danger",   icon: "close-circle-outline" },
+  completed: { label: "Terminée",    tone: "success",  icon: "trophy-outline" },
+  cancelled: { label: "Annulée",     tone: "neutral",  icon: "ban-outline" },
 };
 
 export default function BookingDetail() {
@@ -98,10 +98,7 @@ export default function BookingDetail() {
         <Card>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <Txt weight="700" size="lg">{isClient ? b.provider_name : b.client_name}</Txt>
-            <View style={[styles.pill, { backgroundColor: meta.bg, flexDirection: "row", alignItems: "center" }]}>
-              <Ionicons name={meta.icon} size={12} color={meta.color} />
-              <Txt size="xxs" weight="700" color={meta.color} style={{ marginLeft: 4 }}>{meta.label}</Txt>
-            </View>
+            <Badge icon={meta.icon} label={meta.label} tone={meta.tone} size="sm" />
           </View>
           <Row icon="calendar-outline"  label="Date"        value={`${b.date} · ${b.time}`} />
           {b.service_key ? <Row icon="briefcase-outline" label="Prestation" value={b.service_key} /> : null}

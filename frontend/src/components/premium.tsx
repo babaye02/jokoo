@@ -244,42 +244,8 @@ export function SectionHeader({
 }
 
 // ============================================================================
-// PremiumChip — Pill discret pour tags/statuts/pilules
+// (PremiumChip removed — use `Badge` from ui.tsx for consistent premium badges)
 // ============================================================================
-export function PremiumChip({
-  label,
-  color = colors.text,
-  bg = colors.surfaceWarm2,
-  icon,
-  size = "md",
-}: {
-  label: string;
-  color?: string;
-  bg?: string;
-  icon?: keyof typeof Ionicons.glyphMap;
-  size?: "sm" | "md";
-}) {
-  const pad = size === "sm" ? { paddingHorizontal: 8, paddingVertical: 3 } : { paddingHorizontal: 12, paddingVertical: 6 };
-  const fontSize = size === "sm" ? 11 : 12;
-  return (
-    <View
-      style={[
-        {
-          flexDirection: "row",
-          alignItems: "center",
-          borderRadius: radius.pill,
-          backgroundColor: bg,
-        },
-        pad,
-      ]}
-    >
-      {icon ? (
-        <Ionicons name={icon} size={fontSize + 2} color={color} style={{ marginRight: 4 }} />
-      ) : null}
-      <Txt style={{ fontSize, color, fontWeight: "600" }}>{label}</Txt>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   catInner: {

@@ -1,83 +1,52 @@
-import { View, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { Txt } from "@/src/components/ui";
+import { Badge, BadgeRow } from "@/src/components/ui";
 import { Babysitter } from "@/src/api";
 import { PROFILE_TYPE_LABEL, langMeta } from "@/src/family";
-import { colors } from "@/src/theme";
 
-/** Renders the trust badges for a babysitter — new design per user requirements */
+/** Renders the trust badges for a babysitter — Airbnb/Apple/Notion style (neutral + colored icons only) */
 export function TrustBadges({ b, compact }: { b: Babysitter; compact?: boolean }) {
   const langs = (b.languages || []).slice(0, 4).map((l) => langMeta(l.code).label).join(" · ");
+  const size = compact ? "sm" : "md";
+  const profileEmoji = PROFILE_TYPE_LABEL[b.profile_type || "student"]?.emoji || "🎓";
+  const profileLbl = PROFILE_TYPE_LABEL[b.profile_type || "student"]?.label || "Étudiant(e)";
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+    <BadgeRow>
       {b.verified_plus ? (
-        <Badge bg="#F59E0B" fg="#FFFFFF" icon={<Txt style={{ fontSize: 12 }}>🛡️</Txt>} label="Jokoo Verified+" compact={compact} />
+        <Badge tone="top" icon="shield-checkmark" label="Jokoo Verified+" size={size} />
       ) : null}
       {b.recommended_by_jokoo ? (
-        <Badge bg="#EC4899" fg="#FFFFFF" icon={<Txt style={{ fontSize: 12 }}>❤️</Txt>} label="Recommandé par les familles" compact={compact} />
+        <Badge tone="top" icon="heart" label="Recommandé par les familles" size={size} />
       ) : null}
       {b.identity_verified ? (
-        <Badge bg="#DCFCE7" fg="#166534" icon={<Ionicons name="checkmark-circle" size={12} color="#166534" />} label="Identité vérifiée" compact={compact} />
+        <Badge tone="verified" icon="checkmark-circle" label="Identité vérifiée" size={size} />
       ) : null}
       {b.student_card_verified ? (
-        <Badge
-          bg="#DBEAFE"
-          fg="#1E40AF"
-          icon={<Txt style={{ fontSize: 12 }}>{PROFILE_TYPE_LABEL[b.profile_type || "student"]?.emoji || "🎓"}</Txt>}
-          label={`${PROFILE_TYPE_LABEL[b.profile_type || "student"]?.label || "Étudiant(e)"} vérifié`}
-          compact={compact}
-        />
+        <Badge tone="verified" emoji={profileEmoji} label={`${profileLbl} vérifié`} size={size} />
       ) : null}
       {langs ? (
-        <Badge bg="#F3E8FF" fg="#7C3AED" icon={<Txt style={{ fontSize: 12 }}>🌍</Txt>} label={langs} compact={compact} />
+        <Badge tone="language" icon="globe-outline" label={langs} size={size} />
       ) : null}
       {!compact ? (
-        <Badge bg="#FEE2E2" fg="#991B1B" icon={<Txt style={{ fontSize: 12 }}>🚨</Txt>} label="Assistance Jokoo 24/7" compact={compact} />
+        <Badge tone="assist" icon="medkit-outline" label="Assistance Jokoo 24/7" size={size} />
       ) : null}
       {b.psc1_certified && !compact ? (
-        <Badge bg="#FEF3C7" fg="#92400E" icon={<Txt style={{ fontSize: 12 }}>🥇</Txt>} label="Premiers secours (PSC1)" compact={compact} />
+        <Badge tone="top" icon="ribbon-outline" label="Premiers secours (PSC1)" size={size} />
       ) : null}
-    </View>
+    </BadgeRow>
   );
 }
 
-/** Simple pill for filter matches — e.g., "Disponible aujourd'hui" */
+/** Availability chips — même style neutre, icônes colorées. */
 export function AvailabilityChips({ b }: { b: Babysitter }) {
-  const items: { icon: string; label: string; bg: string; fg: string }[] = [];
-  if (b.available_today) items.push({ icon: "📅", label: "Disponible aujourd'hui", bg: "#DCFCE7", fg: "#166534" });
-  if (b.night_care) items.push({ icon: "🌙", label: "Garde de nuit", bg: "#E0E7FF", fg: "#3730A3" });
-  if (b.can_travel) items.push({ icon: "🚗", label: "Se déplace", bg: "#DBEAFE", fg: "#1E40AF" });
+  const items: { icon: any; label: string; tone: any }[] = [];
+  if (b.available_today) items.push({ icon: "calendar-outline", label: "Disponible aujourd'hui", tone: "verified" });
+  if (b.night_care) items.push({ icon: "moon-outline", label: "Garde de nuit", tone: "info" });
+  if (b.can_travel) items.push({ icon: "car-outline", label: "Se déplace", tone: "info" });
   if (items.length === 0) return null;
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+    <BadgeRow>
       {items.map((it) => (
-        <View key={it.label} style={[styles.pill, { backgroundColor: it.bg }]}>
-          <Txt style={{ fontSize: 11 }}>{it.icon}</Txt>
-          <Txt size="xxs" weight="700" color={it.fg} style={{ marginLeft: 4 }}>{it.label}</Txt>
-        </View>
+        <Badge key={it.label} icon={it.icon} label={it.label} tone={it.tone} size="sm" />
       ))}
-    </View>
+    </BadgeRow>
   );
 }
-
-function Badge({ bg, fg, icon, label, compact }: any) {
-  return (
-    <View style={[styles.pill, { backgroundColor: bg, paddingHorizontal: compact ? 6 : 8, paddingVertical: compact ? 2 : 4 }]}>
-      {icon}
-      <Txt size="xxs" weight="700" color={fg} style={{ marginLeft: 4 }}>{label}</Txt>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-});
-
-// Keep colors import so bundler treeshakes fine
-void colors;

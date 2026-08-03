@@ -7,7 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { api, Babysitter } from "@/src/api";
 import { AGE_GROUPS, LANGUAGES, SERVICES, SKILLS } from "@/src/family";
 import { formatXof } from "@/src/pricing";
-import { Txt, Chip, Btn, Avatar } from "@/src/components/ui";
+import { Txt, Chip, Btn, Avatar, Badge, BadgeRow } from "@/src/components/ui";
 import { TrustBadges, AvailabilityChips } from "@/src/components/family-badges";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
@@ -94,11 +94,11 @@ export default function FamilyHub() {
               Étudiants & professeurs vérifiés — partenaires de votre famille.
             </Text>
           </View>
-          <View style={{ flexDirection: "row", gap: 6, marginTop: spacing.md, flexWrap: "wrap" }}>
-            <Badge icon="🛡️" label="Verified+" />
-            <Badge icon="🌍" label="Multilingues" />
-            <Badge icon="🚨" label="Assistance 24/7" />
-          </View>
+          <BadgeRow style={{ marginTop: spacing.md }}>
+            <Badge tone="top" icon="shield-checkmark" label="Verified+" />
+            <Badge tone="language" icon="globe-outline" label="Multilingues" />
+            <Badge tone="assist" icon="medkit-outline" label="Assistance 24/7" />
+          </BadgeRow>
         </View>
       </SafeAreaView>
 
@@ -218,15 +218,6 @@ export default function FamilyHub() {
   );
 }
 
-function Badge({ icon, label }: { icon: string; label: string }) {
-  return (
-    <View style={styles.badge}>
-      <Txt size="xxs" color={colors.white}>{icon}  </Txt>
-      <Txt size="xxs" color={colors.white} weight="600">{label}</Txt>
-    </View>
-  );
-}
-
 function SectionTitle({ children }: any) {
   return (
     <Txt size="sm" weight="700" style={{ paddingHorizontal: spacing.xl, marginTop: spacing.lg, marginBottom: 8 }}>
@@ -298,14 +289,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   back: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.18)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
   ctaBecome: {
     flexDirection: "row",
     alignItems: "center",

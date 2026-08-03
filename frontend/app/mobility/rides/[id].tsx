@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, Ride } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { formatXof } from "@/src/pricing";
-import { Txt, Btn, Avatar, ErrorBox, Card } from "@/src/components/ui";
+import { Txt, Btn, Avatar, ErrorBox, Card, Badge, BadgeRow } from "@/src/components/ui";
 import { colors, shadow, spacing } from "@/src/theme";
 
 const WEEKDAY_FR: Record<string, string> = { mon: "Lun", tue: "Mar", wed: "Mer", thu: "Jeu", fri: "Ven", sat: "Sam", sun: "Dim" };
@@ -156,12 +156,12 @@ export default function RideDetail() {
           </View>
 
           {ride.recurrence === "weekly" && ride.recurrence_days?.length ? (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: spacing.md }}>
-              {ride.recurrence_days.map((d) => (
-                <View key={d} style={styles.dayChip}>
-                  <Txt size="xxs" weight="700" color={colors.midnight}>{WEEKDAY_FR[d]}</Txt>
-                </View>
-              ))}
+            <View style={{ marginTop: spacing.md }}>
+              <BadgeRow>
+                {ride.recurrence_days.map((d) => (
+                  <Badge key={d} icon="calendar-outline" tone="info" label={WEEKDAY_FR[d]} size="sm" />
+                ))}
+              </BadgeRow>
             </View>
           ) : null}
         </Card>

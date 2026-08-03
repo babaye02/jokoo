@@ -307,9 +307,24 @@ export default function ProviderDetail() {
 
           {p.zones && p.zones.length > 0 ? (
             <Section title="Zones d'intervention">
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 6, columnGap: 6 }}>
                 {p.zones.map((z) => (
-                  <View key={z} style={styles.zoneChip}><Txt size="sm" weight="500">{z}</Txt></View>
+                  <View
+                    key={z}
+                    style={{
+                      height: 28,
+                      paddingHorizontal: 11,
+                      borderRadius: radius.pill,
+                      backgroundColor: colors.white,
+                      borderWidth: 1,
+                      borderColor: "#E5E7EB",
+                      flexDirection: "row",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Ionicons name="location-outline" size={12} color="#2563EB" style={{ marginRight: 5 }} />
+                    <Txt style={{ fontSize: 12, fontWeight: "600", color: "#111827" }}>{z}</Txt>
+                  </View>
                 ))}
               </View>
             </Section>

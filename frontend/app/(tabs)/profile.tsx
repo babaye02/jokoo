@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
 import { api, Booking } from "@/src/api";
-import { Avatar, Card, Txt } from "@/src/components/ui";
+import { Avatar, Card, Txt, Badge } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 /** RoleSwitcher — Bouton pour basculer ou activer le second profil. */
@@ -158,12 +158,19 @@ const STATUS_LABEL: Record<string, string> = {
   completed: "Terminée",
   cancelled: "Annulée",
 };
-const STATUS_COLOR: Record<string, string> = {
-  pending: colors.warning,
-  accepted: colors.turquoise,
-  rejected: colors.danger,
-  completed: colors.success,
-  cancelled: colors.textMuted,
+const STATUS_TONE: Record<string, "warning" | "verified" | "danger" | "success" | "neutral"> = {
+  pending: "warning",
+  accepted: "verified",
+  rejected: "danger",
+  completed: "success",
+  cancelled: "neutral",
+};
+const STATUS_ICON: Record<string, any> = {
+  pending: "hourglass-outline",
+  accepted: "checkmark-circle-outline",
+  rejected: "close-circle-outline",
+  completed: "checkmark-done-outline",
+  cancelled: "ban-outline",
 };
 
 export default function Profile() {
@@ -194,11 +201,12 @@ export default function Profile() {
             <Avatar uri={user.avatar} name={user.name} size={92} />
             <Txt size="xl" weight="700" style={{ marginTop: spacing.md }}>{user.name}</Txt>
             <Txt size="sm" color={colors.textMuted}>{user.email}</Txt>
-            <View style={styles.roleBadge}>
-              <Ionicons name={user.role === "prestataire" ? "briefcase" : "person"} size={12} color={colors.white} />
-              <Txt size="xxs" color={colors.white} weight="700" style={{ marginLeft: 4 }}>
-                {user.role === "prestataire" ? "PRESTATAIRE" : "CLIENT"}
-              </Txt>
+            <View style={{ marginTop: spacing.sm }}>
+              <Badge
+                icon={user.role === "prestataire" ? "briefcase" : "person"}
+                label={user.role === "prestataire" ? "Prestataire" : "Client"}
+                tone={user.role === "prestataire" ? "top" : "info"}
+              />
             </View>
             {/* v2.2 — Bouton bascule / activation second profil */}
             <RoleSwitcher />
@@ -236,9 +244,12 @@ export default function Profile() {
                       <Txt weight="700">{user.role === "prestataire" ? b.client_name : b.provider_name}</Txt>
                       <Txt size="xs" color={colors.textMuted}>{b.provider_service} · {b.date} {b.time}</Txt>
                     </View>
-                    <View style={[styles.pill, { backgroundColor: `${STATUS_COLOR[b.status]}22` }]}>
-                      <Txt size="xxs" weight="700" color={STATUS_COLOR[b.status]}>{STATUS_LABEL[b.status]}</Txt>
-                    </View>
+                    <Badge
+                      icon={STATUS_ICON[b.status]}
+                      label={STATUS_LABEL[b.status]}
+                      tone={STATUS_TONE[b.status]}
+                      size="sm"
+                    />
                   </View>
                 </Card>
               ))}
