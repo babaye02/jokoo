@@ -1,6 +1,0 @@
-User-Agent: *
-Allow: /
-Disallow: /api/
-
-Host: https://jokooservices.com
-Sitemap: https://jokooservices.com/sitemap.xml
