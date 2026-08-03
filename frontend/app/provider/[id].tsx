@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Linking, FlatList, Share, Platform, findNodeHandle } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Linking, FlatList, Share, Platform, findNodeHandle, Text } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -146,52 +146,56 @@ export default function ProviderDetail() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
-        {/* Cover */}
+        {/* Cover — hero photo plein cadre */}
         <View style={styles.cover}>
           <Image source={{ uri: p.photo || "https://images.unsplash.com/photo-1621905252472-943afaa20e20" }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          <LinearGradient colors={["rgba(11,31,58,0.5)", "transparent"]} style={styles.coverTop} />
+          <LinearGradient
+            colors={["rgba(31,31,31,0.55)", "rgba(31,31,31,0.15)", "rgba(31,31,31,0)", "rgba(31,31,31,0.72)"]}
+            locations={[0, 0.3, 0.7, 1]}
+            style={StyleSheet.absoluteFill}
+          />
           <SafeAreaView edges={["top"]} style={styles.coverBar}>
             <Pressable onPress={() => router.back()} style={styles.iconBtn} testID="provider-back">
-              <Ionicons name="chevron-back" size={22} color={colors.midnight} />
+              <Ionicons name="chevron-back" size={22} color={colors.text} />
             </Pressable>
             <View style={{ flexDirection: "row", gap: 10 }}>
               <Pressable onPress={toggleFav} style={styles.iconBtn} testID="provider-fav">
-                <Ionicons name={fav ? "heart" : "heart-outline"} size={22} color={fav ? colors.danger : colors.midnight} />
+                <Ionicons name={fav ? "heart" : "heart-outline"} size={22} color={fav ? colors.danger : colors.text} />
               </Pressable>
               <Pressable onPress={share} style={styles.iconBtn} testID="provider-share">
-                <Ionicons name="share-outline" size={22} color={colors.midnight} />
+                <Ionicons name="share-outline" size={22} color={colors.text} />
               </Pressable>
             </View>
           </SafeAreaView>
         </View>
 
-        {/* Card */}
+        {/* Card — remonte au-dessus du bas de la cover pour effet Airbnb */}
         <View style={styles.body}>
           <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
             <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Txt size="xxl" weight="700">{p.name}</Txt>
-                {p.verified ? <Ionicons name="checkmark-circle" size={20} color={colors.turquoise} style={{ marginLeft: 6 }} /> : null}
+              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                <Text style={{ fontFamily: "InstrumentSerif", fontSize: 32, lineHeight: 36, letterSpacing: -0.8, color: colors.text }}>{p.name}</Text>
+                {p.verified ? <Ionicons name="checkmark-circle" size={22} color={colors.primary} style={{ marginLeft: 8 }} /> : null}
               </View>
-              <Txt size="md" color={colors.textMuted} style={{ marginTop: 4 }}>{p.service}</Txt>
-              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}>
+              <Text style={{ fontSize: 14, color: colors.textSecondary, marginTop: 6 }}>{p.service}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }}>
                 <Ionicons name="location-outline" size={14} color={colors.textMuted} />
-                <Txt size="sm" color={colors.textMuted} style={{ marginLeft: 4 }}>{p.city}</Txt>
+                <Text style={{ fontSize: 13, color: colors.textMuted, marginLeft: 4 }}>{p.city}</Text>
               </View>
             </View>
-            <View style={{ alignItems: "flex-end", maxWidth: 150 }}>
-              <Txt size="xl" weight="700" color={colors.turquoise} numberOfLines={2} style={{ textAlign: "right" }}>
+            <View style={{ alignItems: "flex-end", maxWidth: 140 }}>
+              <Text style={{ fontFamily: "InstrumentSerif", fontSize: 22, lineHeight: 26, letterSpacing: -0.3, color: colors.text, textAlign: "right" }} numberOfLines={2}>
                 {priceLabel(p)}
-              </Txt>
-              <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 2, textAlign: "right" }}>
+              </Text>
+              <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 4, textAlign: "right" }}>
                 {p.price_type === "quote"
                   ? "Devis personnalisé"
                   : p.price_type === "from"
                   ? "Prix de départ"
                   : "Prix fixe"}
-              </Txt>
+              </Text>
             </View>
           </View>
 
@@ -410,45 +414,48 @@ function Stat({ icon, label, value, color, small }: { icon: any; label: string; 
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <View style={{ marginTop: spacing.xl }}>
-      <Txt size="lg" weight="700" style={{ marginBottom: spacing.md }}>{title}</Txt>
+    <View style={{ marginTop: spacing.xxl }}>
+      <Text style={{ fontFamily: "InstrumentSerif", fontSize: 22, lineHeight: 28, letterSpacing: -0.3, color: colors.text, marginBottom: spacing.md }}>
+        {title}
+      </Text>
       {children}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  cover: { width: "100%", height: 280 },
+  cover: { width: "100%", height: 340 },
   coverTop: { position: "absolute", left: 0, right: 0, top: 0, height: 120 },
   coverBar: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.95)", alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.96)", alignItems: "center", justifyContent: "center", ...shadow.hairline },
   body: {
-    marginTop: -24, backgroundColor: colors.surface,
-    borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    padding: spacing.xl, ...shadow.strong,
+    marginTop: -40, backgroundColor: colors.bg,
+    borderTopLeftRadius: 36, borderTopRightRadius: 36,
+    padding: spacing.xl, paddingTop: spacing.xxl,
   },
   stats: {
     marginTop: spacing.xl, flexDirection: "row",
-    backgroundColor: colors.surface2, borderRadius: radius.lg, padding: 14,
+    backgroundColor: colors.card, borderRadius: radius.xl, padding: 18,
+    ...shadow.hairline,
   },
   statDivider: { width: 1, backgroundColor: colors.divider },
   zoneChip: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.brandTertiary, borderRadius: radius.pill },
-  galleryImg: { width: 140, height: 100, borderRadius: radius.md },
-  svcRow: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginBottom: 10 },
-  svcImg: { width: 64, height: 64, borderRadius: radius.md },
+  galleryImg: { width: 160, height: 120, borderRadius: radius.lg },
+  svcRow: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: radius.xl, backgroundColor: colors.card, marginBottom: 12, ...shadow.hairline },
+  svcImg: { width: 72, height: 72, borderRadius: radius.md },
   modeRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    padding: 10,
-    backgroundColor: colors.surface2,
-    borderRadius: radius.md,
+    padding: 12,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
   },
   modeIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.brandTertiary,
@@ -463,18 +470,18 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.brandTertiary,
     borderWidth: 1,
-    borderColor: colors.turquoise,
+    borderColor: colors.primary,
   },
   bottomBar: {
     position: "absolute", left: 0, right: 0, bottom: 0,
-    backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: spacing.xl, paddingTop: 12,
+    backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: spacing.xl, paddingTop: 14,
     flexDirection: "row", alignItems: "center", gap: 10,
-    ...shadow.strong,
+    ...shadow.elevated,
   },
   circleBtn: {
-    width: 50, height: 50, borderRadius: 25,
-    backgroundColor: colors.surface2, borderWidth: 1, borderColor: colors.border,
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: colors.surfaceWarm, borderWidth: 1, borderColor: colors.border,
     alignItems: "center", justifyContent: "center",
   },
 });
