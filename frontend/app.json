@@ -15,88 +15,13 @@
       "usesAppleSignIn": true,
       "buildNumber": "3",
       "requireFullScreen": false,
-      "privacyManifests": {
-        "NSPrivacyAccessedAPITypes": [
-          {
-            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
-          },
-          {
-            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
-            "NSPrivacyAccessedAPITypeReasons": ["C617.1"]
-          },
-          {
-            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
-            "NSPrivacyAccessedAPITypeReasons": ["35F9.1"]
-          },
-          {
-            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
-            "NSPrivacyAccessedAPITypeReasons": ["E174.1"]
-          }
-        ],
-        "NSPrivacyTracking": false,
-        "NSPrivacyTrackingDomains": [],
-        "NSPrivacyCollectedDataTypes": [
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeEmailAddress",
-            "NSPrivacyCollectedDataTypeLinked": true,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          },
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeName",
-            "NSPrivacyCollectedDataTypeLinked": true,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          },
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePhoneNumber",
-            "NSPrivacyCollectedDataTypeLinked": true,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          },
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePhysicalAddress",
-            "NSPrivacyCollectedDataTypeLinked": true,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          },
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePhotosorVideos",
-            "NSPrivacyCollectedDataTypeLinked": true,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          },
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePaymentInfo",
-            "NSPrivacyCollectedDataTypeLinked": true,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          },
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeCustomerSupport",
-            "NSPrivacyCollectedDataTypeLinked": true,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          },
-          {
-            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeCrashData",
-            "NSPrivacyCollectedDataTypeLinked": false,
-            "NSPrivacyCollectedDataTypeTracking": false,
-            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
-          }
-        ]
-      },
       "infoPlist": {
         "NSCameraUsageDescription": "Prenez une photo pour vos missions et profil.",
         "NSPhotoLibraryUsageDescription": "Choisissez des photos pour votre profil et missions.",
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleDisplayName": "Jokoo",
-        "LSApplicationQueriesSchemes": ["wave", "orangemoney", "tel", "mailto", "sms", "https", "http", "maps", "comgooglemaps"],
-        "UIBackgroundModes": [],
+        "LSApplicationQueriesSchemes": ["wave", "orangemoney", "comgooglemaps"],
         "UIRequiresFullScreen": false,
-        "UIStatusBarStyle": "UIStatusBarStyleDefault",
-        "UIViewControllerBasedStatusBarAppearance": true,
         "CFBundleLocalizations": ["fr", "en"],
         "CFBundleDevelopmentRegion": "fr"
       }
