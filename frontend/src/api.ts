@@ -111,6 +111,32 @@ export type ServiceItem = {
   label: string;
   icon: string;
   color: string;
+  category?: string;
+};
+
+export type ServiceCategory = {
+  key: string;
+  label: string;
+  emoji: string;
+  color: string;
+  order?: number;
+  count: number;
+  services: ServiceItem[];
+};
+
+export type ServiceSuggestion = {
+  id: string;
+  suggested_by: string;
+  suggested_by_name?: string;
+  label: string;
+  category?: string;
+  description?: string | null;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
+  admin_note?: string | null;
+  generated_key?: string | null;
 };
 
 export type PriceType = "fixed" | "from" | "quote";

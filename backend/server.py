@@ -721,20 +721,249 @@ class LegalAcceptanceIn(BaseModel):
 
 
 # ---------- services catalog ----------
-SERVICES_CATALOG = [
-    {"key": "plombier", "label": "Plombier", "icon": "water-outline", "color": "#00C2A8"},
-    {"key": "electricien", "label": "Électricien", "icon": "flash-outline", "color": "#F59E0B"},
-    {"key": "macon", "label": "Maçon", "icon": "hammer-outline", "color": "#8B5CF6"},
-    {"key": "peintre", "label": "Peintre", "icon": "color-palette-outline", "color": "#EF4444"},
-    {"key": "menage", "label": "Femme de ménage", "icon": "sparkles-outline", "color": "#10B981"},
-    {"key": "coiffeuse", "label": "Coiffeuse", "icon": "cut-outline", "color": "#EC4899"},
-    {"key": "prof", "label": "Professeur", "icon": "book-outline", "color": "#3B82F6"},
-    {"key": "decorateur", "label": "Décorateur", "icon": "brush-outline", "color": "#F97316"},
-    {"key": "clim", "label": "Climatisation", "icon": "snow-outline", "color": "#0EA5E9"},
-    {"key": "jardinier", "label": "Jardinier", "icon": "leaf-outline", "color": "#22C55E"},
-    {"key": "chauffeur", "label": "Chauffeur", "icon": "car-outline", "color": "#0B1F3A"},
-    {"key": "photographe", "label": "Photographe", "icon": "camera-outline", "color": "#6366F1"},
+# ---------------------------------------------------------------------------
+# Catalogue de métiers (Étape A - v2)
+# --------------------------------------------------------------------------
+# Chaque métier appartient à UNE catégorie. Les 12 métiers historiques
+# conservent leurs `key` d'origine pour ne pas casser les prestataires
+# déjà inscrits (`plombier`, `electricien`, `macon`, `peintre`, `menage`,
+# `coiffeuse`, `prof`, `decorateur`, `clim`, `jardinier`, `chauffeur`,
+# `photographe`).
+#
+# Les nouvelles suggestions validées par un admin sont chargées depuis
+# `db.services_extra` et fusionnées au démarrage / à chaque appel.
+# ---------------------------------------------------------------------------
+
+SERVICE_CATEGORIES = [
+    {"key": "beauty",    "label": "Beauté",                     "emoji": "💄", "color": "#EC4899", "order": 1},
+    {"key": "health",    "label": "Santé",                      "emoji": "🩺", "color": "#0EA5E9", "order": 2},
+    {"key": "security",  "label": "Sécurité",                   "emoji": "🛡️", "color": "#0B1F3A", "order": 3},
+    {"key": "home",      "label": "Maison & Ménage",            "emoji": "🏠", "color": "#10B981", "order": 4},
+    {"key": "repair",    "label": "Bâtiment & Réparations",     "emoji": "🔧", "color": "#F59E0B", "order": 5},
+    {"key": "transport", "label": "Transport & Livraison",      "emoji": "🚗", "color": "#0B1F3A", "order": 6},
+    {"key": "food",      "label": "Restauration & Traiteur",    "emoji": "🍽️", "color": "#F97316", "order": 7},
+    {"key": "events",    "label": "Événementiel",               "emoji": "🎉", "color": "#8B5CF6", "order": 8},
+    {"key": "tech",      "label": "Informatique & Digital",     "emoji": "💻", "color": "#6366F1", "order": 9},
+    {"key": "education", "label": "Cours & Formation",          "emoji": "📚", "color": "#3B82F6", "order": 10},
+    {"key": "kids",      "label": "Enfants & Babysitting",      "emoji": "👶", "color": "#EC4899", "order": 11},
+    {"key": "pets",      "label": "Animaux",                    "emoji": "🐶", "color": "#F59E0B", "order": 12},
+    {"key": "laundry",   "label": "Pressing & Couture",         "emoji": "🧺", "color": "#22C55E", "order": 13},
+    {"key": "moving",    "label": "Déménagement",               "emoji": "📦", "color": "#F97316", "order": 14},
+    {"key": "garden",    "label": "Jardinage",                  "emoji": "🌿", "color": "#22C55E", "order": 15},
+    {"key": "errands",   "label": "Courses & Assistance",       "emoji": "🛒", "color": "#0EA5E9", "order": 16},
+    {"key": "admin",     "label": "Administratif",              "emoji": "📄", "color": "#8B5CF6", "order": 17},
+    {"key": "creative",  "label": "Création (Photo, Vidéo, Design)", "emoji": "📷", "color": "#6366F1", "order": 18},
+    {"key": "rental",    "label": "Location de matériel",       "emoji": "📦", "color": "#F59E0B", "order": 19},
+    {"key": "other",     "label": "Autres",                     "emoji": "✨", "color": "#64748B", "order": 99},
 ]
+
+SERVICES_CATALOG = [
+    # --- Beauté (💄) ---
+    {"key": "coiffeuse",           "label": "Coiffeuse",                  "icon": "cut-outline",       "color": "#EC4899", "category": "beauty"},
+    {"key": "coiffeur",            "label": "Coiffeur",                   "icon": "cut-outline",       "color": "#EC4899", "category": "beauty"},
+    {"key": "tresseuse",           "label": "Tresseuse",                  "icon": "sparkles-outline",  "color": "#EC4899", "category": "beauty"},
+    {"key": "perruques",           "label": "Pose de perruques",          "icon": "woman-outline",     "color": "#EC4899", "category": "beauty"},
+    {"key": "maquilleuse",         "label": "Maquilleuse (MUA)",          "icon": "color-palette-outline", "color": "#EC4899", "category": "beauty"},
+    {"key": "estheticienne",       "label": "Esthéticienne",              "icon": "flower-outline",    "color": "#EC4899", "category": "beauty"},
+    {"key": "manucure",            "label": "Manucure",                   "icon": "hand-left-outline", "color": "#EC4899", "category": "beauty"},
+    {"key": "pedicure",            "label": "Pédicure",                   "icon": "footsteps-outline", "color": "#EC4899", "category": "beauty"},
+    {"key": "nail_art",            "label": "Nail art / pose ongles",     "icon": "brush-outline",     "color": "#EC4899", "category": "beauty"},
+    {"key": "extension_cils",      "label": "Extension de cils",          "icon": "eye-outline",       "color": "#EC4899", "category": "beauty"},
+    {"key": "rehaussement_cils",   "label": "Rehaussement de cils",       "icon": "eye-outline",       "color": "#EC4899", "category": "beauty"},
+    {"key": "brow_lift",           "label": "Brow lift / Sourcils",       "icon": "eye-outline",       "color": "#EC4899", "category": "beauty"},
+    {"key": "epilation",           "label": "Épilation",                  "icon": "sparkles-outline",  "color": "#EC4899", "category": "beauty"},
+    {"key": "massage",             "label": "Massage",                    "icon": "hand-right-outline","color": "#EC4899", "category": "beauty"},
+    {"key": "spa_hammam",          "label": "Spa & Hammam",               "icon": "water-outline",     "color": "#EC4899", "category": "beauty"},
+    {"key": "barbier",             "label": "Barbier",                    "icon": "cut-outline",       "color": "#EC4899", "category": "beauty"},
+    {"key": "tatouage_henne",      "label": "Tatouage au henné",          "icon": "brush-outline",     "color": "#EC4899", "category": "beauty"},
+
+    # --- Santé (🩺) ---
+    {"key": "infirmier",           "label": "Infirmier(ère)",             "icon": "medical-outline",   "color": "#0EA5E9", "category": "health"},
+    {"key": "aide_soignant",       "label": "Aide-soignant(e)",           "icon": "heart-outline",     "color": "#0EA5E9", "category": "health"},
+    {"key": "kinesitherapeute",    "label": "Kinésithérapeute",           "icon": "fitness-outline",   "color": "#0EA5E9", "category": "health"},
+    {"key": "sage_femme",          "label": "Sage-femme",                 "icon": "medkit-outline",    "color": "#0EA5E9", "category": "health"},
+    {"key": "garde_malade",        "label": "Garde-malade",               "icon": "bed-outline",       "color": "#0EA5E9", "category": "health"},
+    {"key": "masseur_therapeute",  "label": "Masseur thérapeute",         "icon": "hand-right-outline","color": "#0EA5E9", "category": "health"},
+    {"key": "dieteticien",         "label": "Diététicien(ne)",            "icon": "nutrition-outline", "color": "#0EA5E9", "category": "health"},
+    {"key": "psy_therapeute",      "label": "Psychologue / Thérapeute",   "icon": "chatbubbles-outline","color": "#0EA5E9", "category": "health"},
+    {"key": "orthophoniste",       "label": "Orthophoniste",              "icon": "chatbubbles-outline","color": "#0EA5E9", "category": "health"},
+
+    # --- Sécurité (🛡️) ---
+    {"key": "agent_securite",      "label": "Agent de sécurité",          "icon": "shield-checkmark-outline","color": "#0B1F3A", "category": "security"},
+    {"key": "gardien",             "label": "Gardien",                    "icon": "shield-outline",    "color": "#0B1F3A", "category": "security"},
+    {"key": "garde_du_corps",      "label": "Garde du corps",             "icon": "shield-half-outline","color": "#0B1F3A", "category": "security"},
+    {"key": "installateur_alarme", "label": "Installateur d'alarme / vidéo","icon": "videocam-outline","color": "#0B1F3A", "category": "security"},
+
+    # --- Maison & Ménage (🏠) ---
+    {"key": "menage",              "label": "Femme de ménage",            "icon": "sparkles-outline",  "color": "#10B981", "category": "home"},
+    {"key": "menage_homme",        "label": "Homme de ménage",            "icon": "sparkles-outline",  "color": "#10B981", "category": "home"},
+    {"key": "nettoyage_pro",       "label": "Nettoyage professionnel",    "icon": "brush-outline",     "color": "#10B981", "category": "home"},
+    {"key": "nettoyage_fin_chantier","label": "Nettoyage fin de chantier","icon": "brush-outline",     "color": "#10B981", "category": "home"},
+    {"key": "nettoyage_vitres",    "label": "Nettoyage vitres",           "icon": "sunny-outline",     "color": "#10B981", "category": "home"},
+    {"key": "gouvernante",         "label": "Gouvernante",                "icon": "person-outline",    "color": "#10B981", "category": "home"},
+    {"key": "cuisiniere_domicile", "label": "Cuisinière à domicile",      "icon": "restaurant-outline","color": "#10B981", "category": "home"},
+    {"key": "repasseuse",          "label": "Repassage à domicile",       "icon": "shirt-outline",     "color": "#10B981", "category": "home"},
+    {"key": "dératisation",        "label": "Dératisation / Désinsectisation","icon": "bug-outline",   "color": "#10B981", "category": "home"},
+
+    # --- Bâtiment & Réparations (🔧) ---
+    {"key": "plombier",            "label": "Plombier",                   "icon": "water-outline",     "color": "#F59E0B", "category": "repair"},
+    {"key": "electricien",         "label": "Électricien",                "icon": "flash-outline",     "color": "#F59E0B", "category": "repair"},
+    {"key": "macon",               "label": "Maçon",                      "icon": "hammer-outline",    "color": "#F59E0B", "category": "repair"},
+    {"key": "peintre",             "label": "Peintre en bâtiment",        "icon": "color-palette-outline","color": "#F59E0B","category": "repair"},
+    {"key": "carreleur",           "label": "Carreleur",                  "icon": "grid-outline",      "color": "#F59E0B", "category": "repair"},
+    {"key": "menuisier",           "label": "Menuisier",                  "icon": "construct-outline", "color": "#F59E0B", "category": "repair"},
+    {"key": "aluminium",           "label": "Aluminier / Vitrier",        "icon": "square-outline",    "color": "#F59E0B", "category": "repair"},
+    {"key": "soudeur",             "label": "Soudeur / Ferronnier",       "icon": "flame-outline",     "color": "#F59E0B", "category": "repair"},
+    {"key": "clim",                "label": "Climatisation & Frigoriste", "icon": "snow-outline",      "color": "#F59E0B", "category": "repair"},
+    {"key": "reparateur_electro",  "label": "Réparateur électroménager",  "icon": "cog-outline",       "color": "#F59E0B", "category": "repair"},
+    {"key": "serrurier",           "label": "Serrurier",                  "icon": "key-outline",       "color": "#F59E0B", "category": "repair"},
+    {"key": "reparateur_tv",       "label": "Réparateur TV / Hi-fi",      "icon": "tv-outline",        "color": "#F59E0B", "category": "repair"},
+    {"key": "reparateur_tel",      "label": "Réparateur téléphone",       "icon": "phone-portrait-outline","color": "#F59E0B", "category": "repair"},
+    {"key": "toiture",             "label": "Toiture / Étanchéité",       "icon": "home-outline",      "color": "#F59E0B", "category": "repair"},
+    {"key": "platrier",            "label": "Plâtrier / Faux plafonds",   "icon": "layers-outline",    "color": "#F59E0B", "category": "repair"},
+
+    # --- Transport & Livraison (🚗) ---
+    {"key": "chauffeur",           "label": "Chauffeur particulier",      "icon": "car-outline",       "color": "#0B1F3A", "category": "transport"},
+    {"key": "chauffeur_vtc",       "label": "Chauffeur VTC / Taxi",       "icon": "car-sport-outline", "color": "#0B1F3A", "category": "transport"},
+    {"key": "livreur_moto",        "label": "Livreur (moto)",             "icon": "bicycle-outline",   "color": "#0B1F3A", "category": "transport"},
+    {"key": "coursier",            "label": "Coursier / Course urbaine",  "icon": "bicycle-outline",   "color": "#0B1F3A", "category": "transport"},
+    {"key": "transporteur_marchandise","label": "Transporteur marchandises","icon": "cube-outline",    "color": "#0B1F3A", "category": "transport"},
+    {"key": "location_voiture",    "label": "Location de voiture",        "icon": "car-outline",       "color": "#0B1F3A", "category": "transport"},
+
+    # --- Restauration & Traiteur (🍽️) ---
+    {"key": "traiteur",            "label": "Traiteur",                   "icon": "restaurant-outline","color": "#F97316", "category": "food"},
+    {"key": "cake_designer",       "label": "Cake designer",              "icon": "cafe-outline",      "color": "#F97316", "category": "food"},
+    {"key": "patissier",           "label": "Pâtissier",                  "icon": "ice-cream-outline", "color": "#F97316", "category": "food"},
+    {"key": "chef_domicile",       "label": "Chef à domicile",            "icon": "restaurant-outline","color": "#F97316", "category": "food"},
+    {"key": "grillades",           "label": "Grilladeur / Méchoui",       "icon": "flame-outline",     "color": "#F97316", "category": "food"},
+    {"key": "serveur_evenement",   "label": "Serveur événementiel",       "icon": "wine-outline",      "color": "#F97316", "category": "food"},
+    {"key": "barman",              "label": "Barman / Mixologue",         "icon": "beer-outline",      "color": "#F97316", "category": "food"},
+
+    # --- Événementiel (🎉) ---
+    {"key": "decorateur",          "label": "Décorateur événementiel",    "icon": "brush-outline",     "color": "#8B5CF6", "category": "events"},
+    {"key": "organisateur_evenement","label": "Organisateur d'événements","icon": "calendar-outline",  "color": "#8B5CF6", "category": "events"},
+    {"key": "wedding_planner",     "label": "Wedding planner",            "icon": "heart-outline",     "color": "#8B5CF6", "category": "events"},
+    {"key": "dj",                  "label": "DJ",                         "icon": "musical-notes-outline","color": "#8B5CF6", "category": "events"},
+    {"key": "animateur",           "label": "Animateur",                  "icon": "mic-outline",       "color": "#8B5CF6", "category": "events"},
+    {"key": "griot",               "label": "Griot / Maître de cérémonie","icon": "mic-outline",       "color": "#8B5CF6", "category": "events"},
+    {"key": "fleuriste",           "label": "Fleuriste",                  "icon": "flower-outline",    "color": "#8B5CF6", "category": "events"},
+    {"key": "deco_mariage",        "label": "Décoration de mariage",      "icon": "heart-outline",     "color": "#8B5CF6", "category": "events"},
+    {"key": "deco_bapteme",        "label": "Décoration de baptême",      "icon": "gift-outline",      "color": "#8B5CF6", "category": "events"},
+    {"key": "deco_anniversaire",   "label": "Décoration d'anniversaire",  "icon": "balloon-outline",   "color": "#8B5CF6", "category": "events"},
+    {"key": "ceremonies_religieuses","label": "Cérémonies religieuses & familiales","icon": "sparkles-outline","color": "#8B5CF6", "category": "events"},
+    {"key": "danseurs",            "label": "Danseurs / Groupe de danse", "icon": "body-outline",      "color": "#8B5CF6", "category": "events"},
+
+    # --- Informatique & Digital (💻) ---
+    {"key": "dev_web",             "label": "Développeur Web",            "icon": "code-slash-outline","color": "#6366F1", "category": "tech"},
+    {"key": "dev_mobile",          "label": "Développeur mobile",         "icon": "phone-portrait-outline","color": "#6366F1", "category": "tech"},
+    {"key": "designer_ui_ux",      "label": "Designer UI/UX",             "icon": "color-wand-outline","color": "#6366F1", "category": "tech"},
+    {"key": "graphiste",           "label": "Graphiste",                  "icon": "brush-outline",     "color": "#6366F1", "category": "tech"},
+    {"key": "community_manager",   "label": "Community manager",          "icon": "megaphone-outline", "color": "#6366F1", "category": "tech"},
+    {"key": "seo_marketeur",       "label": "SEO / Marketeur digital",    "icon": "trending-up-outline","color": "#6366F1", "category": "tech"},
+    {"key": "reparateur_pc",       "label": "Réparateur PC",              "icon": "laptop-outline",    "color": "#6366F1", "category": "tech"},
+    {"key": "installateur_reseau", "label": "Installateur réseau / wifi", "icon": "wifi-outline",      "color": "#6366F1", "category": "tech"},
+
+    # --- Cours & Formation (📚) ---
+    {"key": "prof",                "label": "Professeur particulier",     "icon": "book-outline",      "color": "#3B82F6", "category": "education"},
+    {"key": "prof_maths",          "label": "Prof de maths",              "icon": "calculator-outline","color": "#3B82F6", "category": "education"},
+    {"key": "prof_francais",       "label": "Prof de français",           "icon": "book-outline",      "color": "#3B82F6", "category": "education"},
+    {"key": "prof_anglais",        "label": "Prof d'anglais",             "icon": "globe-outline",     "color": "#3B82F6", "category": "education"},
+    {"key": "prof_arabe",          "label": "Prof d'arabe",               "icon": "book-outline",      "color": "#3B82F6", "category": "education"},
+    {"key": "prof_musique",        "label": "Prof de musique",            "icon": "musical-notes-outline","color": "#3B82F6", "category": "education"},
+    {"key": "prof_sport",          "label": "Coach sportif",              "icon": "fitness-outline",   "color": "#3B82F6", "category": "education"},
+    {"key": "prof_yoga",           "label": "Prof de yoga",               "icon": "leaf-outline",      "color": "#3B82F6", "category": "education"},
+    {"key": "prof_conduite",       "label": "Moniteur de conduite",       "icon": "car-outline",       "color": "#3B82F6", "category": "education"},
+    {"key": "prof_couture",        "label": "Prof de couture",            "icon": "shirt-outline",     "color": "#3B82F6", "category": "education"},
+
+    # --- Enfants & Babysitting (👶) ---
+    {"key": "babysitter",          "label": "Baby-sitter",                "icon": "happy-outline",     "color": "#EC4899", "category": "kids"},
+    {"key": "nounou",              "label": "Nounou / Nourrice",          "icon": "heart-outline",     "color": "#EC4899", "category": "kids"},
+    {"key": "garde_enfants",       "label": "Garde d'enfants à domicile", "icon": "home-outline",      "color": "#EC4899", "category": "kids"},
+    {"key": "accompagnateur_ecole","label": "Accompagnement école",       "icon": "school-outline",    "color": "#EC4899", "category": "kids"},
+    {"key": "animateur_enfants",   "label": "Animateur pour enfants",     "icon": "balloon-outline",   "color": "#EC4899", "category": "kids"},
+
+    # --- Animaux (🐶) ---
+    {"key": "toiletteur",          "label": "Toiletteur",                 "icon": "paw-outline",       "color": "#F59E0B", "category": "pets"},
+    {"key": "dog_sitter",          "label": "Dog-sitter / promeneur",     "icon": "walk-outline",      "color": "#F59E0B", "category": "pets"},
+    {"key": "veterinaire_domicile","label": "Vétérinaire à domicile",     "icon": "medical-outline",   "color": "#F59E0B", "category": "pets"},
+    {"key": "dresseur_chien",      "label": "Dresseur de chien",          "icon": "paw-outline",       "color": "#F59E0B", "category": "pets"},
+
+    # --- Pressing & Couture (🧺) ---
+    {"key": "pressing",            "label": "Pressing / Blanchisserie",   "icon": "shirt-outline",     "color": "#22C55E", "category": "laundry"},
+    {"key": "couturier",           "label": "Couturier",                  "icon": "cut-outline",       "color": "#22C55E", "category": "laundry"},
+    {"key": "couturiere",          "label": "Couturière",                 "icon": "cut-outline",       "color": "#22C55E", "category": "laundry"},
+    {"key": "brodeuse",            "label": "Brodeuse",                   "icon": "sparkles-outline",  "color": "#22C55E", "category": "laundry"},
+    {"key": "styliste",            "label": "Styliste modéliste",         "icon": "brush-outline",     "color": "#22C55E", "category": "laundry"},
+    {"key": "cordonnier",          "label": "Cordonnier",                 "icon": "footsteps-outline", "color": "#22C55E", "category": "laundry"},
+
+    # --- Déménagement (📦) ---
+    {"key": "demenageur",          "label": "Déménageur",                 "icon": "cube-outline",      "color": "#F97316", "category": "moving"},
+    {"key": "manutentionnaire",    "label": "Manutentionnaire",           "icon": "barbell-outline",   "color": "#F97316", "category": "moving"},
+    {"key": "monte_meuble",        "label": "Monte-meuble",               "icon": "arrow-up-outline",  "color": "#F97316", "category": "moving"},
+    {"key": "assembleur_meubles",  "label": "Monteur de meubles",         "icon": "construct-outline", "color": "#F97316", "category": "moving"},
+
+    # --- Jardinage (🌿) ---
+    {"key": "jardinier",           "label": "Jardinier",                  "icon": "leaf-outline",      "color": "#22C55E", "category": "garden"},
+    {"key": "paysagiste",          "label": "Paysagiste",                 "icon": "flower-outline",    "color": "#22C55E", "category": "garden"},
+    {"key": "elagueur",            "label": "Élagueur / Émondeur",        "icon": "cut-outline",       "color": "#22C55E", "category": "garden"},
+    {"key": "arroseur_pelouse",    "label": "Entretien pelouse / arrosage","icon": "water-outline",    "color": "#22C55E", "category": "garden"},
+
+    # --- Courses & Assistance (🛒) ---
+    {"key": "faire_courses",       "label": "Faire des courses",          "icon": "cart-outline",      "color": "#0EA5E9", "category": "errands"},
+    {"key": "assistant_personnel", "label": "Assistant personnel",        "icon": "person-outline",    "color": "#0EA5E9", "category": "errands"},
+    {"key": "aide_domicile",       "label": "Aide à domicile",            "icon": "hand-left-outline", "color": "#0EA5E9", "category": "errands"},
+    {"key": "compagnon_seniors",   "label": "Compagnon pour seniors",     "icon": "heart-outline",     "color": "#0EA5E9", "category": "errands"},
+
+    # --- Administratif (📄) ---
+    {"key": "comptable",           "label": "Comptable",                  "icon": "calculator-outline","color": "#8B5CF6", "category": "admin"},
+    {"key": "secretaire",          "label": "Secrétaire",                 "icon": "document-text-outline","color": "#8B5CF6", "category": "admin"},
+    {"key": "traducteur",          "label": "Traducteur / Interprète",    "icon": "language-outline",  "color": "#8B5CF6", "category": "admin"},
+    {"key": "notaire_juriste",     "label": "Juriste / Assistance légale","icon": "briefcase-outline", "color": "#8B5CF6", "category": "admin"},
+    {"key": "consultant_admin",    "label": "Consultant administratif",   "icon": "clipboard-outline", "color": "#8B5CF6", "category": "admin"},
+
+    # --- Création (Photo, Vidéo, Design) (📷) ---
+    {"key": "photographe",         "label": "Photographe",                "icon": "camera-outline",    "color": "#6366F1", "category": "creative"},
+    {"key": "videaste",            "label": "Vidéaste / Cameraman",       "icon": "videocam-outline",  "color": "#6366F1", "category": "creative"},
+    {"key": "monteur_video",       "label": "Monteur vidéo",              "icon": "film-outline",      "color": "#6366F1", "category": "creative"},
+    {"key": "photographe_studio",  "label": "Photographe studio",         "icon": "aperture-outline",  "color": "#6366F1", "category": "creative"},
+    {"key": "drone_operator",      "label": "Pilote de drone",            "icon": "paper-plane-outline","color": "#6366F1", "category": "creative"},
+    {"key": "designer_produit",    "label": "Designer produit",           "icon": "cube-outline",      "color": "#6366F1", "category": "creative"},
+
+    # --- Location de matériel (📦) ---
+    {"key": "location_baches",     "label": "Location de bâches",         "icon": "square-outline",    "color": "#F59E0B", "category": "rental"},
+    {"key": "installation_baches", "label": "Installation de bâches",     "icon": "hammer-outline",    "color": "#F59E0B", "category": "rental"},
+    {"key": "location_chaises",    "label": "Location de chaises",        "icon": "grid-outline",      "color": "#F59E0B", "category": "rental"},
+    {"key": "location_tables",     "label": "Location de tables",         "icon": "grid-outline",      "color": "#F59E0B", "category": "rental"},
+    {"key": "location_tentes",     "label": "Location de tentes",         "icon": "triangle-outline",  "color": "#F59E0B", "category": "rental"},
+    {"key": "location_vaisselle",  "label": "Location de vaisselle",      "icon": "restaurant-outline","color": "#F59E0B", "category": "rental"},
+    {"key": "sonorisation",        "label": "Sonorisation",               "icon": "volume-high-outline","color": "#F59E0B", "category": "rental"},
+    {"key": "eclairage",           "label": "Éclairage événementiel",     "icon": "bulb-outline",      "color": "#F59E0B", "category": "rental"},
+    {"key": "location_podium",     "label": "Location de podium / scène", "icon": "layers-outline",    "color": "#F59E0B", "category": "rental"},
+    {"key": "location_groupe_electrogene","label": "Location groupe électrogène","icon": "flash-outline","color": "#F59E0B","category": "rental"},
+    {"key": "location_bar_mobile", "label": "Location bar mobile",        "icon": "wine-outline",      "color": "#F59E0B", "category": "rental"},
+]
+
+
+async def _get_full_services_catalog() -> list[dict]:
+    """Retourne le catalogue complet = catalogue de base + métiers ajoutés
+    à partir des suggestions validées par les admins (db.services_extra)."""
+    extra_docs = await db.services_extra.find(
+        {"active": {"$ne": False}}, {"_id": 0}
+    ).to_list(1000)
+    # Priorité : base > extra si la key est dupliquée (protège contre les collisions).
+    seen = {s["key"] for s in SERVICES_CATALOG}
+    fused = list(SERVICES_CATALOG)
+    for e in extra_docs:
+        if e.get("key") and e["key"] not in seen:
+            fused.append({
+                "key": e["key"],
+                "label": e.get("label") or e["key"],
+                "icon": e.get("icon", "briefcase-outline"),
+                "color": e.get("color", "#64748B"),
+                "category": e.get("category", "other"),
+            })
+            seen.add(e["key"])
+    return fused
 
 
 # ---------- auth ----------
@@ -941,7 +1170,193 @@ async def sign_in_with_apple(body: AppleSignInIn):
 # ---------- services ----------
 @api.get("/services")
 async def list_services():
-    return SERVICES_CATALOG
+    """Catalogue complet à plat (base + suggestions validées).
+    Chaque item : {key, label, icon, color, category}."""
+    return await _get_full_services_catalog()
+
+
+@api.get("/services/categories")
+async def list_service_categories():
+    """Retourne les catégories + les services regroupés par catégorie.
+    Utilisé par le nouveau ServicePicker (Étape A)."""
+    catalog = await _get_full_services_catalog()
+    grouped: dict[str, list[dict]] = {c["key"]: [] for c in SERVICE_CATEGORIES}
+    for svc in catalog:
+        cat = svc.get("category") or "other"
+        if cat not in grouped:
+            grouped[cat] = []
+        grouped[cat].append(svc)
+    # Tri alpha des métiers dans chaque catégorie pour éviter l'aléatoire.
+    for k in grouped:
+        grouped[k].sort(key=lambda s: (s.get("label") or "").lower())
+    cats_out = []
+    for c in sorted(SERVICE_CATEGORIES, key=lambda x: x.get("order", 999)):
+        cats_out.append({
+            **c,
+            "count": len(grouped.get(c["key"], [])),
+            "services": grouped.get(c["key"], []),
+        })
+    return {"categories": cats_out}
+
+
+# ----- Service suggestions (prestataires) -----
+class ServiceSuggestionIn(BaseModel):
+    label: str
+    category: Optional[str] = None
+    description: Optional[str] = None
+
+
+_ALLOWED_CATEGORY_KEYS = {c["key"] for c in SERVICE_CATEGORIES}
+
+
+def _slugify_service(label: str) -> str:
+    """Génère une clé unique (sans accents) à partir du label."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", label or "").encode("ascii", "ignore").decode("ascii")
+    s = re.sub(r"[^a-zA-Z0-9]+", "_", s).strip("_").lower()
+    return s or "custom_service"
+
+
+@api.post("/services/suggestions")
+async def suggest_service(body: ServiceSuggestionIn, user=Depends(current_user)):
+    """Un prestataire soumet un nouveau métier ; l'admin validera."""
+    label = (body.label or "").strip()
+    if len(label) < 2 or len(label) > 60:
+        raise HTTPException(400, "Le nom du métier doit contenir entre 2 et 60 caractères.")
+    category = (body.category or "other").strip().lower()
+    if category not in _ALLOWED_CATEGORY_KEYS:
+        category = "other"
+    # Anti-doublon (par utilisateur) : si déjà en attente sur ce label, on renvoie l'existante.
+    existing = await db.service_suggestions.find_one({
+        "suggested_by": user["id"],
+        "label_norm": label.lower(),
+        "status": "pending",
+    })
+    if existing:
+        return {k: v for k, v in existing.items() if k != "_id"}
+    sid = str(uuid.uuid4())
+    doc = {
+        "id": sid,
+        "suggested_by": user["id"],
+        "suggested_by_name": user.get("name"),
+        "label": label,
+        "label_norm": label.lower(),
+        "category": category,
+        "description": (body.description or "").strip()[:280] or None,
+        "status": "pending",
+        "created_at": now_iso(),
+        "reviewed_at": None,
+        "reviewed_by": None,
+        "admin_note": None,
+        "generated_key": None,
+    }
+    await db.service_suggestions.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/services/suggestions/mine")
+async def list_my_service_suggestions(user=Depends(current_user)):
+    rows = await db.service_suggestions.find(
+        {"suggested_by": user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return rows
+
+
+# ----- Admin : gestion des suggestions -----
+def _require_admin_or_staff(user: dict):
+    if not (user.get("is_admin") or user.get("staff_role") in {"super_admin", "support", "operator"}):
+        raise HTTPException(403, "Interdit")
+
+
+@api.get("/admin/service-suggestions")
+async def admin_list_service_suggestions(status_filter: Optional[str] = None, user=Depends(current_user)):
+    _require_admin_or_staff(user)
+    q: dict = {}
+    if status_filter in {"pending", "approved", "rejected"}:
+        q["status"] = status_filter
+    rows = await db.service_suggestions.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return rows
+
+
+class SuggestionReviewIn(BaseModel):
+    action: str  # "approve" | "reject"
+    admin_note: Optional[str] = None
+    category: Optional[str] = None  # override éventuel
+    key: Optional[str] = None       # override éventuel
+    icon: Optional[str] = None      # override éventuel
+    color: Optional[str] = None
+
+
+@api.patch("/admin/service-suggestions/{sid}")
+async def admin_review_service_suggestion(sid: str, body: SuggestionReviewIn, user=Depends(current_user)):
+    _require_admin_or_staff(user)
+    s = await db.service_suggestions.find_one({"id": sid}, {"_id": 0})
+    if not s:
+        raise HTTPException(404, "Suggestion introuvable")
+    action = (body.action or "").lower()
+    if action not in {"approve", "reject"}:
+        raise HTTPException(400, "Action invalide (approve/reject)")
+
+    updates: dict = {
+        "status": "approved" if action == "approve" else "rejected",
+        "reviewed_at": now_iso(),
+        "reviewed_by": user["id"],
+        "admin_note": (body.admin_note or "").strip() or None,
+    }
+
+    if action == "approve":
+        # Générer une clé unique et ajouter dans services_extra.
+        base_key = (body.key or _slugify_service(s["label"]))[:48]
+        # Vérifier collisions dans catalogue de base + suggestions déjà validées.
+        existing_keys = {sv["key"] for sv in SERVICES_CATALOG}
+        already = await db.services_extra.find({"key": base_key}, {"_id": 0, "key": 1}).to_list(1)
+        existing_keys.update({r["key"] for r in already})
+        final_key = base_key
+        n = 2
+        while final_key in existing_keys:
+            final_key = f"{base_key}_{n}"
+            n += 1
+        cat = (body.category or s.get("category") or "other").lower()
+        if cat not in _ALLOWED_CATEGORY_KEYS:
+            cat = "other"
+        service_doc = {
+            "key": final_key,
+            "label": s["label"],
+            "icon": body.icon or "briefcase-outline",
+            "color": body.color or "#64748B",
+            "category": cat,
+            "active": True,
+            "source": "suggestion",
+            "suggestion_id": sid,
+            "created_at": now_iso(),
+        }
+        await db.services_extra.insert_one(service_doc)
+        updates["generated_key"] = final_key
+        # Notifier le prestataire
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": s["suggested_by"],
+            "type": "service_suggestion_approved",
+            "title": "✅ Métier approuvé",
+            "body": f"Votre suggestion « {s['label']} » a été validée par l'équipe Jokoo.",
+            "read": False,
+            "created_at": now_iso(),
+        })
+    else:
+        # Notifier rejet
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": s["suggested_by"],
+            "type": "service_suggestion_rejected",
+            "title": "🚫 Suggestion non retenue",
+            "body": (body.admin_note or "Votre suggestion n'a pas été retenue.").strip()[:180],
+            "read": False,
+            "created_at": now_iso(),
+        })
+
+    await db.service_suggestions.update_one({"id": sid}, {"$set": updates})
+    s.update(updates)
+    return s
 
 
 # ---------- providers ----------
@@ -1051,8 +1466,18 @@ async def get_provider(provider_id: str, user=Depends(optional_user)):
 async def upsert_my_provider(body: ProviderProfileIn, user=Depends(current_user)):
     if user["role"] != "prestataire":
         raise HTTPException(403, "Compte prestataire requis")
-    label = next((s["label"] for s in SERVICES_CATALOG if s["label"].lower() == body.service.lower() or s["key"] == body.service.lower()), body.service)
-    key = next((s["key"] for s in SERVICES_CATALOG if s["label"].lower() == body.service.lower() or s["key"] == body.service.lower()), body.service.lower())
+    # Catalogue enrichi : base + suggestions validées (services_extra).
+    full_catalog = await _get_full_services_catalog()
+    label = next(
+        (s["label"] for s in full_catalog
+         if s["label"].lower() == body.service.lower() or s["key"] == body.service.lower()),
+        body.service,
+    )
+    key = next(
+        (s["key"] for s in full_catalog
+         if s["label"].lower() == body.service.lower() or s["key"] == body.service.lower()),
+        body.service.lower(),
+    )
     # Récupérer le doc existant pour préserver les champs computed (rating, reviews_count, sponsored_until, etc.)
     existing = await db.providers.find_one({"id": user["id"]}, {"_id": 0}) or {}
     # CRITICAL FIX : ne PAS écraser rating / reviews_count / subscription — ils sont computed ou gérés par d'autres endpoints.
