@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -7,6 +7,7 @@ import { api, Provider } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { priceLabel } from "@/src/pricing";
 import { Btn, ErrorBox, Input, Txt } from "@/src/components/ui";
+import BookingWizardStepper from "@/src/components/BookingWizardStepper";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
 
 function nextDays(n = 7) {
@@ -39,6 +40,27 @@ export default function BookingScreen() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const days = nextDays();
+
+  // ── Booking Wizard : 4-step progress detection ────────────────────────────
+  // Step 1 (Date) : always considered started
+  // Step 2 (Heure) : active when a time is chosen (default "10:00" so always ≥2)
+  // Step 3 (Détails) : active when address input is focused / filled
+  // Step 4 (Confirmation) : active when both address & description are filled
+  const currentStep = useMemo(() => {
+    const hasAddr = address.trim().length >= 3;
+    const hasDesc = description.trim().length >= 5;
+    if (hasAddr && hasDesc) return 4;
+    if (hasAddr || hasDesc) return 3;
+    if (time) return 2;
+    return 1;
+  }, [address, description, time]);
+
+  const WIZARD_STEPS = [
+    { label: "Date" },
+    { label: "Heure" },
+    { label: "Détails" },
+    { label: "Confirmer" },
+  ];
 
   // Auth guard : si pas de session (deep-link, session expirée), on renvoie vers /login
   // en gardant l'intention "revenir sur cette page de réservation" via redirect_to.
@@ -108,6 +130,11 @@ export default function BookingScreen() {
         <Txt size="lg" weight="700">Réserver</Txt>
         <View style={{ width: 40 }} />
       </SafeAreaView>
+
+      {/* Wizard progress indicator — 4 steps */}
+      <View style={styles.stepperWrap}>
+        <BookingWizardStepper steps={WIZARD_STEPS} currentStep={currentStep} />
+      </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 140 + insets.bottom }} keyboardShouldPersistTaps="handled">
@@ -229,6 +256,7 @@ export default function BookingScreen() {
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.xl, paddingBottom: spacing.md, backgroundColor: colors.surface, ...shadow.soft },
+  stepperWrap: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
   back: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
   providerBox: { flexDirection: "row", alignItems: "center", padding: 12, backgroundColor: colors.surface2, borderRadius: radius.lg },
   dayBtn: { width: 64, height: 80, borderRadius: radius.md, backgroundColor: colors.surface2, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },

@@ -7,6 +7,7 @@ import { api, Babysitter, BabyKid } from "@/src/api";
 import { langMeta } from "@/src/family";
 import { formatXof } from "@/src/pricing";
 import { Btn, Card, Chip, ErrorBox, Input, Txt } from "@/src/components/ui";
+import BookingWizardStepper from "@/src/components/BookingWizardStepper";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 function todayDays(n = 30) {
@@ -61,6 +62,29 @@ export default function BookFamily() {
   }, [tStart, tEnd]);
 
   const total = Math.round((b?.hourly_rate_xof || 0) * durationHours);
+
+  // ── Booking Wizard : 4-step progress detection ────────────────────────────
+  // Step 1 (Service)   : always started (service defaults to "babysitting")
+  // Step 2 (Planning)  : active as soon as user picks a date/time (default day 1)
+  // Step 3 (Détails)   : active when address AND kid name(s) are filled
+  // Step 4 (Confirmer) : active when emergency contact is filled
+  const currentStep = useMemo(() => {
+    const hasSchedule = dateIdx >= 0 && !!tStart && !!tEnd;
+    const hasAddr = address.trim().length >= 3 && city.trim().length >= 2;
+    const hasKids = kids.length > 0 && kids.every((k) => k.name.trim().length >= 2);
+    const hasEc = ecName.trim().length >= 2 && ecPhone.trim().length >= 6;
+    if (hasSchedule && hasAddr && hasKids && hasEc) return 4;
+    if (hasSchedule && hasAddr && hasKids) return 3;
+    if (hasSchedule) return 2;
+    return 1;
+  }, [dateIdx, tStart, tEnd, address, city, kids, ecName, ecPhone]);
+
+  const WIZARD_STEPS = [
+    { label: "Service" },
+    { label: "Planning" },
+    { label: "Détails" },
+    { label: "Confirmer" },
+  ];
 
   if (!b) {
     return (
@@ -118,6 +142,11 @@ export default function BookFamily() {
         <Txt size="lg" weight="700">Réserver</Txt>
         <View style={{ width: 40 }} />
       </SafeAreaView>
+
+      {/* Wizard progress indicator — 4 steps */}
+      <View style={styles.stepperWrap}>
+        <BookingWizardStepper steps={WIZARD_STEPS} currentStep={currentStep} />
+      </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 200 + insets.bottom }} keyboardShouldPersistTaps="handled">
@@ -302,6 +331,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     ...shadow.soft,
   },
+  stepperWrap: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
   back: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
   dayBtn: { width: 58, height: 68, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
   dayBtnActive: { backgroundColor: colors.midnight, borderColor: colors.midnight },
