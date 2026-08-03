@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidingView, Platform, Modal } from "react-native";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
+import { pickImageFromLibrary, uploadToCloudinary } from "@/src/media/cloudinary";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,12 +46,18 @@ export default function AdminPartners() {
 
   const pickImage = async (kind: "logo" | "cover") => {
     if (!editing) return;
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", quality: 0.7, base64: true });
-    if (res.canceled || !res.assets?.[0]?.base64) return;
-    const data = `data:image/jpeg;base64,${res.assets[0].base64}`;
-    setEditing({ ...editing, [kind]: data });
+    try {
+      const picked = await pickImageFromLibrary({
+        aspect: kind === "cover" ? [16, 9] : [1, 1],
+        allowsEditing: true,
+        quality: 0.85,
+      });
+      if (!picked) return;
+      const uploaded = await uploadToCloudinary(picked, "admin");
+      setEditing({ ...editing, [kind]: uploaded.secure_url });
+    } catch (e: any) {
+      Alert.alert("Upload impossible", e?.message || "Réessayez plus tard.");
+    }
   };
 
   const nameValid = !!editing?.name?.trim();

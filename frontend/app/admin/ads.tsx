@@ -4,6 +4,7 @@ import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidin
 import { Image } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import * as ImagePicker from "expo-image-picker";
+import { uploadMediaToCloudinary } from "@/src/media/cloudinary";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -113,22 +114,32 @@ export default function AdminAds() {
 
   const pickMedia = async (kind: "image" | "video") => {
     if (!editing) return;
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission requise", "Autorisez l'accès à la galerie pour importer un média.");
-      return;
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert("Permission requise", "Autorisez l'accès à la galerie pour importer un média.");
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: kind === "image" ? "images" : "videos",
+        quality: 0.85,
+        base64: false,
+      });
+      if (res.canceled || !res.assets?.[0]) return;
+      const asset: any = res.assets[0];
+      const picked = {
+        uri: asset.uri,
+        name: asset.fileName || `${kind}-${Date.now()}.${kind === "image" ? "jpg" : "mp4"}`,
+        type: asset.mimeType || (kind === "image" ? "image/jpeg" : "video/mp4"),
+        size: asset.fileSize,
+        file: asset.file,
+      };
+      const uploaded = await uploadMediaToCloudinary(picked as any, "admin", kind === "image" ? "image" : "video");
+      const item: AdMedia = { kind, url: uploaded.secure_url };
+      setEditing({ ...editing, media: [...(editing.media || []), item] });
+    } catch (e: any) {
+      Alert.alert("Upload impossible", e?.message || "Réessayez plus tard.");
     }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: kind === "image" ? "images" : "videos",
-      quality: 0.7, base64: true,
-    });
-    if (res.canceled || !res.assets?.[0]) return;
-    const asset = res.assets[0];
-    const uri = kind === "image" && asset.base64
-      ? `data:image/jpeg;base64,${asset.base64}`
-      : asset.uri;
-    const item: AdMedia = { kind, url: uri };
-    setEditing({ ...editing, media: [...(editing.media || []), item] });
   };
 
   const addMediaByUrl = () => {

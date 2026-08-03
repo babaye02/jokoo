@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidingView, Platform, Modal } from "react-native";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
+import { pickImageFromLibrary, uploadToCloudinary } from "@/src/media/cloudinary";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -45,11 +45,14 @@ export default function AdminPromos() {
 
   const pickImage = async () => {
     if (!editing) return;
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", quality: 0.7, base64: true });
-    if (res.canceled || !res.assets?.[0]?.base64) return;
-    setEditing({ ...editing, image: `data:image/jpeg;base64,${res.assets[0].base64}` });
+    try {
+      const picked = await pickImageFromLibrary({ aspect: [16, 9], allowsEditing: true, quality: 0.85 });
+      if (!picked) return;
+      const uploaded = await uploadToCloudinary(picked, "admin");
+      setEditing({ ...editing, image: uploaded.secure_url });
+    } catch (e: any) {
+      Alert.alert("Upload impossible", e?.message || "Réessayez plus tard.");
+    }
   };
 
   const slugValid = !!editing?.slug && /^[a-z0-9-]{2,40}$/.test(editing.slug);

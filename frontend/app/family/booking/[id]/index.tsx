@@ -20,7 +20,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import * as ImagePicker from "expo-image-picker";
+import { pickImageFromCamera, uploadToCloudinary } from "@/src/media/cloudinary";
 import { api, FamilyBooking, SessionReport, Babysitter } from "@/src/api";
 import { MOOD_META, langMeta } from "@/src/family";
 import { useAuth } from "@/src/auth";
@@ -112,19 +112,14 @@ export default function FamilyBookingDetail() {
   };
 
   const sendCheckin = async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission refusée", "Autorisez l'accès à la caméra pour envoyer une photo de check-in.");
-      return;
-    }
-    const res = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.5, base64: true, allowsEditing: false });
-    if (!res.canceled && res.assets[0]) {
-      const a = res.assets[0];
-      const b64 = a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri;
-      try {
-        await api.patch(`/family/bookings/${b.id}`, { checkin_photo: b64 });
-        await changeStatus("in_progress");
-      } catch (e: any) { Alert.alert("Erreur", e.message); }
+    try {
+      const picked = await pickImageFromCamera({ allowsEditing: false, quality: 0.85 });
+      if (!picked) return;
+      const uploaded = await uploadToCloudinary(picked, "reports");
+      await api.patch(`/family/bookings/${b.id}`, { checkin_photo: uploaded.secure_url });
+      await changeStatus("in_progress");
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Envoi impossible.");
     }
   };
 

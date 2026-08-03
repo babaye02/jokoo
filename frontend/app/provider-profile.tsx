@@ -21,7 +21,7 @@ import {
   Alert,
 } from "react-native";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
+import { pickImageFromLibrary, uploadToCloudinary } from "@/src/media/cloudinary";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -143,23 +143,19 @@ export default function ProviderProfile() {
 
   // ---- Image pickers ----
   const pickImage = async (kind: "photo" | "cover") => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour continuer.");
-      return;
+    try {
+      const picked = await pickImageFromLibrary({
+        aspect: kind === "cover" ? [16, 9] : [1, 1],
+        allowsEditing: true,
+        quality: 0.85,
+      });
+      if (!picked) return;
+      const uploaded = await uploadToCloudinary(picked, kind === "cover" ? "covers" : "avatars");
+      if (kind === "photo") setPhoto(uploaded.secure_url);
+      else setCoverPhoto(uploaded.secure_url);
+    } catch (e: any) {
+      Alert.alert("Upload impossible", e?.message || "Réessayez plus tard.");
     }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.6,
-      base64: true,
-      allowsEditing: true,
-      aspect: kind === "cover" ? [16, 9] : [1, 1],
-    });
-    if (res.canceled || !res.assets?.length) return;
-    const asset = res.assets[0];
-    const dataUrl = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
-    if (kind === "photo") setPhoto(dataUrl);
-    else setCoverPhoto(dataUrl);
   };
 
   // ---- Save ----

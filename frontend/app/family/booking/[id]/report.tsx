@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
+import { pickImageFromLibrary, uploadToCloudinary } from "@/src/media/cloudinary";
 import { api, FamilyBooking } from "@/src/api";
 import { MOOD_META } from "@/src/family";
 import { Btn, ErrorBox, Input, Txt, Avatar } from "@/src/components/ui";
@@ -41,16 +41,13 @@ export default function SubmitReport() {
   }, [id]);
 
   const pickImage = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission requise", "Autorisez l'accès à la galerie pour joindre une photo.");
-      return;
-    }
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.5, base64: true, allowsEditing: true });
-    if (!res.canceled && res.assets[0]) {
-      const a = res.assets[0];
-      const b64 = a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri;
-      setPhoto(b64);
+    try {
+      const picked = await pickImageFromLibrary({ allowsEditing: true, quality: 0.85 });
+      if (!picked) return;
+      const uploaded = await uploadToCloudinary(picked, "reports");
+      setPhoto(uploaded.secure_url);
+    } catch (e: any) {
+      Alert.alert("Upload impossible", e?.message || "Réessayez plus tard.");
     }
   };
 

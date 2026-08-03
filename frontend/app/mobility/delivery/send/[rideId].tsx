@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, Pressable, Alert, KeyboardAvoidingView, P
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
+import { pickImageFromLibrary, uploadToCloudinary } from "@/src/media/cloudinary";
 import { api, Ride } from "@/src/api";
 import { formatXof } from "@/src/pricing";
 import { Btn, Card, Chip, ErrorBox, Input, Txt } from "@/src/components/ui";
@@ -46,21 +46,13 @@ export default function SendParcel() {
   }
 
   const pickImage = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour joindre une image du colis.");
-      return;
-    }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.6,
-      base64: true,
-      allowsEditing: true,
-    });
-    if (!res.canceled && res.assets[0]) {
-      const a = res.assets[0];
-      const b64 = a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri;
-      setPhoto(b64);
+    try {
+      const picked = await pickImageFromLibrary({ allowsEditing: true, quality: 0.85 });
+      if (!picked) return;
+      const uploaded = await uploadToCloudinary(picked, "delivery");
+      setPhoto(uploaded.secure_url);
+    } catch (e: any) {
+      Alert.alert("Upload impossible", e?.message || "Réessayez plus tard.");
     }
   };
 
