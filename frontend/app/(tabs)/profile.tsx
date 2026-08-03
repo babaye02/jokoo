@@ -286,6 +286,17 @@ export default function Profile() {
             </View>
             <Txt weight="600" color={colors.danger} style={{ flex: 1, marginLeft: 12 }}>Se déconnecter</Txt>
           </Pressable>
+          <Pressable
+            onPress={() => router.push({ pathname: "/profile/security", params: { focus: "delete" } })}
+            style={styles.row}
+            testID="menu-delete-account"
+          >
+            <View style={[styles.iconWrap, { backgroundColor: "#FEE2E2" }]}>
+              <Ionicons name="trash-outline" size={20} color={colors.danger} />
+            </View>
+            <Txt weight="600" color={colors.danger} style={{ flex: 1, marginLeft: 12 }}>Supprimer mon compte</Txt>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+          </Pressable>
         </View>
       </ScrollView>
     </View>

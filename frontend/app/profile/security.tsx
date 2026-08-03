@@ -1,8 +1,8 @@
 // Écran Sécurité & confidentialité — change password, list active sessions info, RGPD.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
@@ -13,6 +13,7 @@ import { colors, radius, shadow, spacing } from "@/src/theme";
 export default function SecurityScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { focus } = useLocalSearchParams<{ focus?: string }>();
   const { user, signOut } = useAuth();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -22,6 +23,14 @@ export default function SecurityScreen() {
   const [success, setSuccess] = useState<string | null>(null);
   const [askDelete, setAskDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Ouvrir automatiquement la modale de suppression si arrivée via ?focus=delete
+  useEffect(() => {
+    if (focus === "delete") {
+      const t = setTimeout(() => setAskDelete(true), 250);
+      return () => clearTimeout(t);
+    }
+  }, [focus]);
 
   const doDelete = async () => {
     setDeleting(true);
