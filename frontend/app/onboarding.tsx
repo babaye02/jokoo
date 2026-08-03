@@ -25,7 +25,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { storage } from "@/src/utils/storage";
 import { Txt } from "@/src/components/ui";
-import { colors, radius, spacing, typo } from "@/src/theme";
+import { colors, radius, spacing } from "@/src/theme";
 
 const { width, height } = Dimensions.get("window");
 
@@ -45,9 +45,9 @@ const SLIDES: Slide[] = [
   {
     key: "welcome",
     eyebrow: "Bienvenue sur Jokoo",
-    title: "Le marketplace qui rapproche l'Afrique moderne.",
+    title: "Tous les services.\nUne seule application.",
     subtitle:
-      "Prestataires vérifiés, paiement sécurisé, une seule app pour tous vos besoins.",
+      "Prestataires vérifiés, paiement sécurisé — le meilleur de l'Afrique moderne en un tap.",
     image: require("@/assets/onboarding/welcome.png"),
     accent: colors.turquoise,
     icon: "sparkles",
@@ -160,20 +160,23 @@ export default function OnboardingPremium() {
         <Paginator scrollX={scrollX} count={SLIDES.length} />
 
         <View style={styles.ctaRow}>
-          <Pressable
-            onPress={() => {
-              try { Haptics.selectionAsync(); } catch {}
-              router.replace("/login");
-            }}
+          <AnimatedPressable
+            onPress={() => router.replace("/login")}
             style={styles.ctaGhost}
             testID="onboarding-login"
+            hapticStyle="selection"
           >
             <Txt style={{ color: colors.white, fontSize: 15, fontWeight: "600" }}>Se connecter</Txt>
-          </Pressable>
-          <Pressable onPress={finish} style={styles.ctaPrimary} testID="onboarding-cta">
+          </AnimatedPressable>
+          <AnimatedPressable
+            onPress={finish}
+            style={styles.ctaPrimary}
+            testID="onboarding-cta"
+            hapticStyle="success"
+          >
             <Txt style={{ color: colors.midnight, fontSize: 15, fontWeight: "700" }}>Créer mon compte</Txt>
             <Ionicons name="arrow-forward" size={18} color={colors.midnight} style={{ marginLeft: 6 }} />
-          </Pressable>
+          </AnimatedPressable>
         </View>
       </View>
     </View>
@@ -210,15 +213,15 @@ function SlideView({ slide, index, scrollX }: { slide: Slide; index: number; scr
         />
       </Animated.View>
 
-      {/* Scrim gradient (dark bottom + subtle top) */}
+      {/* Scrim gradient (renforcé pour lecture parfaite quelles que soient les photos) */}
       <LinearGradient
         colors={[
-          "rgba(11,31,58,0.35)",
-          "rgba(11,31,58,0.0)",
           "rgba(11,31,58,0.55)",
-          "rgba(11,31,58,0.92)",
+          "rgba(11,31,58,0.15)",
+          "rgba(11,31,58,0.75)",
+          "rgba(11,31,58,0.96)",
         ]}
-        locations={[0, 0.35, 0.7, 1]}
+        locations={[0, 0.3, 0.65, 1]}
         style={StyleSheet.absoluteFillObject}
         pointerEvents="none"
       />
@@ -238,7 +241,7 @@ function SlideView({ slide, index, scrollX }: { slide: Slide; index: number; scr
   );
 }
 
-// Paginator dots with progress interpolation
+// Paginator ultra minimaliste — Apple/Revolut style : barres fines fluides
 function Paginator({ scrollX, count }: { scrollX: any; count: number }) {
   return (
     <View style={styles.paginator}>
@@ -252,11 +255,57 @@ function Paginator({ scrollX, count }: { scrollX: any; count: number }) {
 function Dot({ index, scrollX }: { index: number; scrollX: any }) {
   const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
   const style = useAnimatedStyle(() => {
-    const w = interpolate(scrollX.value, inputRange, [8, 28, 8], Extrapolation.CLAMP);
-    const opacity = interpolate(scrollX.value, inputRange, [0.4, 1, 0.4], Extrapolation.CLAMP);
+    const w = interpolate(scrollX.value, inputRange, [16, 40, 16], Extrapolation.CLAMP);
+    const opacity = interpolate(scrollX.value, inputRange, [0.35, 1, 0.35], Extrapolation.CLAMP);
     return { width: w, opacity };
   });
   return <Animated.View style={[styles.dot, style]} />;
+}
+
+// CTA animé — scale press + haptic
+function AnimatedPressable({
+  onPress,
+  style,
+  children,
+  testID,
+  hapticStyle = "selection",
+}: {
+  onPress: () => void;
+  style?: any;
+  children: React.ReactNode;
+  testID?: string;
+  hapticStyle?: "selection" | "medium" | "success";
+}) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  return (
+    <Animated.View style={[animStyle, { flex: style?.flex, flexGrow: style?.flexGrow }]}>
+      <Pressable
+        onPressIn={() => {
+          scale.value = 0.96;
+        }}
+        onPressOut={() => {
+          scale.value = 1;
+        }}
+        onPress={() => {
+          try {
+            if (hapticStyle === "success")
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            else if (hapticStyle === "medium")
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            else Haptics.selectionAsync();
+          } catch {}
+          onPress();
+        }}
+        style={style}
+        testID={testID}
+      >
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -306,17 +355,20 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   slideTitle: {
-    ...typo.display,
     color: colors.white,
-    fontSize: 34,
-    lineHeight: 40,
+    fontSize: 28,
+    lineHeight: 34,
+    fontFamily: "Poppins_700Bold",
+    fontWeight: "700",
+    letterSpacing: -0.5,
   },
   slideSubtitle: {
-    color: "rgba(255,255,255,0.88)",
+    color: "rgba(255,255,255,0.85)",
     fontSize: 15,
     lineHeight: 22,
     fontWeight: "400",
-    marginTop: 4,
+    marginTop: 6,
+    maxWidth: "94%",
   },
 
   bottomBar: {
@@ -331,11 +383,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
   },
   dot: {
-    height: 8,
-    borderRadius: 4,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: colors.white,
   },
   ctaRow: {

@@ -29,50 +29,53 @@ IMAGES = [
         "key": "welcome",
         "prompt": (
             STYLE +
-            "A confident young Black African woman entrepreneur in her modern minimalist office, "
-            "wearing tailored black blazer, sitting behind a wooden desk with laptop and small plant, "
-            "soft warm sunlight streaming through large windows, city skyline blurred in background. "
-            "Warm smile, looking slightly off-camera. Pinterest editorial style, Gen Z premium vibe."
+            "Candid documentary shot: a confident young Black Senegalese woman in her 20s laughing genuinely "
+            "while looking at her smartphone in a chic African contemporary living room. She's wearing a stylish "
+            "modern outfit blending West African prints with minimalist tailoring. Warm afternoon sunlight filters "
+            "through curtains. Plants, art books, ceramic vase, wooden furniture visible. "
+            "Real emotion — a moment of joy caught naturally. Story: 'she just booked her favorite hairstylist.'"
         ),
     },
     {
         "key": "services",
         "prompt": (
             STYLE +
-            "A stylish young Black African woman hairstylist working in a premium modern hair salon, "
-            "styling long braided hair on a client, holding professional tools, wearing chic dark apron. "
-            "Salon is bright, minimalist, with pink and gold accents, ring lights, styling chairs, pastel walls. "
-            "Focused expression, artistic composition, editorial fashion magazine quality."
+            "Dynamic documentary photograph: a confident young Black African hairstylist in a stylish modern salon "
+            "concentrating intently as she braids the hair of a smiling client. Both women engaged, warm eye contact. "
+            "The stylist wears a chic dark denim apron over a fitted top, gold jewelry. Salon interior has pink-navy walls, "
+            "gold-framed mirrors, ring lights, styling products organized elegantly. Real moment of professional artistry. "
+            "Story: 'trust and skill in action, everyday luxury in Dakar.'"
         ),
     },
     {
         "key": "mobility",
         "prompt": (
             STYLE +
-            "A handsome young Black African delivery courier in stylish modern uniform, "
-            "smiling confidently while holding food delivery bag next to his premium scooter, "
-            "urban Dakar-style city street, warm sunset, palm trees in background, "
-            "vibrant African street scene, professional yet approachable. Turquoise brand accent visible."
+            "Documentary street photograph: a friendly young Black Senegalese delivery courier in a modern branded uniform, "
+            "handing a beautifully wrapped package to a smiling young woman on her doorstep in a warm afternoon in Dakar. "
+            "His premium electric scooter visible in soft focus behind. Real interaction — genuine smiles, human warmth. "
+            "Palm trees, warm terracotta walls in background. Story: 'connection, service, community.'"
         ),
     },
     {
         "key": "family",
         "prompt": (
             STYLE +
-            "A warm-hearted young Black African babysitter playing joyfully with two happy African children "
-            "in a bright modern living room, natural window light, colorful modern decor, plants, books, "
-            "genuine laughter, high-end lifestyle photography, Gen Z premium family aesthetic. "
-            "Trust, warmth, professionalism. Editorial magazine composition."
+            "Candid family moment: a warm, joyful young Black African babysitter reading a colorful children's book "
+            "with two African children on a soft rug in a bright modern living room. All three completely engaged, "
+            "laughing at the story. Natural window light, plants, wooden toys, artistic decor visible. "
+            "Real love, real learning. Story: 'trust, joy, and safety for the modern African family.'"
         ),
     },
     {
         "key": "cta",
         "prompt": (
             STYLE +
-            "A stunning close-up portrait of a stylish young Black African professional man in his 20s, "
-            "wearing modern minimalist beige turtleneck sweater, subtle smile, direct eye contact with camera, "
-            "clean beige-cream background with soft studio lighting, editorial fashion vibe. "
-            "Ambitious, confident, aspirational. Pinterest premium portrait aesthetic."
+            "Candid group portrait: three young Black African professionals in their late 20s — a woman entrepreneur, "
+            "a male electrician in clean modern workwear, and a chic young female makeup artist — standing side by side, "
+            "confident and smiling, warm natural light. Neutral premium beige studio background with subtle texture. "
+            "Fashion editorial styling, real diversity of professions. Story: 'the new generation of African talent, "
+            "united on one platform.'"
         ),
     },
 ]
