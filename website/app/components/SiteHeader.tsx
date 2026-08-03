@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "../lib/auth";
 import { Btn } from "./ui";
 
-const NAV_LINKS = [
+const PUBLIC_NAV_LINKS = [
   { href: "/", label: "Accueil" },
   { href: "/recherche", label: "Trouver un prestataire" },
   { href: "/devenir-prestataire", label: "Devenir prestataire" },
@@ -15,15 +15,28 @@ const NAV_LINKS = [
   { href: "/contact", label: "Contact" },
 ];
 
+function authNavLinks(activeRole?: string | null) {
+  const dash =
+    activeRole === "prestataire" ? "/dashboard/prestataire" : "/dashboard/client";
+  return [
+    { href: dash, label: "Tableau de bord" },
+    { href: "/recherche", label: "Rechercher" },
+    { href: "/comment-ca-marche", label: "Aide" },
+    { href: "/contact", label: "Contact" },
+  ];
+}
+
 export default function SiteHeader() {
   const { user, loading, signOut, switchRole } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
     setMenuOpen(false);
+    setMobileOpen(false);
     router.push("/");
   };
 
@@ -31,16 +44,21 @@ export default function SiteHeader() {
     try {
       const u = await switchRole();
       setMenuOpen(false);
+      setMobileOpen(false);
       router.push(u.active_role === "prestataire" ? "/dashboard/prestataire" : "/dashboard/client");
     } catch {}
   };
 
   const hasBoth = user?.roles?.includes("client") && user?.roles?.includes("prestataire");
+  const navLinks = user ? authNavLinks(user.active_role) : PUBLIC_NAV_LINKS;
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100">
       <nav className="max-w-6xl mx-auto flex items-center justify-between px-4 py-3">
-        <Link href="/" className="flex items-center gap-2">
+        <Link
+          href={user ? (user.active_role === "prestataire" ? "/dashboard/prestataire" : "/dashboard/client") : "/"}
+          className="flex items-center gap-2"
+        >
           <div className="w-9 h-9 rounded-xl bg-midnight text-turquoise flex items-center justify-center font-black">
             J
           </div>
@@ -49,11 +67,22 @@ export default function SiteHeader() {
 
         {/* Desktop nav */}
         <div className="hidden lg:flex items-center gap-6 text-sm font-medium text-gray-700">
-          {NAV_LINKS.map((l) => (
-            <Link key={l.href} href={l.href} className="hover:text-turquoise transition">
-              {l.label}
-            </Link>
-          ))}
+          {navLinks.map((l) => {
+            const isActive = pathname === l.href;
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={
+                  isActive
+                    ? "text-turquoise font-semibold"
+                    : "hover:text-turquoise transition"
+                }
+              >
+                {l.label}
+              </Link>
+            );
+          })}
         </div>
 
         {/* Right side : Auth zone */}
@@ -151,7 +180,7 @@ export default function SiteHeader() {
       {/* Mobile drawer */}
       {mobileOpen ? (
         <div className="lg:hidden border-t border-gray-100 px-4 py-4 space-y-1 bg-white">
-          {NAV_LINKS.map((l) => (
+          {navLinks.map((l) => (
             <Link
               key={l.href}
               href={l.href}
@@ -161,19 +190,36 @@ export default function SiteHeader() {
               {l.label}
             </Link>
           ))}
-          <div className="pt-3 mt-3 border-t border-gray-100 flex gap-2">
+          <div className="pt-3 mt-3 border-t border-gray-100 space-y-2">
             {user ? (
               <>
-                <Btn href={user.active_role === "prestataire" ? "/dashboard/prestataire" : "/dashboard/client"} variant="primary" size="md" fullWidth>
-                  Tableau de bord
-                </Btn>
-                <Btn onClick={handleSignOut} variant="ghost" size="md">Déconnexion</Btn>
+                <Link
+                  href="/compte"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-3 py-2 rounded-lg text-sm font-medium text-midnight hover:bg-gray-50"
+                >
+                  Mon profil
+                </Link>
+                {hasBoth ? (
+                  <button
+                    onClick={handleSwitch}
+                    className="w-full text-left px-3 py-2 rounded-lg text-sm font-semibold text-turquoise hover:bg-gray-50"
+                  >
+                    🔄 Basculer vers {user.active_role === "prestataire" ? "Client" : "Prestataire"}
+                  </button>
+                ) : null}
+                <button
+                  onClick={handleSignOut}
+                  className="w-full text-left px-3 py-2 rounded-lg text-sm font-semibold text-red-600 hover:bg-red-50"
+                >
+                  Déconnexion
+                </button>
               </>
             ) : (
-              <>
+              <div className="flex gap-2">
                 <Btn href="/login" variant="secondary" size="md" fullWidth>Connexion</Btn>
                 <Btn href="/signup" variant="primary" size="md" fullWidth>Inscription</Btn>
-              </>
+              </div>
             )}
           </div>
         </div>

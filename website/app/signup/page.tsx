@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import React, { Suspense, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { Btn, Card, ErrorBanner, Field, Input } from "../components/ui";
 
@@ -19,7 +19,7 @@ export default function SignupPage() {
 function SignupForm() {
   const router = useRouter();
   const sp = useSearchParams();
-  const { signUp } = useAuth();
+  const { signUp, user, loading: authLoading } = useAuth();
   const [role, setRole] = useState<Role>((sp.get("role") as Role) === "prestataire" ? "prestataire" : "client");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -29,6 +29,15 @@ function SignupForm() {
   const [accept, setAccept] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // Si déjà connecté, rediriger vers le dashboard adapté
+  React.useEffect(() => {
+    if (!authLoading && user) {
+      router.replace(
+        user.active_role === "prestataire" ? "/dashboard/prestataire" : "/dashboard/client"
+      );
+    }
+  }, [authLoading, user, router]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

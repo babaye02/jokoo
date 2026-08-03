@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { DownloadButton, StoreButtons } from "./components/DownloadButton";
+import HomeAuthRedirect from "./components/HomeAuthRedirect";
 
 export const metadata: Metadata = {
   title: "Jokoo — Services · Mobilité · Family au Sénégal",
@@ -22,6 +23,7 @@ const services = [
 export default function HomePage() {
   return (
     <>
+      <HomeAuthRedirect />
       {/* HERO */}
       <section className="relative overflow-hidden bg-gradient-to-br from-midnight via-midnight to-midnight-dark text-white">
         <div className="absolute inset-0 opacity-30 pointer-events-none">

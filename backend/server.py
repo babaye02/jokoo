@@ -1065,6 +1065,41 @@ async def me(user=Depends(current_user)):
     return user
 
 
+class UpdateMeIn(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    avatar: Optional[str] = None
+
+
+@api.patch("/auth/me")
+async def update_me(body: UpdateMeIn, user=Depends(current_user)):
+    """Mise à jour partielle du profil utilisateur (nom, téléphone, ville, avatar)."""
+    updates: dict = {}
+    if body.name is not None:
+        n = body.name.strip()
+        if not n:
+            raise HTTPException(400, "Le nom ne peut pas être vide.")
+        if len(n) > 120:
+            raise HTTPException(400, "Nom trop long.")
+        updates["name"] = n
+    if body.phone is not None:
+        updates["phone"] = body.phone.strip() or None
+    if body.city is not None:
+        updates["city"] = body.city.strip() or None
+    if body.avatar is not None:
+        updates["avatar"] = body.avatar or None
+    if not updates:
+        return {k: v for k, v in user.items() if k != "password_hash"}
+    await db.users.update_one({"id": user["id"]}, {"$set": updates})
+    # Si le user est aussi prestataire, garder son profil provider en sync (nom/ville/avatar/phone)
+    prov_updates = {k: v for k, v in updates.items() if k in ("name", "city", "avatar", "phone")}
+    if prov_updates:
+        await db.providers.update_one({"id": user["id"]}, {"$set": prov_updates})
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    return fresh
+
+
 # ---------- v2.2 : double profil client/prestataire ----------
 _VALID_ROLES = {"client", "prestataire"}
 
