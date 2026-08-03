@@ -13,6 +13,7 @@ import {
   Platform,
   TextInput,
   Text,
+  Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -114,6 +115,19 @@ export default function Dashboard() {
   };
 
   const subscribe = async (provider: "card" | "wave" | "orange" = "card") => {
+    // App Store Guideline 3.1.1 & Google Play Payments Policy: Digital subscriptions
+    // must go through IAP on native mobile. We only allow subscription purchase on web.
+    if (Platform.OS !== "web") {
+      Alert.alert(
+        "Gérez votre abonnement sur le web",
+        "Pour des raisons de conformité avec les politiques Apple & Google, l'abonnement Jokoo Pro se gère depuis jokoo.sn/pro.",
+        [
+          { text: "Ouvrir jokoo.sn/pro", onPress: () => Linking.openURL("https://jokoo.sn/pro").catch(() => {}) },
+          { text: "Fermer", style: "cancel" },
+        ]
+      );
+      return;
+    }
     setPaying(true);
     try {
       const endpoint = provider === "card" ? "/payments/checkout/subscription" : provider === "wave" ? "/payments/wave/checkout/subscription" : "/payments/orange/checkout/subscription";
@@ -125,6 +139,13 @@ export default function Dashboard() {
   };
 
   const chooseSubMethod = () => {
+    // Web-only: show payment method options. Native mobile is blocked at subscribe().
+    if (Platform.OS !== "web") {
+      Linking.openURL("https://jokoo.sn/pro").catch(() => {
+        Alert.alert("Impossible d'ouvrir", "Rendez-vous sur jokoo.sn/pro depuis votre navigateur.");
+      });
+      return;
+    }
     Alert.alert("S'abonner à Jokoo Pro", "15 000 F CFA / mois. Choisissez un moyen de paiement.", [
       { text: "Carte bancaire", onPress: () => subscribe("card") },
       { text: "Wave", onPress: () => subscribe("wave") },
@@ -240,14 +261,37 @@ export default function Dashboard() {
               </View>
               <Text style={styles.proSub}>15 000 F CFA / mois · Priorité, badge vérifié, stats avancées</Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 }}>
-                <Pressable onPress={chooseSubMethod} disabled={paying} style={styles.proCta}>
-                  <Ionicons name="rocket" size={13} color={colors.white} />
-                  <Text style={styles.proCtaTxt}>{paying ? "…" : "S'abonner"}</Text>
-                </Pressable>
-                <Pressable onPress={() => setShowProBanner(false)} hitSlop={6}>
-                  <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "600" }}>Plus tard</Text>
-                </Pressable>
+                {Platform.OS === "web" ? (
+                  <>
+                    <Pressable onPress={chooseSubMethod} disabled={paying} style={styles.proCta}>
+                      <Ionicons name="rocket" size={13} color={colors.white} />
+                      <Text style={styles.proCtaTxt}>{paying ? "…" : "S'abonner"}</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setShowProBanner(false)} hitSlop={6}>
+                      <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "600" }}>Plus tard</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Pressable
+                      onPress={() => Linking.openURL("https://jokoo.sn/pro").catch(() => {})}
+                      style={styles.proLink}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="open-outline" size={13} color="#7C3AED" />
+                      <Text style={styles.proLinkTxt}>Gérer sur jokoo.sn/pro</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setShowProBanner(false)} hitSlop={6}>
+                      <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "600" }}>Plus tard</Text>
+                    </Pressable>
+                  </>
+                )}
               </View>
+              {Platform.OS !== "web" ? (
+                <Text style={styles.proHint}>
+                  L&apos;abonnement se souscrit et se gère uniquement sur le site web.
+                </Text>
+              ) : null}
             </View>
             <View style={styles.proIcon}>
               <Text style={{ fontSize: 36 }}>✨</Text>
@@ -606,6 +650,9 @@ const styles = StyleSheet.create({
   proSub: { fontSize: 12, color: colors.textMuted, marginTop: 4, lineHeight: 17 },
   proCta: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, height: 34, borderRadius: 999, backgroundColor: colors.text },
   proCtaTxt: { fontSize: 12, fontWeight: "700", color: colors.white, marginLeft: 5, letterSpacing: -0.1 },
+  proLink: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, height: 34, borderRadius: 999, backgroundColor: "#F5F3FF", borderWidth: 1, borderColor: "#DDD6FE" },
+  proLinkTxt: { fontSize: 12, fontWeight: "700", color: "#7C3AED", letterSpacing: -0.1 },
+  proHint: { fontSize: 10.5, color: colors.textMuted, marginTop: 8, lineHeight: 15, fontStyle: "italic" },
   proIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: "#F5F3FF", alignItems: "center", justifyContent: "center", alignSelf: "center" },
   proActive: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 20, backgroundColor: "#D1FAE5", borderWidth: 1, borderColor: "#A7F3D0" },
 
