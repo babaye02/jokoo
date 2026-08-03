@@ -39,58 +39,53 @@ type Slide = {
   icon: keyof typeof Ionicons.glyphMap;
 };
 
-// 5 slides — photos générées par Gemini Nano Banana (IA).
-// Direction : African premium, éditorial Pinterest, personnes noires africaines.
+// 5 slides — photos IA générées avec vocabulaire documentaire (Sony A7 IV).
+// Direction : Airbnb × Apple × Aesop × Afrique contemporaine.
 const SLIDES: Slide[] = [
   {
     key: "welcome",
-    eyebrow: "Bienvenue sur Jokoo",
-    title: "Tous les services.\nUne seule application.",
-    subtitle:
-      "Prestataires vérifiés, paiement sécurisé — le meilleur de l'Afrique moderne en un tap.",
+    eyebrow: "Jokoo",
+    title: "Tous vos services.\nEn un tap.",
+    subtitle: "Le nouveau standard des services au Sénégal.",
     image: require("@/assets/onboarding/welcome.png"),
-    accent: colors.turquoise,
+    accent: colors.primary,
     icon: "sparkles",
   },
   {
     key: "services",
-    eyebrow: "Services à domicile",
-    title: "Les meilleurs professionnels, à portée de main.",
-    subtitle:
-      "Coiffure, maquillage, plomberie, électricité, ménage — des experts sélectionnés avec soin.",
+    eyebrow: "Services",
+    title: "Les meilleurs pros,\nà portée de main.",
+    subtitle: "Coiffure, ménage, réparations, tech — vérifiés & notés.",
     image: require("@/assets/onboarding/services.png"),
-    accent: colors.turquoise,
+    accent: colors.primary,
     icon: "construct",
   },
   {
     key: "mobility",
-    eyebrow: "Jokoo Mobilité",
-    title: "Voyagez et livrez, partout au Sénégal.",
-    subtitle:
-      "Covoiturez ou envoyez vos colis grâce à notre réseau de conducteurs vérifiés.",
+    eyebrow: "Mobilité",
+    title: "Voyagez.\nLivrez.\nPartout.",
+    subtitle: "Covoiturage et colis longue distance, avec des conducteurs vérifiés.",
     image: require("@/assets/onboarding/mobility.png"),
-    accent: colors.turquoiseLight,
+    accent: colors.primary,
     icon: "car-sport",
   },
   {
     key: "family",
-    eyebrow: "Jokoo Family",
-    title: "La confiance pour toute la famille.",
-    subtitle:
-      "Baby-sitters Vérifiées+, tuteurs certifiés, bouton SOS 24/7. La sérénité en un clic.",
+    eyebrow: "Family",
+    title: "Confiance.\nQualité.\nSérénité.",
+    subtitle: "Baby-sitters vérifiées, tuteurs certifiés, SOS 24/7.",
     image: require("@/assets/onboarding/family.png"),
-    accent: "#F5A623",
+    accent: colors.accent,
     icon: "heart",
   },
   {
     key: "cta",
-    eyebrow: "Prêt à commencer ?",
-    title: "Rejoignez la nouvelle génération de services au Sénégal.",
-    subtitle:
-      "Créez votre compte en 30 secondes. Client ou prestataire — vous choisissez.",
+    eyebrow: "Commencez",
+    title: "Rejoignez\nla nouvelle génération.",
+    subtitle: "Créez votre compte en 30 secondes.",
     image: require("@/assets/onboarding/cta.png"),
-    accent: colors.turquoise,
-    icon: "rocket",
+    accent: colors.primary,
+    icon: "arrow-forward",
   },
 ];
 
@@ -174,8 +169,8 @@ export default function OnboardingPremium() {
             testID="onboarding-cta"
             hapticStyle="success"
           >
-            <Txt style={{ color: colors.midnight, fontSize: 16, fontWeight: "700" }}>Créer mon compte</Txt>
-            <Ionicons name="arrow-forward" size={19} color={colors.midnight} style={{ marginLeft: 6 }} />
+            <Txt style={{ color: colors.text, fontSize: 16, fontWeight: "700" }}>Créer mon compte</Txt>
+            <Ionicons name="arrow-forward" size={19} color={colors.text} style={{ marginLeft: 6 }} />
           </AnimatedPressable>
         </View>
       </View>
@@ -356,19 +351,18 @@ const styles = StyleSheet.create({
   },
   slideTitle: {
     color: colors.white,
-    fontSize: 28,
-    lineHeight: 34,
-    fontFamily: "Poppins_700Bold",
-    fontWeight: "700",
-    letterSpacing: -0.5,
+    fontSize: 40,
+    lineHeight: 46,
+    fontFamily: "InstrumentSerif",
+    letterSpacing: -0.8,
   },
   slideSubtitle: {
-    color: "rgba(255,255,255,0.85)",
+    color: "rgba(255,255,255,0.82)",
     fontSize: 15,
     lineHeight: 22,
     fontWeight: "400",
-    marginTop: 6,
-    maxWidth: "94%",
+    marginTop: 10,
+    maxWidth: "90%",
   },
 
   bottomBar: {

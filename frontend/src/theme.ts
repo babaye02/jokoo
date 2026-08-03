@@ -1,151 +1,166 @@
-// Jokoo Design System v2 — "iOS-Native Clean × Glass/Luxe"
-// Inspirations : Airbnb, Apple, Notion, Revolut, Pinterest
-// African premium marketplace — luminous, editorial, aspirational.
+// Jokoo Design System v3 — "Apple × Airbnb × Aesop × Afrique contemporaine"
+// Refonte totale : palette restreinte, typographie éditoriale, espacement luxe, minimalisme.
 //
-// RÈGLES CRITIQUES :
-// - Fond primaire = BLANC pur (`surface`) pour un rendu lumineux moderne
-// - Fond secondaire = BEIGE très léger (`surfaceWarm`) pour sections éditoriales chaleureuses
-// - Texte principal = NOIR PROFOND (`text`) pour lisibilité maximale
-// - Rayons généreux (24pt+) sur cartes principales
-// - Ombres tier 1 subtiles uniquement (jamais boxy)
-// - Toute photo avec texte overlay DOIT avoir un scrim gradient
+// PRINCIPES :
+// - PALETTE RESTREINTE : 6 couleurs seulement, une raison d'exister pour chacune
+// - RESPIRATION : espacement généreux, jamais serré
+// - TYPOGRAPHIE : Instrument Serif (titres) + Système/Inter (texte)
+// - MINIMALISME : ombres imperceptibles, dégradés subtils
+// - INTEMPORALITÉ : aucune couleur "arc-en-ciel"
 
 export const colors = {
-  // ---------- Brand (conservé) ----------
-  midnight: "#0B1F3A",
-  midnightDark: "#061426",
-  turquoise: "#00C2A8",
-  turquoiseLight: "#4CD9C4",
-  turquoiseDark: "#007A6A",
-  brandTertiary: "#E6FAF7",
+  // ============ PALETTE PRINCIPALE (6 couleurs uniquement) ============
+  bg: "#FAF9F7",              // Fond primaire — beige off-white premium (Aesop-like)
+  card: "#FFFFFF",            // Fond cartes — blanc pur
+  text: "#1F1F1F",            // Texte principal — noir profond doux (pas #000 austère)
+  primary: "#18C6A3",         // Turquoise brand — plus vif que l'ancien
+  accent: "#FF8C7A",          // Corail chaleureux — accent unique
+  success: "#3CB371",         // Vert médium — succès
 
-  // ---------- Surfaces ----------
+  // ============ Aliases utilitaires ============
   white: "#FFFFFF",
-  surface: "#FFFFFF",          // fond primaire — max de blancs
-  surface2: "#FAFAF8",         // fond secondaire ultra-léger (transitions douces)
-  surfaceWarm: "#FDFBF7",      // beige chaleureux — sections éditoriales / hero
-  surfaceWarm2: "#F5F1EA",     // beige plus marqué — appels d'accent
-  surfaceDark: "#0B1F3A",      // navy pour hero sombres
-  surfaceInverse: "#0B1F3A",
+  black: "#000000",
 
-  // ---------- Text (Airbnb-style hierarchy) ----------
-  text: "#1A1A1A",             // Noir profond — H1, corps principal
-  textSecondary: "#484848",    // Gris foncé — H2, corps secondaire
-  textMuted: "#717171",        // Gris moyen — labels, méta
-  textSubtle: "#B0B0B0",       // Gris clair — placeholders, disabled
+  // Text hierarchy dérivée de #1F1F1F
+  textSecondary: "#4A4A4A",   // Sous-titres, body secondaire
+  textMuted: "#7A7A7A",       // Meta, labels
+  textSubtle: "#B5B5B5",      // Placeholders, disabled
   textInverse: "#FFFFFF",
 
-  // ---------- Borders / Dividers ----------
-  border: "#EBE8E3",           // beige subtile
-  borderStrong: "#D1CCC2",
-  divider: "#F0EEE9",
-  hairline: "rgba(0,0,0,0.06)",
+  // Surfaces dérivées
+  surface: "#FFFFFF",         // = card (alias)
+  surface2: "#FAF9F7",        // = bg (alias)
+  surfaceWarm: "#F5F3EE",     // Beige plus marqué pour sections éditoriales
+  surface3: "#EFEDE7",        // Encore plus marqué
 
-  // ---------- System ----------
-  success: "#00C2A8",          // aligne sur brand turquoise
-  successBg: "#E6FAF7",
-  warning: "#F5A623",
-  warningBg: "#FFF4E0",
-  danger: "#E11D48",           // Rose-rouge éditorial (moins agressif que rouge pur)
-  dangerBg: "#FFE4E6",
-  info: "#3B82F6",
-  infoBg: "#EFF6FF",
+  // ============ Legacy brand (compat) ============
+  midnight: "#1F1F1F",        // ancien navy → maintenant text principal
+  midnightDark: "#000000",
+  turquoise: "#18C6A3",       // = primary
+  turquoiseLight: "#4CD9C4",
+  turquoiseDark: "#0E9982",
+  brandTertiary: "#E6F9F4",   // primary/10
 
-  // ---------- Overlays (pour scrims photos) ----------
-  scrimDark: "rgba(11,31,58,0.75)",       // scrim gradient bas
-  scrimDarkTop: "rgba(11,31,58,0.35)",    // scrim gradient haut léger
-  scrimMedium: "rgba(11,31,58,0.55)",
-  scrimBlack: "rgba(0,0,0,0.7)",
-  glass: "rgba(255,255,255,0.72)",         // fond glassmorphism blanc
-  glassDark: "rgba(11,31,58,0.55)",        // fond glassmorphism sombre
+  // Borders — hairline discret sur beige
+  border: "#EAE7E1",
+  borderStrong: "#D6D2CA",
+  divider: "#EDEAE4",
+  hairline: "rgba(31,31,31,0.06)",
 
-  // ---------- Legacy aliases (retro-compat) ----------
-  surface3: "#EAF0F8",         // ancien token — utilisé dans certains composants
-  subtext: "#717171",          // ancien alias de textMuted
-  overlay: "rgba(11,31,58,0.55)",
+  // System states (minimal)
+  successBg: "#E6F5EC",
+  warning: "#E8A94A",
+  warningBg: "#FCF3E4",
+  danger: "#D95555",
+  dangerBg: "#FBEAE9",
+  info: "#5B8DEF",
+  infoBg: "#EBF1FD",
+
+  // Scrims & overlays (pour photos)
+  scrimDark: "rgba(31,31,31,0.72)",
+  scrimDarkTop: "rgba(31,31,31,0.30)",
+  scrimMedium: "rgba(31,31,31,0.50)",
+  scrimBlack: "rgba(0,0,0,0.65)",
+
+  // Glassmorphism
+  glass: "rgba(255,255,255,0.72)",
+  glassDark: "rgba(31,31,31,0.55)",
+
+  // Legacy compat
+  subtext: "#7A7A7A",
+  overlay: "rgba(31,31,31,0.55)",
+  surfaceInverse: "#1F1F1F",
+  surfaceDark: "#1F1F1F",
+  surfaceWarm2: "#EFEDE7",
 };
 
-// ---------- Spacing (8pt grid + generous breathing room) ----------
+// ============ Spacing — respirations généreuses (base 8, très aérée) ============
 export const spacing = {
   xxs: 2,
   xs: 4,
   sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
-  xxl: 32,
-  xxxl: 48,
-  huge: 64,
+  md: 14,      // 12 → 14
+  lg: 20,      // 16 → 20 (plus d'air)
+  xl: 28,      // 24 → 28
+  xxl: 40,     // 32 → 40
+  xxxl: 56,    // 48 → 56 (sections)
+  huge: 80,    // 64 → 80 (hero breathing)
 };
 
-// ---------- Radius (Airbnb-inspired — very rounded) ----------
+// ============ Radius — Apple/Airbnb style (généreux) ============
 export const radius = {
-  xs: 6,
-  sm: 10,
-  md: 16,
+  xs: 8,
+  sm: 12,
+  md: 18,
   lg: 24,           // Cartes principales
   xl: 32,           // Hero cards, sheets
-  xxl: 40,          // Cartes vedettes catégorie
+  xxl: 44,          // Cartes vedettes très arrondies
   pill: 999,
 };
 
-// ---------- Shadows (subtle tier 1 — jamais boxy) ----------
+// ============ Shadows — très discrètes (pas d'ombres marquées) ============
 export const shadow = {
   hairline: {
     shadowColor: "#000",
-    shadowOpacity: 0.03,
+    shadowOpacity: 0.02,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 1 },
     elevation: 1,
   },
   soft: {
     shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
   card: {
-    shadowColor: "#0B1F3A",
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
+    shadowColor: "#1F1F1F",
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 3,
   },
   elevated: {
-    shadowColor: "#0B1F3A",
-    shadowOpacity: 0.14,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 12 },
+    shadowColor: "#1F1F1F",
+    shadowOpacity: 0.10,
+    shadowRadius: 32,
+    shadowOffset: { width: 0, height: 14 },
     elevation: 8,
   },
   hero: {
-    shadowColor: "#0B1F3A",
-    shadowOpacity: 0.22,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 20 },
+    shadowColor: "#1F1F1F",
+    shadowOpacity: 0.16,
+    shadowRadius: 44,
+    shadowOffset: { width: 0, height: 22 },
     elevation: 14,
   },
-  // Legacy alias
   strong: {
-    shadowColor: "#0B1F3A",
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
+    shadowColor: "#1F1F1F",
+    shadowOpacity: 0.10,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 6,
   },
 };
 
-// ---------- Typography (Poppins conservé, hiérarchie éditoriale moderne) ----------
+// ============ Typography ============
+// Titres : Instrument Serif (chargée dynamiquement via expo-font)
+// Body : SF Pro / System / Inter (system defaults selon plateforme)
 export const font = {
-  regular: "Poppins_400Regular",
-  medium: "Poppins_500Medium",
-  semibold: "Poppins_600SemiBold",
-  bold: "Poppins_700Bold",
-  extrabold: "Poppins_800ExtraBold",
+  // Serif éditorial pour titres
+  serif: "InstrumentSerif",
+  serifItalic: "InstrumentSerifItalic",
+
+  // Système (fallback natif = SF Pro iOS / Roboto Android)
+  regular: "System",
+  medium: "System",
+  semibold: "System",
+  bold: "System",
+  extrabold: "System",
 };
 
-// Échelle typographique (Airbnb/Apple-style)
+// Échelle typographique — beaucoup d'air
 export const fs = {
   xxs: 11,
   xs: 12,
@@ -153,48 +168,46 @@ export const fs = {
   md: 15,
   lg: 17,
   xl: 20,
-  xxl: 24,
-  xxxl: 30,
-  display: 40,
-  displayLg: 52,
+  xxl: 26,
+  xxxl: 32,
+  display: 44,
+  displayLg: 56,
 };
 
-// Hiérarchie éditoriale prête à l'emploi (à utiliser dans <Txt variant="...">)
+// Hiérarchie prête à l'emploi
 export const typo = {
-  displayXL:  { fontSize: 52, lineHeight: 56, letterSpacing: -1.2, fontFamily: font.extrabold, color: colors.text },
-  display:    { fontSize: 40, lineHeight: 44, letterSpacing: -0.8, fontFamily: font.extrabold, color: colors.text },
-  h1:         { fontSize: 30, lineHeight: 36, letterSpacing: -0.5, fontFamily: font.bold,      color: colors.text },
-  h2:         { fontSize: 24, lineHeight: 30, letterSpacing: -0.3, fontFamily: font.bold,      color: colors.text },
-  h3:         { fontSize: 20, lineHeight: 26, letterSpacing: -0.2, fontFamily: font.semibold,  color: colors.text },
-  title:      { fontSize: 17, lineHeight: 24, letterSpacing: -0.1, fontFamily: font.semibold,  color: colors.text },
-  body:       { fontSize: 15, lineHeight: 22, fontFamily: font.regular,  color: colors.textSecondary },
-  bodyBold:   { fontSize: 15, lineHeight: 22, fontFamily: font.semibold, color: colors.text },
-  caption:    { fontSize: 13, lineHeight: 18, fontFamily: font.regular,  color: colors.textMuted },
-  captionBold:{ fontSize: 13, lineHeight: 18, fontFamily: font.semibold, color: colors.text },
-  overline:   { fontSize: 11, lineHeight: 14, letterSpacing: 1.5, fontFamily: font.bold, color: colors.textMuted, textTransform: "uppercase" as const },
-  micro:      { fontSize: 11, lineHeight: 14, fontFamily: font.medium, color: colors.textMuted },
+  // Titres éditoriaux (Instrument Serif)
+  displayXL: { fontFamily: font.serif, fontSize: 56, lineHeight: 60, letterSpacing: -1.5, color: colors.text },
+  display:   { fontFamily: font.serif, fontSize: 44, lineHeight: 48, letterSpacing: -1.2, color: colors.text },
+  h1:        { fontFamily: font.serif, fontSize: 34, lineHeight: 40, letterSpacing: -0.8, color: colors.text },
+  h2:        { fontFamily: font.serif, fontSize: 26, lineHeight: 32, letterSpacing: -0.4, color: colors.text },
+  h3:        { fontFamily: font.serif, fontSize: 22, lineHeight: 28, letterSpacing: -0.2, color: colors.text },
+
+  // Textes système (SF Pro / Inter)
+  title:      { fontSize: 17, lineHeight: 24, fontWeight: "600" as const, letterSpacing: -0.1, color: colors.text },
+  titleBold:  { fontSize: 17, lineHeight: 24, fontWeight: "700" as const, letterSpacing: -0.1, color: colors.text },
+  body:       { fontSize: 15, lineHeight: 24, fontWeight: "400" as const, color: colors.textSecondary },
+  bodyBold:   { fontSize: 15, lineHeight: 24, fontWeight: "600" as const, color: colors.text },
+  caption:    { fontSize: 13, lineHeight: 20, fontWeight: "400" as const, color: colors.textMuted },
+  captionBold:{ fontSize: 13, lineHeight: 20, fontWeight: "600" as const, color: colors.text },
+  overline:   { fontSize: 11, lineHeight: 14, letterSpacing: 1.6, fontWeight: "600" as const, color: colors.textMuted, textTransform: "uppercase" as const },
+  micro:      { fontSize: 11, lineHeight: 14, fontWeight: "500" as const, color: colors.textMuted },
 };
 
-// ---------- Motion (animations & timing) ----------
+// ============ Motion — timing courbes Apple ============
 export const motion = {
-  duration: {
-    fast: 150,
-    base: 220,
-    slow: 320,
-    slower: 480,
-  },
+  duration: { fast: 150, base: 240, slow: 360, slower: 520 },
   easing: {
-    // Utilisez avec Easing.bezier(...) dans reanimated
-    standard: [0.4, 0.0, 0.2, 1] as const,      // material standard
-    emphasized: [0.2, 0.0, 0, 1] as const,       // apple ease-out
-    spring: [0.34, 1.56, 0.64, 1] as const,      // slight overshoot
+    standard:   [0.4, 0.0, 0.2, 1] as const,
+    emphasized: [0.2, 0.0, 0, 1] as const,
+    spring:     [0.34, 1.56, 0.64, 1] as const,
   },
 };
 
-// ---------- Glass effect config ----------
+// Glass
 export const glass = {
-  intensityIOS: 90,           // expo-blur intensity iOS
-  intensityAndroid: 60,       // Android is heavier — reduce
-  tintBase: "rgba(255,255,255,0.72)",   // fallback tint for readability
-  tintDark: "rgba(11,31,58,0.55)",
+  intensityIOS: 80,
+  intensityAndroid: 55,
+  tintBase: "rgba(255,255,255,0.75)",
+  tintDark: "rgba(31,31,31,0.55)",
 };

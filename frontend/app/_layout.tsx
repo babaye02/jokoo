@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { useEditorialFonts } from "@/src/hooks/use-editorial-fonts";
 import { AuthProvider } from "@/src/auth";
 import { registerUnauthorizedHandler } from "@/src/api";
 
@@ -26,15 +27,17 @@ function AuthRedirector() {
 }
 
 export default function RootLayout() {
-  const [loaded, error] = useIconFonts();
+  const [iconsLoaded, iconsError] = useIconFonts();
+  const [editorialLoaded] = useEditorialFonts();
 
   useEffect(() => {
-    if (loaded || error) {
+    if ((iconsLoaded || iconsError) && editorialLoaded) {
       SplashScreen.hideAsync();
     }
-  }, [loaded, error]);
+  }, [iconsLoaded, iconsError, editorialLoaded]);
 
-  if (!loaded && !error) return null;
+  // Attendre icons (obligatoires) — éditorial peut arriver après (fallback système)
+  if (!iconsLoaded && !iconsError) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
