@@ -231,16 +231,69 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.10"
-  test_sequence: 11
-  run_ui: false
+  version: "1.11"
+  test_sequence: 12
+  run_ui: true
 
 test_plan:
   current_focus:
-    - "RETEST iter29 — 4 CRITICAL + 4 MAJOR fixes"
+    - "AUDIT SYSTÈME DE NOTATION — backend + frontend E2E"
   stuck_tasks: []
   test_all: false
-  test_priority: "critical_first"
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Audit exhaustif du système de notation demandé par le user. Corrections backend appliquées :
+
+      **Fixes backend `server.py` POST /reviews** :
+      - Suppression du mode legacy `provider_id`-only (contournement possible). Désormais `booking_id` **obligatoire** → 400 sans lui.
+      - Vérification `booking.status == "completed"` obligatoire → 400 sinon.
+      - Vérification que le provider n'est pas soi-même → 400.
+      - Un seul avis par booking (via `review_id`).
+      - Rating 1..5 (Pydantic Field).
+      - Comment optionnel (trim + default "").
+      - Notif `review_received` immédiate au prestataire.
+      - Recompute exact de `providers.rating` (2 décimales) + `reviews_count`.
+
+      **Nouveaux endpoints ajoutés** :
+      - `GET /api/reviews?provider_id=X&limit=N` : liste publique des avis d'un prestataire (visible par tous, futurs clients inclus).
+      - `GET /api/bookings/{bid}/review-eligibility` : indique si le client peut noter (`{eligible: bool, reason?: string}`).
+
+      **Frontend déjà OK (audit)** :
+      - `/booking/detail/[id]` : carte "Laissez un avis" visible si `isClient && status==="completed" && !review_id`.
+      - `/booking/review/[id]` : formulaire stars 1-5 + commentaire optionnel, POST /reviews avec `booking_id` uniquement.
+      - `/provider/[id]` : affichage rating + reviews_count + liste des 5 derniers avis.
+      - `/(tabs)/index` et `/(tabs)/search` : affichage rating + reviews_count sur les cards prestataires.
+
+      Tester **backend + frontend UI** :
+
+      ## Backend
+      1. `POST /reviews` sans booking_id → 400.
+      2. `POST /reviews` avec booking pending → 400 "mission terminée".
+      3. `POST /reviews` avec booking completed du bon client → 200, doc créé, providers.rating recomputé, notif review_received chez le prestataire.
+      4. `POST /reviews` 2e fois sur même booking → 400.
+      5. `POST /reviews` par un tiers (pas le client) → 403.
+      6. `POST /reviews` où provider_id == user_id (self-review edge case) → 400.
+      7. Rating 0 ou 6 → 422 (Pydantic).
+      8. Comment "" → 200 (facultatif).
+      9. `GET /reviews?provider_id=X` → liste triée récent→ancien.
+      10. `GET /bookings/{bid}/review-eligibility` : true/false selon état.
+      11. `GET /providers/{id}` → `rating` et `reviews_count` reflètent les avis existants.
+
+      ## Frontend UI (playwright localhost:3000)
+      1. Login client, ouvrir une réservation `completed` sans review → carte "Laissez un avis" visible + bouton `leave-review-btn`.
+      2. Cliquer → écran `/booking/review/{id}` avec 5 étoiles cliquables (`testID=star-1..5`).
+      3. Sélectionner 4 étoiles, tapper un commentaire, cliquer "Publier l'avis" (`testID=review-submit`).
+      4. Retour à `/booking/detail/{id}` avec query `just_reviewed=1`. La carte review ne doit plus apparaître (review_id set).
+      5. Aller sur `/provider/{provider_id}` → la nouvelle note apparaît dans la liste "Avis clients".
+
+      Rapport dans `/app/test_reports/iteration_31.json`. Nettoyage post-run.
+
+      Backend : `http://localhost:8001/api/*`.
+      Credentials : `/app/memory/test_credentials.md`.
+
 
 agent_communication:
   - agent: "main"

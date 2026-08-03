@@ -1353,22 +1353,32 @@ async def update_booking(bid: str, body: BookingUpdate, user=Depends(current_use
 # ---------- reviews ----------
 @api.post("/reviews")
 async def create_review(body: ReviewIn, user=Depends(current_user)):
-    # Si booking_id est fourni, on récupère provider_id + on marque la review sur le booking.
-    provider_id = body.provider_id
-    if body.booking_id and not provider_id:
-        b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
-        if not b:
-            raise HTTPException(404, "Réservation introuvable")
-        if b["client_id"] != user["id"]:
-            raise HTTPException(403, "Seul le client peut noter cette réservation")
-        # CRITICAL: la mission doit être terminée pour permettre la notation
-        if b.get("status") != "completed":
-            raise HTTPException(400, "Vous ne pouvez noter qu'une mission terminée")
-        if b.get("review_id"):
-            raise HTTPException(400, "Un avis a déjà été laissé pour cette réservation")
-        provider_id = b["provider_id"]
-    if not provider_id:
-        raise HTTPException(400, "provider_id ou booking_id requis")
+    """
+    Notation d'un prestataire après une mission terminée.
+
+    Règles strictes :
+    - Un client doit fournir un `booking_id` (le mode legacy `provider_id`-only est refusé pour éviter la fraude).
+    - La mission doit être en statut `completed`.
+    - Un seul avis par mission.
+    - Un prestataire ne peut pas se noter lui-même.
+    - Rating : entier 1..5 (validé par Pydantic).
+    - Comment : optionnel (défaut "").
+    """
+    if not body.booking_id:
+        raise HTTPException(400, "booking_id requis pour laisser un avis")
+    b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if b["client_id"] != user["id"]:
+        raise HTTPException(403, "Seul le client peut noter cette réservation")
+    if b.get("status") != "completed":
+        raise HTTPException(400, "Vous ne pouvez noter qu'une mission terminée")
+    if b.get("review_id"):
+        raise HTTPException(400, "Un avis a déjà été laissé pour cette réservation")
+    provider_id = b["provider_id"]
+    # Un prestataire ne peut pas se noter lui-même (edge case si un compte a réservé chez lui-même via ancien système).
+    if provider_id == user["id"]:
+        raise HTTPException(400, "Vous ne pouvez pas noter votre propre profil")
     provider = await db.providers.find_one({"id": provider_id})
     if not provider:
         raise HTTPException(404, "Prestataire introuvable")
@@ -1381,34 +1391,64 @@ async def create_review(body: ReviewIn, user=Depends(current_user)):
         "author_name": user["name"],
         "author_avatar": user.get("avatar"),
         "rating": body.rating,
-        "comment": body.comment,
-        "photos": body.photos,
+        "comment": (body.comment or "").strip(),
+        "photos": body.photos or [],
         "created_at": now_iso(),
     }
     await db.reviews.insert_one(doc)
-    if body.booking_id:
-        await db.bookings.update_one({"id": body.booking_id}, {"$set": {"review_id": rid}})
+    await db.bookings.update_one({"id": body.booking_id}, {"$set": {"review_id": rid}})
     # Notifier le prestataire qu'un avis a été publié
     await db.notifications.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": provider_id,
         "type": "review_received",
         "title": f"⭐ Nouvel avis {body.rating}/5",
-        "body": (body.comment[:120] + "…") if body.comment and len(body.comment) > 120 else (body.comment or f"{user['name']} vous a laissé une note."),
+        "body": (doc["comment"][:120] + "…") if doc["comment"] and len(doc["comment"]) > 120
+                 else (doc["comment"] or f"{user['name']} vous a laissé une note."),
         "peer_id": user["id"],
         "booking_id": body.booking_id,
         "review_id": rid,
         "read": False,
         "created_at": now_iso(),
     })
-    # recompute rating
-    rs = await db.reviews.find({"provider_id": provider_id}).to_list(1000)
-    avg = round(sum(r["rating"] for r in rs) / len(rs), 2)
+    # Recompute rating & count sur la fiche prestataire (moyenne exacte à 2 décimales).
+    rs = await db.reviews.find({"provider_id": provider_id}, {"_id": 0, "rating": 1}).to_list(10000)
+    avg = round(sum(r["rating"] for r in rs) / len(rs), 2) if rs else 0
     await db.providers.update_one(
         {"id": provider_id},
         {"$set": {"rating": avg, "reviews_count": len(rs)}},
     )
     return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/reviews")
+async def list_reviews(
+    provider_id: str,
+    limit: int = 50,
+):
+    """Liste publique des avis d'un prestataire (visible par les futurs clients)."""
+    if limit < 1: limit = 1
+    if limit > 200: limit = 200
+    cur = db.reviews.find({"provider_id": provider_id}, {"_id": 0}).sort("created_at", -1).limit(limit)
+    return await cur.to_list(limit)
+
+
+@api.get("/bookings/{bid}/review-eligibility")
+async def review_eligibility(bid: str, user=Depends(current_user)):
+    """
+    Endpoint utilitaire pour l'UI : indique si le client peut noter la mission maintenant.
+    Retourne : { eligible: bool, reason?: str, existing_review_id?: str }
+    """
+    b = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if b["client_id"] != user["id"]:
+        return {"eligible": False, "reason": "not_owner"}
+    if b.get("status") != "completed":
+        return {"eligible": False, "reason": "not_completed", "status": b.get("status")}
+    if b.get("review_id"):
+        return {"eligible": False, "reason": "already_reviewed", "existing_review_id": b["review_id"]}
+    return {"eligible": True}
 
 
 @api.get("/bookings/{bid}")

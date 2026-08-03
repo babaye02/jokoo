@@ -1,0 +1,72 @@
+{
+  "summary": "Audit du système de notation Jokoo (iter31) — 20 cas testés. Backend: 14/14 pytest passent (POST /reviews avec booking_id obligatoire, self-review garde, GET /reviews public, GET /bookings/{bid}/review-eligibility avec 4 raisons). Frontend UI (mobile viewport 390x844): 5/5 flux validés — login client → carte 'Laissez un avis' visible avec testID leave-review-btn → écran /booking/review/{bid} avec star-1..star-5 + review-comment → soumission tap star-4 + commentaire + review-submit → redirection /booking/detail/{bid}?just_reviewed=1 avec carte review disparue → profil prestataire /provider/{id} affiche 4.0 Note, 1 Avis et le commentaire 'Excellent service iter31 UI' dans la section 'Avis clients (1)'. Toutes les 10 règles user validées (client uniquement, un seul avis, 1-5 étoiles, commentaire optionnel, moyenne temps réel, count temps réel, note sur profil, avis publics via GET /reviews, self-review bloquée, API+DB+UI synchronisés).",
+  "verdicts_20_cases": {
+    "backend_case_01_setup": "PASS - client A, prestataire B créés, booking accepté et completed via double confirm-completion",
+    "backend_case_02_missing_booking_id": "PASS - 400 'booking_id requis pour laisser un avis'",
+    "backend_case_03_bogus_booking_id": "PASS - 404 'Réservation introuvable'",
+    "backend_case_04_provider_cannot_review": "PASS - 403 'Seul le client peut noter cette réservation'",
+    "backend_case_05_pending_rejected": "PASS - 400 'Vous ne pouvez noter qu'une mission terminée'",
+    "backend_case_06_valid_review": "PASS - 200, doc complet (id, provider_id, booking_id, author_id, author_name, rating=4, comment, created_at)",
+    "backend_case_07_provider_rating_recomputed": "PASS - providers.rating=4.0, reviews_count=1 après un seul avis",
+    "backend_case_08_notification_review_received": "PASS - notif type='review_received', title='⭐ Nouvel avis 4/5', booking_id lié",
+    "backend_case_09_double_review_blocked": "PASS - 400 'Un avis a déjà été laissé pour cette réservation'",
+    "backend_case_10_rating_zero_422": "PASS - Pydantic Field(ge=1,le=5) → 422",
+    "backend_case_11_rating_six_422": "PASS - Pydantic Field(ge=1,le=5) → 422",
+    "backend_case_12_empty_comment_ok": "PASS - 200, comment='' accepté (facultatif)",
+    "backend_case_13_self_review_edge_case": "PASS - 400 'Vous ne pouvez pas noter votre propre profil' (garde provider_id==user['id'] active)",
+    "backend_case_14_list_reviews_public": "PASS - GET /reviews?provider_id=B retourne liste triée created_at desc, contient les avis publiés",
+    "backend_case_15_eligibility_endpoint": "PASS - true si completed sans review; false+reason=not_owner (autre user), not_completed (pending), already_reviewed (avec existing_review_id)",
+    "frontend_case_01_leave_review_card_visible": "PASS - Card 'Laissez un avis' affichée sur /booking/detail/{bid} completed sans review, avec bouton testID=leave-review-btn (screenshot iter31_detail.png)",
+    "frontend_case_02_review_screen_elements": "PASS - Navigation vers /booking/review/{bid}, star-1..star-5 + review-comment tous présents (screenshot iter31_review.png)",
+    "frontend_case_03_submit_review": "PASS - Tap star-4 → 4/5 highlighté, commentaire saisi, tap review-submit accepté",
+    "frontend_case_04_redirect_and_card_gone": "PASS - Redirection vers /booking/detail/{bid}?just_reviewed=1, carte review absente visuellement (screenshot iter31_after_submit.png — le screenshot ne montre plus la carte 'Laissez un avis')",
+    "frontend_case_05_provider_profile_shows_new_review": "PASS - /provider/{pid} affiche 'Note 4.0', '1 Avis', et l'avis 'UI Client - Excellent service iter31 UI ★★★★☆' dans la section 'Avis clients (1)' (screenshot iter31_provider.png)"
+  },
+  "backend_issues": {
+    "critical": [],
+    "major": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "shadow* styles",
+        "issue": "Console warning : '\"shadow*\" style props are deprecated. Use \"boxShadow\".' — répété plusieurs fois (Card component probable). Non bloquant mais à migrer. Reference: composants Card et shadow.soft dans /app/frontend/app/booking/detail/[id].tsx et theme"
+      },
+      {
+        "component": "props.pointerEvents",
+        "issue": "Console warning : 'props.pointerEvents is deprecated. Use style.pointerEvents'. Non bloquant. À migrer vers style.pointerEvents"
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_rating_system.py",
+    "/app/test_reports/pytest/iter31.xml"
+  ],
+  "action_items": [
+    "(cosmétique) Migrer les usages 'shadow*' du thème vers style.boxShadow (React Native Web) — non bloquant pour iter31.",
+    "(cosmétique) Remplacer props.pointerEvents par style.pointerEvents dans les composants concernés.",
+    "Aucune action fonctionnelle requise sur le système de notation — les 10 règles user sont respectées end-to-end."
+  ],
+  "critical_code_review_comments": [
+    "Excellent : POST /reviews impose booking_id, vérifie client_id==user, status==completed, review_id absent, provider_id!=user['id'] — 4 gardes cumulatives. Le recompute rating utilise round(sum/len, 2) — moyenne exacte.",
+    "GET /reviews est public (pas d'auth requise), sort created_at desc, limit clampé 1..200 — bon design pour futurs clients.",
+    "GET /bookings/{bid}/review-eligibility retourne les 3 reasons attendues + existing_review_id pour UX 'Voir mon avis'.",
+    "Notif review_received bien émise avec type/title/body/booking_id/review_id."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter31_rating_system.py (créé)"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 cas pytest — 15 avec setup)",
+    "frontend": "100% (5/5 flux UI)"
+  },
+  "seed_data_creation": "Comptes créés dynamiquement par les tests : iter31-<tag>-<runid>@test.jokoo (client + prestataire). Bookings de test créés puis complétés via double confirm-completion. Aucun nettoyage automatique mis en place — les emails sont préfixés 'iter31-' pour identification facile.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Système de notation iter31 validé complètement (backend + frontend UI). Fichier de test réutilisable : /app/backend/tests/test_iter31_rating_system.py (pytest, 14 cas, ~2s). Utiliser les screenshots dans /tmp/iter31_*.png pour référence visuelle. Ne PAS re-tester les modules validés iter23-30.",
+  "rca_of_issue": "Aucun bug détecté — tous les fixes backend (booking_id obligatoire, self-review guard, GET /reviews public, review-eligibility) et l'intégration frontend (leave-review-btn, star-N, review-comment, review-submit, redirection just_reviewed=1, refresh profil) fonctionnent conformément aux 10 règles user."
+}
