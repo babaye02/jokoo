@@ -181,7 +181,7 @@ export default function PromoCodesScreen() {
       }
       // Retour au checkout avec le code sélectionné.
       router.replace(
-        `${returnTo}?bookingId=${encodeURIComponent(returnBookingId)}&amount=${encodeURIComponent(String(contextAmount))}&applyCode=${encodeURIComponent(p.code)}`
+        `${returnTo}?bookingId=${encodeURIComponent(returnBookingId)}&amount=${encodeURIComponent(String(contextAmount))}&applyCode=${encodeURIComponent(p.code)}` as any
       );
     } else {
       // Écran standalone : feedback de confirmation

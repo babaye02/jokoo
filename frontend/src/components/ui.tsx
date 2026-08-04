@@ -16,18 +16,21 @@ import { colors, fs, radius, shadow, spacing } from "@/src/theme";
 // -------- Text --------
 type TxtProps = {
   size?: keyof typeof fs;
-  weight?: "400" | "500" | "600" | "700";
+  weight?: "400" | "500" | "600" | "700" | "800";
   color?: string;
   style?: TextStyle | TextStyle[];
   children?: React.ReactNode;
   numberOfLines?: number;
   testID?: string;
+  onPress?: () => void;
 };
-export function Txt({ size = "md", weight = "400", color = colors.text, style, children, numberOfLines, testID }: TxtProps) {
+export function Txt({ size = "md", weight = "400", color = colors.text, style, children, numberOfLines, testID, onPress }: TxtProps) {
   return (
     <Text
       testID={testID}
       numberOfLines={numberOfLines}
+      onPress={onPress}
+      suppressHighlighting={!!onPress}
       style={[{ fontSize: fs[size], fontWeight: weight, color }, style as any]}
     >
       {children}

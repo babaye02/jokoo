@@ -4,11 +4,12 @@
 //     "category:plombier" | "provider:<id>" | "app:home"
 import { Linking } from "react-native";
 import type { Router } from "expo-router";
-import type { AdLinkType } from "./api";
+import type { AdLinkType } from "../api";
 
 export type NavItem = {
   link_type?: AdLinkType | null;
   link_target?: string | null;
+  link_label?: string | null;
   link?: string | null;
   // extras for legacy category placement
   category_key?: string | null;

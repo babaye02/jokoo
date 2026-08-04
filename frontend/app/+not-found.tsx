@@ -21,7 +21,7 @@ export default function NotFoundScreen() {
         <Text style={styles.subtitle}>
           Cette page n&apos;existe pas ou a été déplacée. Revenez à l&apos;accueil pour continuer.
         </Text>
-        <Pressable style={styles.btn} onPress={() => router.replace("/(tabs)/")}>
+        <Pressable style={styles.btn} onPress={() => router.replace("/(tabs)")}>
           <Ionicons name="home" size={16} color={colors.white} />
           <Text style={styles.btnTxt}>Retour à l&apos;accueil</Text>
         </Pressable>

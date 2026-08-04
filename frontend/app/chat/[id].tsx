@@ -131,7 +131,7 @@ export default function Chat() {
         if ((router as any).canGoBack?.() !== false) {
           router.back();
         } else {
-          router.replace("/(tabs)/chat");
+          router.replace("/(tabs)/messages");
         }
       }, 900);
     } catch (e: any) {

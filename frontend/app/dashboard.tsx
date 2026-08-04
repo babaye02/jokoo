@@ -395,7 +395,7 @@ export default function Dashboard() {
           <Text style={styles.sectionTitle}>Nouvelles demandes</Text>
           {dash.recent_bookings.length === 0 ? (
             <View style={styles.emptyMini}>
-              <Ionicons name="inbox-outline" size={28} color={colors.textSubtle} />
+              <Ionicons name="mail-open-outline" size={28} color={colors.textSubtle} />
               <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 6 }}>Aucune demande</Text>
             </View>
           ) : (
