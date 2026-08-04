@@ -1,0 +1,60 @@
+{
+  "iteration": 39,
+  "scope": "CRM Push Campaigns backend (Phase 1) — new /admin/push/* endpoints + non-regression on chat/booking/KYC/register-push",
+  "summary": "All 22 backend tests PASS (22/22, 100%). Every new CRM push endpoint returns the expected HTTP code and structure. All 10 segment types work (all/clients/prestataires/verified/unverified/category/city Dakar case-insensitive/new_signups/inactive/manual). All 10 default templates are seeded correctly (welcome, eid, christmas, new_year, promo, new_service, app_update, booking_reminder, review_request, new_promo_codes). Campaign lifecycle (immediate, scheduled, past-date rejection, missing-date rejection, list, detail with live_stats, patch, delete) works. Templates CRUD + default protection (400) works. Access control blocks non-admin (403) on all /admin/push/* endpoints. Non-regression PASSES: chat message 200, booking PATCH accepted 200, KYC reject 200 (auto-push trigger fires), /register-push persists a document in push_devices BEFORE the SuprSend relay (verified via dashboard.counts.devices increment).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/register-push",
+        "issue": "Returns 500 in dev (EMERGENT_PUSH_KEY missing) instead of 502. Behaviour is: persistence in push_devices succeeds (BEFORE relay, as designed), then relay to SuprSend gets 401 → server maps to HTTPException(500, 'EMERGENT_PUSH_KEY missing or invalid'). Persistence is confirmed working (dashboard devices count increments +1). Not blocking, but semantically 502 would be more accurate for an upstream config failure."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_crm_push_campaigns.py",
+    "/app/test_reports/pytest/iter39_crm_push.xml"
+  ],
+  "results_breakdown": {
+    "dashboard": "1/1 pass — structure {counts, totals, rates, recent_campaigns} + all 7 counts keys present, total_users > 0",
+    "segment_preview": "10/10 pass — all, clients, prestataires, verified, unverified, category(plombier), city(Dakar case-insensitive), new_signups, inactive, manual(2 fake ids → count=2)",
+    "templates": "2/2 pass — 10 default keys present, custom create/update/delete OK, default delete blocked with 400",
+    "campaigns_lifecycle": "1/1 pass — immediate → 201 (status sending), scheduled(future) → 201 (status scheduled), scheduled(past) → 400, scheduled without scheduled_at → 400, list includes created, detail has live_stats, patch scheduled → 200, delete → 200",
+    "access_control": "4/4 pass — pro@jokoo.sn gets 403 on dashboard/preview/campaigns/templates",
+    "auto_triggers_non_regression": "3/3 pass — chat message 200/201, booking PATCH accepted 200, KYC reject 200 (with reason)",
+    "register_push_persistence": "1/1 pass — device count in dashboard increments by 1 after POST /register-push, confirming persistence BEFORE upstream 500"
+  },
+  "action_items": [
+    "(Optional) Map upstream SuprSend 401 (EMERGENT_PUSH_KEY invalid) to HTTP 502 in /register-push instead of 500 — matches the intent of the current 500 branch for other upstream ≥500 responses.",
+    "No functional action needed for Phase 1 — all acceptance criteria met."
+  ],
+  "critical_code_review_comments": [
+    "push_crm.py is well-structured (~560 lines, single responsibility). Router factory pattern keeps db/send_push/require_admin injectable and testable.",
+    "resolve_segment covers all 10 documented types, uses case-insensitive regex for city, and $ne:true guard on blocked users.",
+    "_send_campaign chunks recipients in batches of 100 and logs per-user events (sent/failed) in push_events — good for future analytics.",
+    "Scheduler loop (push_scheduler_loop) uses ISO string comparison for scheduled_at (correct since all timestamps are ISO with tz).",
+    "PATCH campaign correctly refuses to modify sent/sending campaigns (returns 400).",
+    "DELETE template protects is_default=true (returns 400).",
+    "Minor: _ensure_default_templates upsert uses $setOnInsert only — safe, but means fixing a typo in a default template requires manual DB update.",
+    "Minor: create_campaign catches ValueError for scheduled_at parse but the HTTPException(400 'date must be future') is raised inside the try, which is fine but visually inside the except path in current control flow (works correctly).",
+    "Minor: dashboard rate delivered_pct = sent / targeted × 100 — but stats.targeted is set at creation time only for the immediate path; scheduled/force-send also updates it — verified OK."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_crm_push_campaigns.py (created)"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22)",
+    "frontend": "not tested (out of scope for Phase 1)"
+  },
+  "seed_data_creation": "Called POST /api/seed at session start (idempotent). Test created one temporary booking (accepted) and rejected one pending KYC request for pro@jokoo.sn with reason 'TEST iter39 non-regression'. One TEST_ push_device row added for client@jokoo.sn. One custom template created and deleted. Two campaigns created and one force-deleted; one 'immediate' campaign left (sent status) with title 'TEST immediate'.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The register-push endpoint returns HTTP 500 in dev when EMERGENT_PUSH_KEY is missing (persistence still occurs). If EMERGENT_PUSH_KEY is set later, expect 200. All CRM push endpoints are stable — reuse /app/backend/tests/test_crm_push_campaigns.py as regression. Do NOT approve KYC in tests (only one pending request; reject is safer/idempotent-ish). For booking non-regression, create a fresh booking as client for pro@jokoo.sn's provider then PATCH accepted as pro.",
+  "rca_of_issue": "N/A — no bugs found. The 500 on /register-push is an expected dev-env symptom (missing EMERGENT_PUSH_KEY), and persistence works as designed (verified via dashboard device count delta)."
+}

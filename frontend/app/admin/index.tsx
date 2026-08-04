@@ -25,6 +25,7 @@ const NAV_ITEMS: {
   { key: "reports",  title: "Signalements",            sub: "Réclamations et modération",                 icon: "flag-outline",           route: "/admin/reports",            perm: "reports:handle" },
   { key: "kyc",      title: "Vérifications KYC",       sub: "File d'attente des identités à valider",     icon: "shield-checkmark-outline", route: "/admin/kyc-requests",     perm: "kyc:read" },
   { key: "legal",    title: "Centre juridique",        sub: "Éditer les 22 documents & versions",         icon: "document-text-outline",  route: "/admin/legal" },
+  { key: "push",     title: "CRM Notifications",       sub: "Campagnes push · segments · modèles",         icon: "megaphone-outline",      route: "/admin/push" },
   { key: "company",  title: "Informations entreprise", sub: "Coordonnées, réseaux, branding (site web)",  icon: "globe-outline",          route: "/admin/company-info",       superOnly: true },
 ];
 

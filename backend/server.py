@@ -162,7 +162,28 @@ class RegisterPushBody(BaseModel):
 
 @api.post("/register-push", status_code=201)
 async def register_push(body: RegisterPushBody):
-    """Enregistre (ou met à jour) le token push natif d'un appareil."""
+    """Enregistre (ou met à jour) le token push natif d'un appareil.
+    Persiste également en base pour le ciblage CRM (Campagnes)."""
+    # Persistance MongoDB — obligatoire pour le CRM Campagnes
+    try:
+        await db.push_devices.update_one(
+            {"user_id": body.user_id, "device_token": body.device_token},
+            {
+                "$set": {
+                    "user_id": body.user_id,
+                    "platform": body.platform,
+                    "device_token": body.device_token,
+                    "last_seen_at": now_iso(),
+                    "active": True,
+                },
+                "$setOnInsert": {"created_at": now_iso()},
+            },
+            upsert=True,
+        )
+    except Exception as e:
+        log.warning(f"push_devices upsert failed (non-blocking): {e}")
+
+    # Relais vers Emergent SuprSend (peut renvoyer 500 en dev si placeholder)
     try:
         resp = await _push_client.post("/api/v1/push/users/register", json=body.model_dump())
     except _httpx_push.HTTPError as e:
@@ -2858,6 +2879,18 @@ async def record_cash_payment(bid: str, body: dict, user=Depends(current_user)):
             "read": False,
             "created_at": now_iso(),
         })
+        # Push mobile — non-bloquant
+        try:
+            await send_push(
+                recipients=[b["client_id"]],
+                data={
+                    "title": "Paiement enregistré ✅",
+                    "message": f"Le prestataire a confirmé la réception de {amount:.0f} FCFA.",
+                    "action_url": f"/booking/{bid}",
+                },
+            )
+        except Exception as e:
+            log.warning(f"Push failed (non-blocking): {e}")
     if is_blocked:
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
@@ -5372,6 +5405,18 @@ async def admin_approve_kyc(kyc_id: str, user=Depends(require_perm("kyc:write"))
         "read": False,
         "created_at": now,
     })
+    # Push mobile — non-bloquant
+    try:
+        await send_push(
+            recipients=[doc["user_id"]],
+            data={
+                "title": "Compte vérifié ✅",
+                "message": "Votre identité a été vérifiée. Le badge Vérifié est actif.",
+                "action_url": "/provider/verification",
+            },
+        )
+    except Exception as e:
+        log.warning(f"Push failed (non-blocking): {e}")
     return {"ok": True, "status": "approved"}
 
 
@@ -5409,6 +5454,18 @@ async def admin_reject_kyc(kyc_id: str, body: KycDecisionIn, user=Depends(requir
         "read": False,
         "created_at": now,
     })
+    # Push mobile — non-bloquant
+    try:
+        await send_push(
+            recipients=[doc["user_id"]],
+            data={
+                "title": "Vérification refusée",
+                "message": f"Motif : {reason[:120]}",
+                "action_url": "/provider/verification",
+            },
+        )
+    except Exception as e:
+        log.warning(f"Push failed (non-blocking): {e}")
     return {"ok": True, "status": "rejected"}
 
 
@@ -7339,12 +7396,29 @@ async def root():
 # ---------- mount ----------
 app.include_router(api)
 
-# Push notifications (Emergent-managed / SuprSend relay) — ARCHITECTURE RESERVED
-# Wired but not called from event triggers yet. To enable: uncomment try/except
-# blocks in create_booking, update_booking, send_message, promo creation, and
-# the Stripe/Wave/Orange payment webhook handlers.
+# Push notifications (Emergent-managed / SuprSend relay) — legacy internal router
 from push import push_router  # noqa: E402
 app.include_router(push_router)
+
+# 📢 CRM — Push Campaigns (Phase 1 complète)
+from push_crm import create_push_crm_router, push_scheduler_loop  # noqa: E402
+_push_crm_router = create_push_crm_router(
+    db=db,
+    send_push=send_push,
+    current_user=current_user,
+    require_admin=require_admin,
+    now_iso=now_iso,
+    log=log,
+)
+# Le préfixe /admin/push est déjà défini dans le router → montage sous /api
+app.include_router(_push_crm_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def _push_scheduler_startup():
+    """Démarre la boucle de traitement des campagnes programmées."""
+    import asyncio as _asyncio
+    _asyncio.create_task(push_scheduler_loop(db=db, send_push=send_push, log=log, poll_seconds=60))
 
 # SEC : CORS restreint. On lit CORS_ORIGINS (CSV) depuis l'env. Wildcard '*'
 # NE peut JAMAIS être combiné avec allow_credentials=True (échec silencieux navigateur
