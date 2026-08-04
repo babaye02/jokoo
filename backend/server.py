@@ -3426,7 +3426,11 @@ async def payment_status(
     try:
         s = await stripe_checkout.get_checkout_status(session_id)
     except Exception as e:
-        raise HTTPException(500, f"Impossible de vérifier: {e}")
+        msg = str(e)
+        # 404 propre si Stripe ne connaît pas la session
+        if "no such" in msg.lower() or "not found" in msg.lower() or "invalidrequest" in msg.lower().replace(" ", ""):
+            raise HTTPException(404, "Session de paiement introuvable")
+        raise HTTPException(502, f"Impossible de vérifier: {msg}")
     paid = getattr(s, "payment_status", None) == "paid" or getattr(s, "status", None) == "complete"
     meta = getattr(s, "metadata", {}) or {}
     if paid and meta.get("kind") == "booking" and meta.get("booking_id"):
