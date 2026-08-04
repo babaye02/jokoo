@@ -148,7 +148,8 @@ async def send_push(
         payload["$idempotency_key"] = idempotency_key
     resp = await _push_client.post("/api/v1/push/trigger", json=payload)
     if resp.status_code == 401:
-        raise HTTPException(500, "EMERGENT_PUSH_KEY missing or invalid")
+        # SuprSend renvoie 401 en dev quand la clé est un placeholder — traiter comme 502
+        raise HTTPException(502, "Push provider unavailable")
     if resp.status_code >= 500:
         raise HTTPException(502, "Push provider unavailable")
     resp.raise_for_status()
@@ -190,7 +191,8 @@ async def register_push(body: RegisterPushBody):
         log.warning(f"register-push upstream error: {e}")
         raise HTTPException(502, "Push provider unavailable")
     if resp.status_code == 401:
-        raise HTTPException(500, "EMERGENT_PUSH_KEY missing or invalid")
+        # SuprSend renvoie 401 en dev quand la clé est un placeholder — traiter comme 502
+        raise HTTPException(502, "Push provider unavailable")
     if resp.status_code >= 500:
         raise HTTPException(502, "Push provider unavailable")
     resp.raise_for_status()
