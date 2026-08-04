@@ -1,7 +1,7 @@
 import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
-import { LogBox, StatusBar, Platform, Linking } from "react-native";
+import { LogBox, StatusBar, Platform, Linking, Alert } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -89,9 +89,26 @@ function PushTapHandler() {
         const last = await AsyncStorage.getItem("pushNudgeAt");
         const oneWeek = 7 * 24 * 60 * 60 * 1000;
         if (last && Date.now() - Number(last) <= oneWeek) return;
-        await AsyncStorage.setItem("pushNudgeAt", String(Date.now()));
-        // Nudge non-intrusif : nous n'affichons pas de dialog global ici
-        // (le composant Auth peut décider d'afficher un banner "Activer les notifications").
+        // Dialog non-intrusif proposant d'ouvrir les Paramètres système
+        Alert.alert(
+          "Activez les notifications",
+          "Recevez un signal instantané pour vos réservations et messages.",
+          [
+            {
+              text: "Plus tard",
+              style: "cancel",
+              onPress: async () => { await AsyncStorage.setItem("pushNudgeAt", String(Date.now())); },
+            },
+            {
+              text: "Ouvrir Paramètres",
+              onPress: async () => {
+                await AsyncStorage.setItem("pushNudgeAt", String(Date.now()));
+                Linking.openSettings().catch(() => {});
+              },
+            },
+          ],
+          { cancelable: true },
+        );
       } catch {}
     })();
 

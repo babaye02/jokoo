@@ -1,0 +1,44 @@
+{
+  "summary": "Iter38 — Audit push notifications (SuprSend relay) BACKEND ONLY. 13/13 tests passed. `/api/register-push` endpoint present avec validation Pydantic (422 sur champs manquants) et renvoie proprement 500 'EMERGENT_PUSH_KEY missing or invalid' avec placeholder key en dev (comportement attendu). Zéro régression sur les flows métier : chat client→provider (200 + persistance), booking accept + quote (200 + persistance en DB), sponsorship admin gift (200 + status active + sponsored_until + notification interne). Logs backend confirment les warnings 'Push failed (non-blocking): 500: EMERGENT_PUSH_KEY missing or invalid' — le pattern try/except protège bien les flows métier.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PATCH /api/admin/sponsorships/{sid} (gift path)",
+        "issue": "L'endpoint admin gift (server.py L4733-4776) inline la logique d'activation via `_activate_sponsorship_sync_doc` mais n'appelle PAS `send_push` — contrairement à `_activate_sponsorship` (L4589-4600) qui envoie un push 'Sponsorisation activée 🚀'. Résultat : le prestataire reçoit uniquement la notif interne DB (`sponsorship_gifted`) mais AUCUN push mobile lors d'un cadeau admin. Recommandation : ajouter un bloc try/except send_push dans le path 'gift' pour cohérence avec le path payé."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter38_push_notifications.py",
+    "/app/test_reports/pytest/iter38_push.xml"
+  ],
+  "action_items": [
+    "(OPTIONNEL / cohérence) Ajouter `send_push` dans le path 'gift' de `PATCH /admin/sponsorships/{sid}` pour que le prestataire reçoive aussi un push mobile lors d'un cadeau admin (non bloquant pour la publication).",
+    "Confirmé : `EMERGENT_PUSH_KEY=placeholder` en dev provoque 500 côté /register-push et warnings 'Push failed (non-blocking)' sur les événements — comportement attendu. Remplacer la clé au déploiement."
+  ],
+  "critical_code_review_comments": [
+    "Le try/except autour de `send_push` est bien en place dans les 4 événements audités (chat message, booking status change, booking quote, sponsorship activation payée) — les flows métier ne sont jamais bloqués par une panne du provider push.",
+    "`_activate_sponsorship` (payé) envoie un push mais l'admin gift path (L4733) le contourne — divergence mineure.",
+    "`send_push` chunk correctement les batchs >100 recipients et valide la présence de title/message avant l'appel HTTP — implémentation propre.",
+    "`_push_client` est un `httpx.AsyncClient` module-level : bien pour les perfs mais penser à `aclose()` sur shutdown (pas critique en dev)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter38_push_notifications.py (nouveau)"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13)",
+    "frontend": "n/a (backend-only scope)"
+  },
+  "seed_data_creation": "Aucune seed créée. Booking et sponsorship de test créés à la volée via les endpoints, aucun cleanup nécessaire (données de test non-bloquantes).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Push notifications backend validé. /api/register-push existe et renvoie 500 propre avec la clé placeholder — comportement attendu, sera résolu au déploiement quand EMERGENT_PUSH_KEY sera swappée. Tous les hooks `send_push` sur les flows métier (chat, booking accept/quote, sponsorship active payé) sont wrappés try/except — les logs confirment les warnings 'Push failed (non-blocking)' sans jamais casser les responses HTTP. Seule anomalie mineure : le path 'admin gift' de /admin/sponsorships/{sid} n'appelle pas send_push (à ajouter par cohérence, non-bloquant).",
+  "rca_of_issue": "n/a — aucun bug bloquant. La divergence 'admin gift sans push mobile' est un oubli d'implémentation mineur documenté ci-dessus."
+}

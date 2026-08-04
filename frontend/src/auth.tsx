@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { storage } from "@/src/utils/storage";
 import { api, TOKEN_KEY, User, setAuthToken } from "@/src/api";
+import { registerForPush } from "@/src/push/register";
 
 type AuthState = {
   user: User | null;
@@ -42,6 +43,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Register push token on every successful login / restored session.
+  // registerForPush est idempotent + safe sur web (retourne "unsupported").
+  useEffect(() => {
+    if (!user?.id) return;
+    registerForPush(user.id).catch(() => {});
+  }, [user?.id]);
 
   const signIn = async (email: string, password: string) => {
     const r = await api.post<{ token: string; user: User }>("/auth/login", { email, password }, false);
