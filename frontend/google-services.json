@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "971959003796",
+    "project_id": "jokoo-884ac",
+    "storage_bucket": "jokoo-884ac.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:971959003796:android:1148d16cea99b581ac2281",
+        "android_client_info": {
+          "package_name": "com.jokoo.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDJ-31nq7LQZLDc7e05ZXVufWOft8IQKck"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

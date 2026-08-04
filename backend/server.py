@@ -109,6 +109,73 @@ logging.basicConfig(
 log = logging.getLogger("jokoo")
 
 
+# ─────────────────────────────────────────────────────────────
+# 🔔 Push notifications (Emergent-managed via SuprSend relay)
+# ─────────────────────────────────────────────────────────────
+import httpx as _httpx_push  # noqa: E402
+
+PUSH_BASE_URL = "https://integrations.emergentagent.com"
+_EMERGENT_PUSH_KEY = os.environ.get("EMERGENT_PUSH_KEY", "placeholder")
+_push_client = _httpx_push.AsyncClient(
+    base_url=PUSH_BASE_URL,
+    headers={"X-Push-Key": _EMERGENT_PUSH_KEY},
+    timeout=10.0,
+)
+
+
+async def send_push(
+    recipients: list[str],
+    data: dict,
+    idempotency_key: Optional[str] = None,
+) -> None:
+    """Envoie une notification push aux utilisateurs.
+    - `recipients` : liste des user IDs (max 100 par appel).
+    - `data` doit contenir au minimum `title` et `message` (str).
+      Optionnels : `subtext`, `image_url`, `action_url`, `channel_id`, `sound`.
+    Toute erreur est catchée par l'appelant (patron try/except non-bloquant).
+    """
+    if not recipients:
+        return
+    if len(recipients) > 100:
+        # Chunker par lots de 100
+        for i in range(0, len(recipients), 100):
+            await send_push(recipients[i:i + 100], data, idempotency_key)
+        return
+    if "title" not in data or "message" not in data:
+        raise ValueError("send_push: data must include title and message")
+    payload: dict = {"recipients": recipients, "data": data}
+    if idempotency_key:
+        payload["$idempotency_key"] = idempotency_key
+    resp = await _push_client.post("/api/v1/push/trigger", json=payload)
+    if resp.status_code == 401:
+        raise HTTPException(500, "EMERGENT_PUSH_KEY missing or invalid")
+    if resp.status_code >= 500:
+        raise HTTPException(502, "Push provider unavailable")
+    resp.raise_for_status()
+
+
+class RegisterPushBody(BaseModel):
+    user_id: str
+    platform: str  # "android" | "ios"
+    device_token: str
+
+
+@api.post("/register-push", status_code=201)
+async def register_push(body: RegisterPushBody):
+    """Enregistre (ou met à jour) le token push natif d'un appareil."""
+    try:
+        resp = await _push_client.post("/api/v1/push/users/register", json=body.model_dump())
+    except _httpx_push.HTTPError as e:
+        log.warning(f"register-push upstream error: {e}")
+        raise HTTPException(502, "Push provider unavailable")
+    if resp.status_code == 401:
+        raise HTTPException(500, "EMERGENT_PUSH_KEY missing or invalid")
+    if resp.status_code >= 500:
+        raise HTTPException(502, "Push provider unavailable")
+    resp.raise_for_status()
+    return {"status": "registered"}
+
+
 def audit_log(event: str, **fields: Any) -> None:
     """Log structuré JSON pour audit sécurité (login, paiement, RGPD, admin)."""
     try:
@@ -2354,7 +2421,41 @@ async def update_booking(bid: str, body: BookingUpdate, user=Depends(current_use
             "read": False,
             "created_at": now_iso(),
         })
-        # Push mobile : architecture prête — activation post-store
+        # Push mobile — non-bloquant
+        try:
+            status_labels = {
+                "accepted": "Réservation acceptée ✅",
+                "rejected": "Réservation refusée",
+                "completed": "Mission terminée ✨",
+                "cancelled": "Réservation annulée",
+                "in_progress": "Mission en cours",
+            }
+            title = status_labels.get(body.status, f"Réservation {body.status}")
+            msg = f"{b.get('service') or 'Votre mission'} avec {b.get('provider_name') if target == b['client_id'] else b.get('client_name')}"
+            await send_push(
+                recipients=[target],
+                data={
+                    "title": title,
+                    "message": msg,
+                    "action_url": f"/booking/{bid}",
+                },
+            )
+        except Exception as e:
+            log.warning(f"Push failed (non-blocking): {e}")
+
+    if body.quote_amount is not None:
+        # Push devis reçu
+        try:
+            await send_push(
+                recipients=[b["client_id"]],
+                data={
+                    "title": "Devis reçu",
+                    "message": f"{b['provider_name']} · {int(body.quote_amount):,} F CFA".replace(",", " "),
+                    "action_url": f"/booking/{bid}",
+                },
+            )
+        except Exception as e:
+            log.warning(f"Push failed (non-blocking): {e}")
 
     if len(updates) == 1:
         raise HTTPException(400, "Aucune mise à jour fournie")
@@ -2637,7 +2738,18 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
             "read": False,
             "created_at": now_iso(),
         })
-        # Push mobile : architecture prête — activation post-store
+        # Push mobile — non-bloquant
+        try:
+            await send_push(
+                recipients=[peer_id],
+                data={
+                    "title": user["name"],
+                    "message": filtered_text[:120],
+                    "action_url": f"/chat/{user['id']}",
+                },
+            )
+        except Exception as e:
+            log.warning(f"Push failed (non-blocking): {e}")
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
@@ -4474,6 +4586,18 @@ async def _activate_sponsorship(sid: str, provider: str) -> dict:
         "read": False,
         "created_at": now_iso(),
     })
+    # Push mobile — non-bloquant
+    try:
+        await send_push(
+            recipients=[s["provider_id"]],
+            data={
+                "title": "Sponsorisation activée 🚀",
+                "message": f"Votre profil est mis en avant jusqu'au {updates['ends_at'][:10]}.",
+                "action_url": "/sponsor",
+            },
+        )
+    except Exception as e:
+        log.warning(f"Push failed (non-blocking): {e}")
     return {**s, **updates}
 
 
