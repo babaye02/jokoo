@@ -224,6 +224,15 @@ import hashlib
 import re
 import unicodedata
 
+
+def _safe_regex(user_input: str, max_len: int = 80) -> str:
+    """SEC : échappe les métacaractères regex et borne la longueur, pour éviter
+    la regex injection / ReDoS lors du passage dans un $regex Mongo."""
+    if user_input is None:
+        return ""
+    s = str(user_input).strip()[:max_len]
+    return re.escape(s)
+
 # Digit words in French/English/Wolof (basic) for obfuscated numbers
 _DIGIT_WORDS = {
     "zero": "0", "zéro": "0",
@@ -1722,18 +1731,18 @@ async def list_providers(
         ]})
     query: dict = {}
     if city:
-        query["city"] = {"$regex": city, "$options": "i"}
+        query["city"] = {"$regex": _safe_regex(city), "$options": "i"}
     if zone:
         and_clauses.append({"$or": [
-            {"zones": {"$regex": zone, "$options": "i"}},
-            {"city": {"$regex": zone, "$options": "i"}},
+            {"zones": {"$regex": _safe_regex(zone), "$options": "i"}},
+            {"city": {"$regex": _safe_regex(zone), "$options": "i"}},
         ]})
     if q:
         and_clauses.append({"$or": [
-            {"name": {"$regex": q, "$options": "i"}},
-            {"service": {"$regex": q, "$options": "i"}},
-            {"description": {"$regex": q, "$options": "i"}},
-            {"trades": {"$regex": q, "$options": "i"}},
+            {"name": {"$regex": _safe_regex(q), "$options": "i"}},
+            {"service": {"$regex": _safe_regex(q), "$options": "i"}},
+            {"description": {"$regex": _safe_regex(q), "$options": "i"}},
+            {"trades": {"$regex": _safe_regex(q), "$options": "i"}},
         ]})
     if verified is True:
         and_clauses.append({"verified": True})
@@ -3018,9 +3027,9 @@ async def admin_list_users(
         query["role"] = role
     if q:
         query["$or"] = [
-            {"name": {"$regex": q, "$options": "i"}},
-            {"email": {"$regex": q, "$options": "i"}},
-            {"phone": {"$regex": q, "$options": "i"}},
+            {"name": {"$regex": _safe_regex(q), "$options": "i"}},
+            {"email": {"$regex": _safe_regex(q), "$options": "i"}},
+            {"phone": {"$regex": _safe_regex(q), "$options": "i"}},
         ]
     total = await db.users.count_documents(query)
     users = await db.users.find(query, {"_id": 0, "password_hash": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
@@ -3230,13 +3239,34 @@ async def dashboard_activity(limit: int = 20, user=Depends(current_user)):
 
 
 # ---------- payments (Stripe checkout via emergentintegrations) ----------
+def _authoritative_booking_price(b: dict) -> int:
+    """SEC-003 : montant à facturer, calculé UNIQUEMENT côté serveur.
+    Priorité : quote_amount (devis validé) > price (initial). Jamais fourni par le client.
+    """
+    amt = b.get("quote_amount")
+    if amt is None or amt == "" or amt == 0:
+        amt = b.get("price") or 0
+    try:
+        amt_int = int(round(float(amt)))
+    except Exception:
+        amt_int = 0
+    return max(0, amt_int)
+
+
 @api.post("/payments/checkout/booking")
 async def pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
     b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
     if not b or b["client_id"] != user["id"]:
         raise HTTPException(404, "Réservation introuvable")
-    # Apply promo code if provided (returns final amount to charge)
-    final_amt = await _apply_promo_to_booking(body.booking_id, body.promo_code, int(body.amount_xof), user, category="provider")
+    # SEC-003 : recalculer le montant côté serveur. Ignorer body.amount_xof
+    # (audit trail seulement).
+    base_amt = _authoritative_booking_price(b)
+    if base_amt <= 0:
+        raise HTTPException(400, "Le devis n'est pas encore validé pour cette réservation")
+    # Apply promo code if provided (server-computed final amount)
+    final_amt = await _apply_promo_to_booking(body.booking_id, body.promo_code, base_amt, user, category="provider")
+    if final_amt <= 0:
+        raise HTTPException(400, "Montant invalide")
     try:
         # emergentintegrations wrapper expects amount as float in major units.
         req = CheckoutSessionRequest(
@@ -3404,7 +3434,13 @@ async def wave_pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
     b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
     if not b or b["client_id"] != user["id"]:
         raise HTTPException(404, "Réservation introuvable")
-    final_amt = await _apply_promo_to_booking(body.booking_id, body.promo_code, int(body.amount_xof), user, category="provider")
+    # SEC-003 : montant recalculé côté serveur
+    base_amt = _authoritative_booking_price(b)
+    if base_amt <= 0:
+        raise HTTPException(400, "Le devis n'est pas encore validé pour cette réservation")
+    final_amt = await _apply_promo_to_booking(body.booking_id, body.promo_code, base_amt, user, category="provider")
+    if final_amt <= 0:
+        raise HTTPException(400, "Montant invalide")
     session = await wave_create_checkout(
         amount_xof=final_amt,
         success_url=f"{APP_URL}/api/payments/wave/return?booking_id={body.booking_id}",
@@ -3483,7 +3519,13 @@ async def om_pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
     b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
     if not b or b["client_id"] != user["id"]:
         raise HTTPException(404, "Réservation introuvable")
-    final_amt = await _apply_promo_to_booking(body.booking_id, body.promo_code, int(body.amount_xof), user, category="provider")
+    # SEC-003 : montant recalculé côté serveur
+    base_amt = _authoritative_booking_price(b)
+    if base_amt <= 0:
+        raise HTTPException(400, "Le devis n'est pas encore validé pour cette réservation")
+    final_amt = await _apply_promo_to_booking(body.booking_id, body.promo_code, base_amt, user, category="provider")
+    if final_amt <= 0:
+        raise HTTPException(400, "Montant invalide")
     order_id = f"jokoo-{body.booking_id}"
     session = await om_create_webpayment(
         amount_xof=final_amt,
@@ -3562,15 +3604,44 @@ async def om_cancel():
 
 @api.post("/payments/orange/notify")
 async def om_notify(request: Request):
-    """Optional Orange Money server notification endpoint.
+    """Orange Money server-to-server notification endpoint.
 
-    OM sends a POST here after a payment. Best-effort mark paid; relies on order_id
-    which we set to jokoo-<booking_id> or jokoo-sub-<user_id>-<ts>.
+    SEC-002 : cet endpoint doit vérifier l'authenticité de la notification
+    (signature HMAC, IP allowlist, ou secret partagé) avant de marquer un
+    paiement. Sans vérification, n'importe qui peut forger un webhook.
+
+    Tant que la vraie API Orange Money n'est pas branchée (clé placeholder),
+    on refuse toutes les notifications entrantes pour éviter la fraude.
+    En prod : implémenter la vérification HMAC signature ci-dessous.
     """
+    om_shared_secret = os.environ.get("ORANGE_NOTIFY_SECRET", "").strip()
+    om_api_key = os.environ.get("ORANGE_API_KEY", "").strip().lower()
+    if not om_shared_secret or om_api_key in ("", "placeholder"):
+        # Vraie API OM non configurée : refuser toute notification entrante.
+        logging.getLogger("jokoo").warning("orange notify received but ORANGE_NOTIFY_SECRET missing — rejecting")
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    # Vérification signature HMAC sur le corps brut.
+    body_bytes = await request.body()
+    provided_sig = (
+        request.headers.get("X-Orange-Signature")
+        or request.headers.get("X-Signature")
+        or ""
+    ).strip()
+    import hmac as _hmac
+    import hashlib as _hashlib
+    expected = _hmac.new(
+        om_shared_secret.encode("utf-8"), body_bytes, _hashlib.sha256
+    ).hexdigest()
+    if not provided_sig or not _hmac.compare_digest(expected, provided_sig):
+        logging.getLogger("jokoo").warning("orange notify signature mismatch")
+        raise HTTPException(status_code=401, detail="invalid signature")
+
     try:
-        data = await request.json()
+        data = json.loads(body_bytes.decode("utf-8"))
     except Exception:
-        return {"received": True}
+        raise HTTPException(status_code=400, detail="invalid body")
+
     status_ = str(data.get("status") or "").upper()
     order_id = str(data.get("order_id") or "")
     if status_ == "SUCCESS":
@@ -4324,8 +4395,9 @@ async def delete_staff(sid: str, user=Depends(require_super_admin)):
 
 # ---------- inscription assistée (opérateur) ----------
 def _gen_otp() -> str:
-    import random
-    return f"{random.randint(0, 999999):06d}"
+    # SEC : utiliser secrets (CSPRNG) et non random (Mersenne-Twister prédictible)
+    import secrets
+    return f"{secrets.randbelow(1000000):06d}"
 
 
 @api.post("/admin/assisted-register")
@@ -4369,22 +4441,28 @@ async def otp_request(body: OtpRequestIn, request: Request):
     _rate_check(f"otp-req-ip:{ip}", max_hits=10, window_sec=3600)
     _rate_check(f"otp-req-phone:{body.phone}", max_hits=5, window_sec=3600)
     user = await db.users.find_one({"phone": body.phone})
-    if not user:
-        raise HTTPException(404, "Aucun compte pour ce numéro")
-    code = _gen_otp()
-    await db.otps.update_one(
-        {"phone": body.phone},
-        {"$set": {
-            "phone": body.phone,
-            "code": code,
-            "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
-            "user_id": user["id"],
-            "created_at": now_iso(),
-        }},
-        upsert=True,
-    )
-    # Prod: envoyer via SMS. En dev on retourne le code pour test.
-    return {"ok": True, "otp_dev_only": code}
+    # SEC-001 : NE PAS révéler l'existence du compte. Toujours retourner un
+    # succès générique. Ne créer/renouveler l'OTP que si le compte existe,
+    # mais en silence côté client.
+    if user:
+        code = _gen_otp()
+        await db.otps.update_one(
+            {"phone": body.phone},
+            {"$set": {
+                "phone": body.phone,
+                "code": code,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+                "user_id": user["id"],
+                "created_at": now_iso(),
+            }},
+            upsert=True,
+        )
+        # Prod: envoyer via SMS. Le code ne DOIT JAMAIS quitter le serveur
+        # dans la réponse HTTP. En dev uniquement (DEBUG=true), on peut
+        # exposer le code pour faciliter les tests locaux.
+        if os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"):
+            return {"ok": True, "otp_dev_only": code}
+    return {"ok": True}
 
 
 @api.post("/auth/otp/verify", response_model=AuthOut)
@@ -4805,9 +4883,9 @@ async def search_rides(
 ):
     q: dict = {"status": "active"}
     if from_city:
-        q["from_city"] = {"$regex": from_city, "$options": "i"}
+        q["from_city"] = {"$regex": _safe_regex(from_city), "$options": "i"}
     if to_city:
-        q["to_city"] = {"$regex": to_city, "$options": "i"}
+        q["to_city"] = {"$regex": _safe_regex(to_city), "$options": "i"}
     if date:
         # Match ISO date prefix (YYYY-MM-DD) OR weekly recurrence
         weekday_map = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -5240,7 +5318,7 @@ async def search_babysitters(
 ):
     q: dict = {"status": "active"}
     if city:
-        q["city"] = {"$regex": city, "$options": "i"}
+        q["city"] = {"$regex": _safe_regex(city), "$options": "i"}
     if language:
         q["languages.code"] = language
     if age_group:
@@ -5791,7 +5869,14 @@ SEED_REVIEWS = [
 
 
 @api.post("/seed")
-async def seed():
+async def seed(request: Request, user=Depends(current_user)):
+    """Seed idempotent — protégé (SEC-004).
+    Seul un super-admin OU en mode DEBUG local peut ré-initialiser les données seed.
+    """
+    is_debug = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
+    is_super = bool(user.get("is_admin")) or (user.get("staff_role") == "super_admin")
+    if not (is_debug or is_super):
+        raise HTTPException(status_code=403, detail="Accès administrateur requis")
     # idempotent
     await db.providers.delete_many({"seeded": True})
     await db.reviews.delete_many({"seeded": True})
@@ -6391,12 +6476,37 @@ app.include_router(api)
 from push import push_router  # noqa: E402
 app.include_router(push_router)
 
+# SEC : CORS restreint. On lit CORS_ORIGINS (CSV) depuis l'env. Wildcard '*'
+# NE peut JAMAIS être combiné avec allow_credentials=True (échec silencieux navigateur
+# et surface d'attaque CSRF côté navigateur web).
+_cors_env = os.environ.get("CORS_ORIGINS", "").strip()
+if _cors_env == "*":
+    # Sans credentials, wildcard reste acceptable pour une API publique read-heavy.
+    _cors_origins = ["*"]
+    _cors_creds = False
+elif _cors_env:
+    _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+    _cors_creds = True
+else:
+    # Défaut sécurisé : autoriser uniquement les surfaces Jokoo connues + preview.
+    _cors_origins = [
+        "https://jokoo.sn",
+        "https://www.jokoo.sn",
+        "https://jokooservices.com",
+        "https://www.jokooservices.com",
+        "http://localhost:3000",
+        "http://localhost:19006",
+    ]
+    _cors_creds = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"^https?://(?:[a-z0-9-]+\.)?emergentagent\.com$",
+    allow_credentials=_cors_creds,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"],
+    max_age=600,
 )
 
 # GZip compression : réduit ~70% le poids des grosses réponses JSON (recherches, listes admin, providers avec photos base64).
@@ -6439,6 +6549,52 @@ async def _startup_ensure_indexes():
         await db.messages.create_index([("conv_id", 1), ("created_at", 1)])
     except Exception:
         pass
+
+    # ------------------------------------------------------------------
+    # Auto-seed des documents juridiques (idempotent) — garantit que le
+    # Legal Center et les liens login (/legal/cgu, /legal/privacy) fonctionnent
+    # dès le 1er démarrage, sans avoir à appeler /api/seed manuellement.
+    # ------------------------------------------------------------------
+    try:
+        LEGAL_DOCS_BOOTSTRAP = [
+            ("cgu", "Conditions générales d'utilisation", "conditions", True, 10),
+            ("privacy", "Politique de confidentialité", "conditions", True, 20),
+            ("cookies", "Politique relative aux cookies", "conditions", False, 30),
+            ("mentions-legales", "Mentions légales", "conditions", False, 40),
+            ("terms-prestataires", "Conditions des prestataires", "conditions", False, 50),
+            ("terms-clients", "Conditions des clients", "conditions", False, 60),
+            ("refund-policy", "Politique de remboursement", "paiements", False, 70),
+            ("cancellation-policy", "Politique d'annulation", "paiements", False, 80),
+            ("verification-policy", "Politique de vérification des prestataires", "securite", False, 100),
+            ("community-charter", "Charte de la communauté", "communaute", False, 180),
+            ("faq", "FAQ", "aide", False, 200),
+            ("help-center", "Centre d'aide", "aide", False, 210),
+        ]
+        for slug, title, category, requires_acc, order in LEGAL_DOCS_BOOTSTRAP:
+            existing = await db.legal_documents.find_one({"slug": slug, "language": "fr", "country": "SN"})
+            if existing:
+                continue
+            placeholder = (
+                f"# {title}\n\n"
+                f"> ℹ️ Ce document est en cours de rédaction par l'équipe juridique de Jokoo.\n\n"
+                f"## À propos\n\nCette page détaillera prochainement : **{title.lower()}**.\n\n"
+                f"## Sections prévues\n\n- Objet\n- Champ d'application\n- Vos droits\n- Nos engagements\n- Modifications\n- Contact\n\n"
+                f"---\n\n*Pour toute question, écrivez-nous à support@jokooservices.com.*\n"
+            )
+            now = now_iso()
+            doc = {
+                "slug": slug, "title": title, "content": placeholder,
+                "summary": f"Document juridique de Jokoo — {title}",
+                "category": category, "language": "fr", "country": "SN",
+                "version": 1, "order": order,
+                "requires_acceptance": requires_acc, "published": True,
+                "effective_date": now[:10], "created_at": now, "updated_at": now,
+                "updated_by": "system-bootstrap",
+            }
+            await db.legal_documents.insert_one(doc)
+            await db.legal_versions.insert_one({"id": str(uuid.uuid4()), **doc, "author_id": "system"})
+    except Exception as _e:
+        logging.getLogger("jokoo").warning("legal docs bootstrap skipped: %s", _e)
 
     # ------------------------------------------------------------------
     # Migration one-shot (idempotente) : peupler categories[]/trades[]

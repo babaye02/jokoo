@@ -32,12 +32,19 @@ export default function LegalCenter() {
   const insets = useSafeAreaInsets();
   const [docs, setDocs] = useState<LegalDoc[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setError(null);
     try {
       const r = await api.get<LegalDoc[]>("/legal/documents");
-      setDocs(r);
-    } catch { /* ignore */ }
+      setDocs(Array.isArray(r) ? r : []);
+    } catch (e: any) {
+      setError(e?.message || "Impossible de charger les documents juridiques.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -83,7 +90,32 @@ export default function LegalCenter() {
         contentContainerStyle={{ padding: spacing.xl, paddingBottom: 80 + insets.bottom }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.turquoise} />}
       >
-        {Object.entries(CATEGORIES).map(([key, meta]) => {
+        {loading && docs.length === 0 ? (
+          <View style={{ alignItems: "center", paddingVertical: 40 }}>
+            <Ionicons name="document-text-outline" size={40} color={colors.textMuted} />
+            <Txt color={colors.textMuted} style={{ marginTop: 12 }}>Chargement…</Txt>
+          </View>
+        ) : error && docs.length === 0 ? (
+          <View style={styles.errorCard}>
+            <Ionicons name="cloud-offline-outline" size={32} color={colors.turquoise} />
+            <Txt weight="700" style={{ marginTop: 8 }}>Documents indisponibles</Txt>
+            <Txt size="xs" color={colors.textMuted} style={{ marginTop: 6, textAlign: "center", lineHeight: 18 }}>
+              {error}
+            </Txt>
+            <Pressable onPress={load} style={styles.retryBtn}>
+              <Ionicons name="refresh" size={14} color={colors.white} />
+              <Txt size="xs" weight="700" color={colors.white} style={{ marginLeft: 6 }}>Réessayer</Txt>
+            </Pressable>
+          </View>
+        ) : docs.length === 0 ? (
+          <View style={styles.errorCard}>
+            <Ionicons name="folder-open-outline" size={32} color={colors.textMuted} />
+            <Txt weight="700" style={{ marginTop: 8 }}>Aucun document publié</Txt>
+            <Txt size="xs" color={colors.textMuted} style={{ marginTop: 6, textAlign: "center", lineHeight: 18 }}>
+              Les documents juridiques seront bientôt disponibles.
+            </Txt>
+          </View>
+        ) : Object.entries(CATEGORIES).map(([key, meta]) => {
           const items = grouped[key] || [];
           if (items.length === 0) return null;
           return (
@@ -144,6 +176,23 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", padding: spacing.md },
   rowDivider: { borderBottomWidth: 1, borderBottomColor: colors.divider },
   reqPill: { marginLeft: 6, backgroundColor: "#FEF3C7", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
+  errorCard: {
+    alignItems: "center",
+    padding: spacing.xl,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    marginBottom: spacing.xl,
+    ...shadow.soft,
+  },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    height: 36,
+    borderRadius: 999,
+    backgroundColor: colors.turquoise,
+    marginTop: 14,
+  },
   footerCard: {
     flexDirection: "row",
     alignItems: "center",

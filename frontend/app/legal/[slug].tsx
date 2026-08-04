@@ -28,20 +28,44 @@ export default function LegalDocView() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [doc, setDoc] = useState<LegalDoc | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
   const [accepted, setAccepted] = useState(false);
 
-  useEffect(() => {
+  const loadDoc = () => {
     if (!slug) return;
-    api.get<LegalDoc>(`/legal/documents/${slug}`).then(setDoc).catch(() => setDoc(null));
-    // Récupère les acceptations du user pour ce slug afin d'afficher l'état correct
-    // ("déjà accepté" vs "à accepter") au retour ultérieur sur la page.
+    setLoading(true);
+    setError(null);
     api
-      .get<Array<{ slug: string; version: number; accepted_at: string }>>("/legal/acceptances/mine")
+      .get<LegalDoc>(`/legal/documents/${slug}`)
+      .then((d) => {
+        setDoc(d);
+        setError(null);
+      })
+      .catch((e: any) => {
+        setDoc(null);
+        if (e?.status === 404) {
+          setError("Ce document n'est pas encore disponible. Contactez le support si le problème persiste.");
+        } else if (e?.status >= 500) {
+          setError("Impossible de charger le document. Vérifiez votre connexion et réessayez.");
+        } else {
+          setError(e?.message || "Une erreur est survenue lors du chargement.");
+        }
+      })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadDoc();
+    // Récupère les acceptations du user pour ce slug afin d'afficher l'état correct
+    api
+      .get<{ slug: string; version: number; accepted_at: string }[]>("/legal/acceptances/mine")
       .then((rows) => {
         setAccepted(Array.isArray(rows) && rows.some((r) => r.slug === slug));
       })
-      .catch(() => { /* pas grave, l'utilisateur pourra ré-accepter */ });
+      .catch(() => { /* silent : user could re-accept */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
   const accept = async () => {
@@ -50,10 +74,9 @@ export default function LegalDocView() {
     try {
       await api.post("/legal/acceptances", { slug: doc.slug, version: doc.version });
       setAccepted(true);
-      // Feedback visible pendant 1.2s puis retour, plus fiable que Alert.alert sur navigateur
       setTimeout(() => router.back(), 1200);
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      Alert.alert("Erreur", e?.message || "Impossible d'enregistrer l'acceptation.");
     } finally {
       setAccepting(false);
     }
@@ -66,7 +89,53 @@ export default function LegalDocView() {
     } catch { /* ignore */ }
   };
 
-  if (!doc) return <View style={{ flex: 1, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" }}><Txt color={colors.textMuted}>Chargement…</Txt></View>;
+  // States: loading / error / doc loaded
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
+        <SafeAreaView edges={["top"]} style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.back} testID="doc-back">
+            <Ionicons name="chevron-back" size={22} color={colors.midnight} />
+          </Pressable>
+          <Txt size="lg" weight="700" style={{ flex: 1, marginHorizontal: 8 }}>Chargement…</Txt>
+        </SafeAreaView>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="document-text-outline" size={40} color={colors.textMuted} />
+          <Txt color={colors.textMuted} style={{ marginTop: 12 }}>Chargement du document…</Txt>
+        </View>
+      </View>
+    );
+  }
+
+  if (error || !doc) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
+        <SafeAreaView edges={["top"]} style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.back} testID="doc-back">
+            <Ionicons name="chevron-back" size={22} color={colors.midnight} />
+          </Pressable>
+          <Txt size="lg" weight="700" style={{ flex: 1, marginHorizontal: 8 }}>Document indisponible</Txt>
+        </SafeAreaView>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl }}>
+          <View style={styles.errorIcon}>
+            <Ionicons name="alert-circle-outline" size={40} color={colors.turquoise} />
+          </View>
+          <Txt size="lg" weight="700" style={{ marginTop: 8, textAlign: "center" }}>
+            Document introuvable
+          </Txt>
+          <Txt color={colors.textMuted} style={{ marginTop: 8, textAlign: "center", lineHeight: 22 }}>
+            {error || "Ce document n'a pas pu être chargé."}
+          </Txt>
+          <View style={{ height: 20 }} />
+          <Btn title="Réessayer" icon="refresh" onPress={loadDoc} size="md" />
+          <View style={{ height: 8 }} />
+          <Pressable onPress={() => router.back()} hitSlop={8}>
+            <Txt color={colors.textMuted} weight="600">Retour</Txt>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
@@ -127,6 +196,10 @@ const styles = StyleSheet.create({
     ...shadow.soft,
   },
   back: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
+  errorIcon: {
+    width: 88, height: 88, borderRadius: 44, backgroundColor: colors.brandTertiary,
+    alignItems: "center", justifyContent: "center", marginBottom: 12,
+  },
   versionBar: {
     flexDirection: "row",
     alignItems: "center",

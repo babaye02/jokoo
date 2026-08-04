@@ -86,7 +86,12 @@ export const api = {
     request<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined }, auth),
   patch: <T = any>(p: string, body?: any, auth = true) =>
     request<T>(p, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }, auth),
+  put: <T = any>(p: string, body?: any, auth = true) =>
+    request<T>(p, { method: "PUT", body: body ? JSON.stringify(body) : undefined }, auth),
   del: <T = any>(p: string, auth = true) => request<T>(p, { method: "DELETE" }, auth),
+  // Escape-hatch : ré-expose le request bas-niveau pour les cas rares (uploads FormData,
+  // méthodes exotiques). Toujours préférer get/post/patch/put/del quand c'est possible.
+  request: <T = any>(p: string, init: RequestInit = {}, auth = true) => request<T>(p, init, auth),
 };
 
 // Types

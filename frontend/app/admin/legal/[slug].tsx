@@ -30,6 +30,8 @@ export default function AdminLegalEditor() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [doc, setDoc] = useState<LegalDoc | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [summary, setSummary] = useState("");
@@ -42,13 +44,26 @@ export default function AdminLegalEditor() {
 
   const load = useCallback(async () => {
     if (!slug) return;
+    setLoading(true);
+    setLoadError(null);
     try {
       const d = await api.get<LegalDoc>(`/legal/documents/${slug}`);
       setDoc(d);
       setTitle(d.title); setContent(d.content); setSummary(d.summary || "");
       setRequiresAcc(d.requires_acceptance); setPublished(d.published);
       setDirty(false);
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      setDoc(null);
+      if (e?.status === 404) {
+        setLoadError("Ce document n'existe pas encore. Vous pouvez le créer via l'API ou le seed.");
+      } else if (e?.status === 401 || e?.status === 403) {
+        setLoadError("Vous n'avez pas les droits pour éditer ce document.");
+      } else {
+        setLoadError(e?.message || "Impossible de charger le document.");
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [slug]);
 
   useEffect(() => { load(); }, [load]);
@@ -65,21 +80,28 @@ export default function AdminLegalEditor() {
   // autosave draft locally (simple in-memory here)
   const save = async (publishFlag = published) => {
     if (!doc) return;
+    if (!title.trim() || !content.trim()) {
+      Alert.alert("Champs requis", "Le titre et le contenu ne peuvent pas être vides.");
+      return;
+    }
     setBusy(true);
     try {
-      await api.request(`/admin/legal/documents/${slug}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          title: title.trim(), content, summary: summary.trim(),
-          category: doc.category, language: doc.language, country: doc.country,
-          requires_acceptance: requiresAcc, published: publishFlag,
-        }),
+      await api.put(`/admin/legal/documents/${slug}`, {
+        title: title.trim(),
+        content,
+        summary: summary.trim(),
+        category: doc.category,
+        language: doc.language,
+        country: doc.country,
+        requires_acceptance: requiresAcc,
+        published: publishFlag,
       });
-      Alert.alert("Enregistré", `Version ${(doc.version || 0) + 1} publiée.`);
+      Alert.alert("Enregistré", `Version ${(doc.version || 0) + 1} ${publishFlag ? "publiée" : "sauvegardée en brouillon"}.`);
       setDirty(false);
       await load();
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      const msg = e?.message || "Impossible d'enregistrer le document.";
+      Alert.alert("Erreur", msg);
     } finally {
       setBusy(false);
     }
@@ -101,7 +123,34 @@ export default function AdminLegalEditor() {
     ]);
   };
 
-  if (!doc) return <View style={{ flex: 1, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" }}><Txt color={colors.textMuted}>Chargement…</Txt></View>;
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" }}>
+        <Txt color={colors.textMuted}>Chargement…</Txt>
+      </View>
+    );
+  }
+  if (!doc) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
+        <SafeAreaView edges={["top"]} style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.back}>
+            <Ionicons name="chevron-back" size={22} color={colors.midnight} />
+          </Pressable>
+          <Txt size="md" weight="700" style={{ flex: 1, marginHorizontal: 8 }}>Erreur</Txt>
+        </SafeAreaView>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl }}>
+          <Ionicons name="alert-circle-outline" size={48} color={colors.textMuted} />
+          <Txt size="lg" weight="700" style={{ marginTop: 12, textAlign: "center" }}>Document indisponible</Txt>
+          <Txt color={colors.textMuted} style={{ marginTop: 8, textAlign: "center", lineHeight: 22 }}>
+            {loadError || "Impossible de charger ce document juridique."}
+          </Txt>
+          <View style={{ height: 20 }} />
+          <Btn title="Réessayer" icon="refresh" onPress={load} size="md" />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
