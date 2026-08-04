@@ -269,6 +269,7 @@ export default function Profile() {
           {user.role === "prestataire" ? (
             <>
               <MenuRow icon="pricetags-outline" title="Mes prestations" onPress={() => router.push("/my-services")} testID="menu-my-services" />
+              <MenuRow icon="shield-checkmark-outline" title="Vérification d'identité" onPress={() => router.push("/provider/verification")} testID="menu-provider-kyc" />
               <MenuRow icon="rocket-outline" title="Sponsoriser mon profil" onPress={() => router.push("/sponsor")} testID="menu-sponsor" />
               <MenuRow icon="person-circle-outline" title="Profil prestataire" onPress={() => router.push("/provider-profile")} testID="menu-provider-profile" />
             </>

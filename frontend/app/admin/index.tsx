@@ -23,6 +23,7 @@ const NAV_ITEMS: {
   { key: "suggestions", title: "Suggestions de métiers", sub: "Valider les nouveaux métiers proposés",    icon: "bulb-outline",           route: "/admin/service-suggestions" },
   { key: "assist",   title: "Inscription assistée",    sub: "Créer un compte client/prestataire",         icon: "person-add-outline",     route: "/admin/assisted-register", perm: "operator:create_account" },
   { key: "reports",  title: "Signalements",            sub: "Réclamations et modération",                 icon: "flag-outline",           route: "/admin/reports",            perm: "reports:handle" },
+  { key: "kyc",      title: "Vérifications KYC",       sub: "File d'attente des identités à valider",     icon: "shield-checkmark-outline", route: "/admin/kyc-requests",     perm: "kyc:read" },
   { key: "legal",    title: "Centre juridique",        sub: "Éditer les 22 documents & versions",         icon: "document-text-outline",  route: "/admin/legal" },
 ];
 

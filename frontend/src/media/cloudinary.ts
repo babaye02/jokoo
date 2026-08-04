@@ -23,6 +23,7 @@ export type CloudinaryFolder =
   | "chat"           // chat attachments
   | "delivery"       // parcel delivery proof photos
   | "reports"        // babysitter / tutor reports
+  | "kyc"            // identity verification documents (KYC) — admin-only
   | "admin";         // admin uploads (partners, ads, promos)
 
 // ── Types ──────────────────────────────────────────────────────────────────

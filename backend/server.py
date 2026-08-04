@@ -347,6 +347,7 @@ ROLE_PERMS: dict = {
         "bookings:read", "bookings:write",
         "categories:write",
         "providers:read", "providers:write", "providers:validate",
+        "kyc:read", "kyc:write",
         "ads:read", "stats:read",
     ],
     "marketing": [
@@ -359,11 +360,13 @@ ROLE_PERMS: dict = {
         "bookings:read",
         "reports:handle",
         "passwords:reset",
+        "kyc:read",
     ],
     "operator": [
         "operator:create_account",
         "users:read", "users:write",
         "providers:write", "providers:validate",
+        "kyc:read", "kyc:write",
         "docs:upload",
     ],
     "tech": [
@@ -4717,7 +4720,236 @@ async def update_report(rid: str, body: dict, user=Depends(require_perm("reports
 
 
 # ---------- Account deletion (Apple App Store 5.1.1(v)) ----------
-@api.delete("/users/me")
+# ─────────────────────────────────────────────────────────────────────────────
+# KYC — Vérification d'identité des prestataires (Know Your Customer)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Flow :
+#   1. Le prestataire uploade recto / verso / selfie via Cloudinary (frontend),
+#      puis POST /api/kyc-requests avec les URLs pour créer la demande.
+#   2. L'admin voit la file d'attente via GET /api/admin/kyc-requests?status=pending.
+#   3. L'admin approve ou reject via POST /api/admin/kyc-requests/{id}/approve|reject.
+#   4. Sur approve : provider.verified=true, notification "Compte vérifié ✅".
+#   5. Sur reject : notification avec le motif, le user peut ré-uploader (nouvelle
+#      demande, version incrémentée). Aucune données ne quitte le serveur.
+#
+# Sécurité :
+#   - URLs Cloudinary stockées, jamais renvoyées à des tiers.
+#   - GET des documents restreint : le propriétaire OU un admin (require_perm("kyc:read")).
+#   - Suppression du compte : les KYC rattachés sont supprimés (cf. delete_my_account).
+
+class KycSubmitIn(BaseModel):
+    id_type: str = Field(..., pattern="^(cni|passport|drivers_licence)$")
+    doc_front: str = Field(..., min_length=8, max_length=2000)
+    doc_back: Optional[str] = Field(None, max_length=2000)
+    selfie: str = Field(..., min_length=8, max_length=2000)
+
+    @field_validator("doc_front", "doc_back", "selfie", mode="before")
+    @classmethod
+    def _must_be_url(cls, v):
+        if v is None or v == "":
+            return None
+        s = str(v).strip()
+        if not (s.startswith("https://") or s.startswith("http://")):
+            raise ValueError("URL Cloudinary attendue (https).")
+        if len(s) > 2000:
+            raise ValueError("URL trop longue.")
+        return s
+
+
+class KycDecisionIn(BaseModel):
+    reason: Optional[str] = Field(None, max_length=500)
+
+
+@api.post("/kyc-requests", status_code=201)
+async def submit_kyc_request(body: KycSubmitIn, user=Depends(current_user)):
+    """Le prestataire soumet ses documents. Une seule demande active à la fois :
+    si une demande est en 'pending' ou 'more_info', elle est mise à jour (version++).
+    """
+    # Passeport : doc_back optionnel
+    if body.id_type != "passport" and not body.doc_back:
+        raise HTTPException(400, "Le verso de la pièce est requis pour ce type de document.")
+
+    existing = await db.kyc_requests.find_one(
+        {"user_id": user["id"], "status": {"$in": ["pending", "more_info"]}},
+        {"_id": 0},
+    )
+    now = now_iso()
+    if existing:
+        # Ré-soumission : mise à jour + version++
+        version = int(existing.get("version", 1)) + 1
+        await db.kyc_requests.update_one(
+            {"id": existing["id"]},
+            {
+                "$set": {
+                    "id_type": body.id_type,
+                    "doc_front": body.doc_front,
+                    "doc_back": body.doc_back,
+                    "selfie": body.selfie,
+                    "status": "pending",
+                    "rejection_reason": None,
+                    "version": version,
+                    "submitted_at": now,
+                    "updated_at": now,
+                }
+            },
+        )
+        doc = await db.kyc_requests.find_one({"id": existing["id"]}, {"_id": 0})
+    else:
+        kyc_id = str(uuid.uuid4())
+        doc = {
+            "id": kyc_id,
+            "user_id": user["id"],
+            "user_name": user.get("name"),
+            "user_email": user.get("email"),
+            "id_type": body.id_type,
+            "doc_front": body.doc_front,
+            "doc_back": body.doc_back,
+            "selfie": body.selfie,
+            "status": "pending",
+            "rejection_reason": None,
+            "version": 1,
+            "submitted_at": now,
+            "reviewed_at": None,
+            "reviewed_by": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        await db.kyc_requests.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/kyc-requests/mine")
+async def my_kyc_request(user=Depends(current_user)):
+    """Retourne la dernière demande KYC de l'utilisateur (peu importe le status)."""
+    doc = await db.kyc_requests.find_one(
+        {"user_id": user["id"]},
+        {"_id": 0},
+        sort=[("submitted_at", -1)],
+    )
+    return doc or {"status": "none"}
+
+
+# ────────── ADMIN — file d'attente et décisions ──────────
+@api.get("/admin/kyc-requests")
+async def admin_list_kyc(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    q: Optional[str] = None,
+    limit: int = 100,
+    user=Depends(require_perm("kyc:read")),
+):
+    query: dict = {}
+    if status_filter in ("pending", "approved", "rejected", "more_info"):
+        query["status"] = status_filter
+    if q and q.strip():
+        rx = _safe_regex(q.strip())
+        query["$or"] = [
+            {"user_name": {"$regex": rx, "$options": "i"}},
+            {"user_email": {"$regex": rx, "$options": "i"}},
+        ]
+    cursor = db.kyc_requests.find(query, {"_id": 0}).sort("submitted_at", -1).limit(min(max(1, limit), 200))
+    return [d async for d in cursor]
+
+
+@api.get("/admin/kyc-requests/stats")
+async def admin_kyc_stats(user=Depends(require_perm("kyc:read"))):
+    pipeline = [{"$group": {"_id": "$status", "count": {"$sum": 1}}}]
+    out = {"pending": 0, "approved": 0, "rejected": 0, "more_info": 0, "total": 0}
+    async for row in db.kyc_requests.aggregate(pipeline):
+        key = row.get("_id") or "unknown"
+        cnt = int(row.get("count", 0))
+        out[key] = cnt
+        out["total"] += cnt
+    return out
+
+
+@api.get("/admin/kyc-requests/{kyc_id}")
+async def admin_get_kyc(kyc_id: str, user=Depends(require_perm("kyc:read"))):
+    doc = await db.kyc_requests.find_one({"id": kyc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Demande KYC introuvable")
+    return doc
+
+
+@api.post("/admin/kyc-requests/{kyc_id}/approve")
+async def admin_approve_kyc(kyc_id: str, user=Depends(require_perm("kyc:write"))):
+    doc = await db.kyc_requests.find_one({"id": kyc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Demande KYC introuvable")
+    if doc["status"] == "approved":
+        return {"ok": True, "status": "approved", "already": True}
+    now = now_iso()
+    await db.kyc_requests.update_one(
+        {"id": kyc_id},
+        {"$set": {
+            "status": "approved",
+            "rejection_reason": None,
+            "reviewed_at": now,
+            "reviewed_by": user["id"],
+            "reviewed_by_name": user.get("name"),
+            "updated_at": now,
+        }},
+    )
+    # Propage sur le profil provider
+    await db.providers.update_many(
+        {"user_id": doc["user_id"]},
+        {"$set": {"verified": True, "identity_verified": True, "verified_at": now}},
+    )
+    await db.babysitters.update_many(
+        {"user_id": doc["user_id"]},
+        {"$set": {"identity_verified": True, "verified_at": now}},
+    )
+    # Notification interne au prestataire
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": doc["user_id"],
+        "type": "kyc_approved",
+        "title": "Compte vérifié ✅",
+        "body": "Votre identité a été vérifiée. Le badge Vérifié apparaît maintenant sur votre profil.",
+        "read": False,
+        "created_at": now,
+    })
+    return {"ok": True, "status": "approved"}
+
+
+@api.post("/admin/kyc-requests/{kyc_id}/reject")
+async def admin_reject_kyc(kyc_id: str, body: KycDecisionIn, user=Depends(require_perm("kyc:write"))):
+    reason = (body.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Un motif de refus est requis.")
+    if len(reason) < 5:
+        raise HTTPException(400, "Motif trop court (5 caractères minimum).")
+    doc = await db.kyc_requests.find_one({"id": kyc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Demande KYC introuvable")
+    now = now_iso()
+    await db.kyc_requests.update_one(
+        {"id": kyc_id},
+        {"$set": {
+            "status": "rejected",
+            "rejection_reason": reason,
+            "reviewed_at": now,
+            "reviewed_by": user["id"],
+            "reviewed_by_name": user.get("name"),
+            "updated_at": now,
+        }},
+    )
+    # NE PAS retirer un badge déjà accordé sur des versions précédentes,
+    # sauf si le refus concerne le premier dossier (verified=False par défaut).
+    # Ici on garde verified inchangé côté provider.
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": doc["user_id"],
+        "type": "kyc_rejected",
+        "title": "Vérification refusée",
+        "body": f"Motif : {reason}. Vous pouvez ré-uploader vos documents depuis votre profil.",
+        "read": False,
+        "created_at": now,
+    })
+    return {"ok": True, "status": "rejected"}
+
+
+
 async def delete_my_account(user=Depends(current_user)):
     """Suppression de compte en 1 clic — exigence Apple 5.1.1(v) et Google Play.
     Supprime les données personnelles et anonymise les données historiques.
