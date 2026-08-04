@@ -1,4 +1,5 @@
 import React, { useMemo, useRef } from "react";
+import Constants from "expo-constants";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, PROVIDER_GOOGLE } from "react-native-maps";
@@ -12,6 +13,24 @@ import {
   regionForPoint,
 } from "@/src/utils/geo";
 import type { JokooMapProps } from "./JokooMap";
+
+// Détection : la clé Google Maps Android est-elle configurée ?
+// On lit depuis expo-constants (app.json > android.config.googleMaps.apiKey).
+// Si absente ou = placeholder, on retombe sur PROVIDER_DEFAULT pour éviter
+// un crash silencieux au runtime (Google Maps SDK Android refuse de charger
+// les tuiles sans clé valide).
+function androidGoogleMapsKeyIsValid(): boolean {
+  try {
+    const cfg: any = (Constants.expoConfig as any) || (Constants.manifest as any);
+    const key: string | undefined = cfg?.android?.config?.googleMaps?.apiKey;
+    if (!key) return false;
+    if (key.startsWith("REPLACE_")) return false;
+    if (key.length < 20) return false; // vraie clé Google ~ 39 chars
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Jokoo — Composant carte réutilisable (version native iOS/Android).
@@ -80,9 +99,15 @@ export function JokooMap({
   const distanceKm = from && to ? haversineKm(from, to) : null;
 
   // Sur iOS on utilise Apple Maps (PROVIDER_DEFAULT = pas de clé requise).
-  // Sur Android, Google Maps est utilisé automatiquement dès qu'une clé
-  // valide est configurée dans app.json > android.config.googleMaps.apiKey.
-  const provider = Platform.OS === "ios" ? PROVIDER_DEFAULT : PROVIDER_GOOGLE;
+  // Sur Android, Google Maps n'est utilisé QUE si une clé valide est
+  // configurée. Sinon on retombe sur PROVIDER_DEFAULT pour éviter un
+  // écran gris au runtime (build ok, mais tuiles ne se chargent pas).
+  const provider =
+    Platform.OS === "ios"
+      ? PROVIDER_DEFAULT
+      : androidGoogleMapsKeyIsValid()
+        ? PROVIDER_GOOGLE
+        : PROVIDER_DEFAULT;
 
   const noPoints = !from && !to;
 
