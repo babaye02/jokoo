@@ -1,0 +1,50 @@
+{
+  "iteration": 34,
+  "summary": "VALIDATION — Bug 'la réservation ne s'affiche pas côté client après acceptation' RÉSOLU. Backend 12/12 pytest PASS (100%) sur URL publique. Frontend Playwright confirme end-to-end le fix useFocusEffect : booking passe visuellement de 'En attente' → 'Acceptée' dès qu'on ré-active le tab Profil après PATCH backend, sans reload. Badges (Acceptée verified, Refusée danger, Terminée success, En attente warning) rendus correctement. Menu profil intact (Favoris, Paiements, Aide, Se déconnecter, Supprimer mon compte visibles). Aucun red screen. Backend PATCH /bookings/{id} accepte/refuse/complete côté provider, GET /bookings côté client renvoie bien le booking mis à jour, role-filter (client_id=user.id quand active_role=client) fonctionne. Notification 'booking_accepted' bien créée pour le client. Aucune régression détectée.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Global (RN Web preview)",
+        "issues": [
+          "Warnings récurrents déjà consignés iter31/33 : shadow* → boxShadow, props.pointerEvents → style.pointerEvents, useNativeDriver JS fallback. Cosmétique RN Web uniquement, non bloquant."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter34_booking_status_refresh.py",
+    "/app/test_reports/pytest/iter34.xml",
+    "/app/test_reports/iter34_after_login.png",
+    "/app/test_reports/iter34_profile_pending.png",
+    "/app/test_reports/iter34_profile_after_accept.png"
+  ],
+  "action_items": [
+    "Aucun. Le fix (useFocusEffect + RefreshControl + slice 8) résout intégralement le bug rapporté. Prêt à livrer."
+  ],
+  "critical_code_review_comments": [
+    "profile.tsx: useFocusEffect(useCallback(() => { load(); }, [load])) correctement implémenté — chaque focus du tab refetch /api/bookings.",
+    "RefreshControl branché sur ScrollView avec state refreshing/onRefresh — pull-to-refresh natif OK sur iOS/Android (limité sur RN Web mais code correct).",
+    "STATUS_LABEL/STATUS_TONE/STATUS_ICON exhaustifs pour les 5 statuts (pending, accepted, rejected, completed, cancelled).",
+    "Backend /api/bookings correctement role-based via user['role'] qui est sync avec active_role (voir /switch-role qui écrit à la fois active_role ET role). Dual-mode client validé.",
+    "Notification 'booking_accepted' créée avec target=client_id correct (server.py:2301)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter34_booking_status_refresh.py (créé — 12 tests couvrant create/accept/reject/complete + role filter + sort DESC + notif + no-mongo-leak + state machine)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12)",
+    "frontend": "100% (bug reproduit et validé résolu : screenshot avant/après montre 'En attente' → 'Acceptée' sur tab focus)"
+  },
+  "seed_data_creation": "Bookings de test créés dynamiquement (préfixe TEST_iter34) via API — laissés en base (volume négligeable, filtrables par description).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bug booking-refetch résolu. Pour reproduire : login client, créer booking, ouvrir tab Profil (voir 'En attente'), PATCH côté provider pour 'accepted', naviguer sur un autre tab puis revenir sur Profil → 'Acceptée' visible immédiatement grâce à useFocusEffect. Réutiliser test_iter34_booking_status_refresh.py pour régression complète (create/accept/reject/complete/role-filter/notif/state-machine).",
+  "rca_of_issue": "ROOT CAUSE : profile.tsx utilisait useEffect(load, [load]) qui ne s'exécute qu'au premier mount. Comme Expo Router garde les tabs montés en mémoire, revenir sur Profil ne re-fetchait pas /api/bookings donc l'UI restait sur les données stale (booking status=pending) même après acceptation backend. CORRECTIF : remplacé par useFocusEffect(useCallback(() => { load(); }, [load])) qui re-exécute load() à chaque focus du tab. Vérifié via Playwright : navigation Profil → Accueil → Profil déclenche bien le refetch et le badge passe de 'En attente' à 'Acceptée' sans reload complet de l'app. Ajout de RefreshControl comme filet de sécurité manuel pour l'utilisateur."
+}

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert } from "react-native";
+import { useCallback, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert, RefreshControl } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/auth";
 import { api, Booking } from "@/src/api";
@@ -179,14 +179,26 @@ export default function Profile() {
   const { user, signOut } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
 
+  const [refreshing, setRefreshing] = useState(false);
   const load = useCallback(async () => {
     try {
+      // Trie côté serveur : created_at DESC. On garde 8 dernières réservations
+      // pour couvrir les récentes acceptations sans surcharger l'écran profil.
       const list = await api.get<Booking[]>("/bookings");
-      setBookings(list.slice(0, 5));
+      setBookings(list.slice(0, 8));
     } catch {}
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // useFocusEffect : ré-exécute load() chaque fois que le tab redevient actif.
+  // Résout le bug où l'acceptation par le prestataire n'apparaissait pas côté
+  // client tant que le tab n'était pas quitté et rouvert.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
 
   const logout = async () => { await signOut(); router.replace("/login"); };
 
@@ -194,7 +206,10 @@ export default function Profile() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.turquoise} />}
+      >
         {/* Header */}
         <SafeAreaView edges={["top"]} style={styles.header}>
           <View style={{ alignItems: "center" }}>
