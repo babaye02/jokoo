@@ -93,7 +93,8 @@
           "color": "#14b8a6",
           "defaultChannel": "default"
         }
-      ]
+      ],
+      "./plugins/with-privacy-manifest.js"
     ],
     "experiments": {
       "typedRoutes": true
