@@ -42,7 +42,23 @@ export default function Sponsor() {
   const [loading, setLoading] = useState(false);
   const [paying, setPaying] = useState(false);
   const [pickerFor, setPickerFor] = useState<Plan | null>(null);
+  const [payCfg, setPayCfg] = useState<{ card: boolean; wave: boolean; orange: boolean }>({
+    card: false, wave: true, orange: true,
+  });
   const verifiedRef = useRef<string | null>(null);
+
+  // Charge la configuration des paiements (Stripe désactivé en version Sénégal)
+  useEffect(() => {
+    api.get<any>("/payments/config").then((c) => {
+      if (c && typeof c === "object") {
+        setPayCfg({
+          card:   !!c.card,
+          wave:   c.wave !== false,
+          orange: c.orange !== false,
+        });
+      }
+    }).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -211,21 +227,27 @@ export default function Sponsor() {
               </Txt>
             ) : null}
             <View style={{ height: spacing.md }} />
-            <PayOption
-              icon="card" title="Carte bancaire" subtitle="Visa · Mastercard (Stripe)"
-              onPress={() => pickerFor && startCheckout(pickerFor, "card")}
-              testID="pay-card"
-            />
-            <PayOption
-              icon="phone-portrait" title="Wave" subtitle="Paiement mobile"
-              onPress={() => pickerFor && startCheckout(pickerFor, "wave")}
-              testID="pay-wave"
-            />
-            <PayOption
-              icon="wallet" title="Orange Money" subtitle="Paiement mobile"
-              onPress={() => pickerFor && startCheckout(pickerFor, "orange")}
-              testID="pay-orange"
-            />
+            {payCfg.card ? (
+              <PayOption
+                icon="card" title="Carte bancaire" subtitle="Visa · Mastercard"
+                onPress={() => pickerFor && startCheckout(pickerFor, "card")}
+                testID="pay-card"
+              />
+            ) : null}
+            {payCfg.wave ? (
+              <PayOption
+                icon="phone-portrait" title="Wave" subtitle="Paiement mobile"
+                onPress={() => pickerFor && startCheckout(pickerFor, "wave")}
+                testID="pay-wave"
+              />
+            ) : null}
+            {payCfg.orange ? (
+              <PayOption
+                icon="wallet" title="Orange Money" subtitle="Paiement mobile"
+                onPress={() => pickerFor && startCheckout(pickerFor, "orange")}
+                testID="pay-orange"
+              />
+            ) : null}
             <View style={{ height: 8 }} />
             <Btn title="Annuler" variant="secondary" onPress={() => setPickerFor(null)} fullWidth />
             {paying ? (

@@ -36,7 +36,7 @@ export default function BookingCancelled() {
             <View style={styles.pill}>
               <Ionicons name="information-circle" size={14} color={colors.midnight} />
               <Txt size="xs" weight="700" color={colors.midnight} style={{ marginLeft: 6 }}>
-                {provider === "wave" ? "Wave" : provider === "orange" ? "Orange Money" : "Stripe"} · annulé
+                {provider === "wave" ? "Wave" : provider === "orange" ? "Orange Money" : "Carte bancaire"} · annulé
               </Txt>
             </View>
           ) : null}

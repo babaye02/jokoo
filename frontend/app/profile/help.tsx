@@ -15,7 +15,7 @@ const FAQ = [
   },
   {
     q: "Comment fonctionne le paiement ?",
-    a: "Jokoo accepte le paiement par carte (Stripe), Wave, Orange Money, ou espèces à la fin de la prestation. Le règlement est sécurisé : votre argent est protégé jusqu'à la validation de la mission.",
+    a: "Jokoo accepte le paiement par Wave, Orange Money, ou en espèces à la fin de la prestation. Le règlement est sécurisé : votre argent est protégé jusqu'à la validation de la mission.",
   },
   {
     q: "Que faire si un prestataire ne se présente pas ?",

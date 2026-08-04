@@ -56,12 +56,44 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "jokoo-dev-secret-change-me")
 JWT_ALG = "HS256"
 JWT_EXP_DAYS = 30
 
-STRIPE_KEY = os.environ.get("STRIPE_API_KEY", "sk_test_emergent")
+# ─── Stripe : entièrement optionnel ────────────────────────────
+# La version production (Sénégal) doit pouvoir tourner SANS aucune clé Stripe.
+# Stripe reste réactivable en fournissant STRIPE_API_KEY dans l'environnement.
+STRIPE_KEY = os.environ.get("STRIPE_API_KEY", "").strip()
+# Ne considérer Stripe "activé" que si la clé n'est pas vide et pas un placeholder.
+STRIPE_ENABLED = bool(STRIPE_KEY) and STRIPE_KEY.lower() not in {"disabled", "placeholder", "none", "off"}
 APP_URL = os.environ.get(
     "APP_URL",
     "https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com",
 )
-stripe_checkout = StripeCheckout(api_key=STRIPE_KEY)
+try:
+    stripe_checkout = StripeCheckout(api_key=STRIPE_KEY) if STRIPE_ENABLED else None
+except Exception:
+    stripe_checkout = None
+    STRIPE_ENABLED = False
+
+
+def _require_stripe():
+    """Lève 503 propre si Stripe n'est pas configuré (build Sénégal)."""
+    if not STRIPE_ENABLED or stripe_checkout is None:
+        raise HTTPException(
+            503,
+            "Le paiement par carte bancaire est temporairement indisponible. "
+            "Utilisez Wave, Orange Money ou payez en espèces à la fin de la prestation.",
+        )
+    return stripe_checkout
+
+
+# Import différé pour éviter l'ordre d'import
+from payments_local import WAVE_API_KEY as _WAVE_KEY, OM_CLIENT_ID as _OM_ID, OM_CLIENT_SECRET as _OM_SECRET, OM_MERCHANT_KEY as _OM_MERCH  # noqa: E402
+
+
+def _wave_enabled() -> bool:
+    return bool(_WAVE_KEY)
+
+
+def _orange_enabled() -> bool:
+    return bool(_OM_ID and _OM_SECRET and _OM_MERCH)
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -3269,6 +3301,31 @@ def _authoritative_booking_price(b: dict) -> int:
     return max(0, amt_int)
 
 
+@api.get("/payments/config")
+async def payments_config():
+    """Retourne dynamiquement les moyens de paiement affichés dans l'app.
+    - `card`   : Stripe (**désactivé par défaut** en version Sénégal ; réactivable via STRIPE_API_KEY).
+    - `wave`   : Toujours affiché en version SN (Wave Business).
+    - `orange` : Toujours affiché en version SN (Orange Money Business).
+    - `cash`   : Toujours disponible (paiement à la fin de la prestation).
+
+    Les indicateurs `*_ready` indiquent si le fournisseur est effectivement
+    configuré côté serveur ; si `false`, l'appel de checkout renverra 503
+    avec un message clair pour l'utilisateur, sans casser l'UI.
+    """
+    return {
+        "card":   STRIPE_ENABLED,
+        "wave":   True,
+        "orange": True,
+        "cash":   True,
+        "card_ready":   STRIPE_ENABLED,
+        "wave_ready":   _wave_enabled(),
+        "orange_ready": _orange_enabled(),
+        "currency": "XOF",
+        "country":  "SN",
+    }
+
+
 @api.post("/payments/checkout/booking")
 async def pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
     b = await db.bookings.find_one({"id": body.booking_id}, {"_id": 0})
@@ -3297,7 +3354,7 @@ async def pay_booking(body: CheckoutBookingIn, user=Depends(current_user)):
                 "promo_code": (body.promo_code or "").upper() if body.promo_code else "",
             },
         )
-        session = await stripe_checkout.create_checkout_session(req)
+        session = await _require_stripe().create_checkout_session(req)
         await db.bookings.update_one(
             {"id": body.booking_id},
             {"$set": {"stripe_session_id": session.session_id}},
@@ -3322,7 +3379,7 @@ async def pay_sub(body: CheckoutSubIn, user=Depends(current_user)):
             cancel_url=f"{APP_URL}/booking/cancelled",
             metadata={"user_id": user["id"], "kind": "subscription"},
         )
-        session = await stripe_checkout.create_checkout_session(req)
+        session = await _require_stripe().create_checkout_session(req)
         return {"url": session.url, "session_id": session.session_id}
     except HTTPException:
         raise
@@ -3424,7 +3481,9 @@ async def payment_status(
         except Exception:
             user = None
     try:
-        s = await stripe_checkout.get_checkout_status(session_id)
+        s = await _require_stripe().get_checkout_status(session_id)
+    except HTTPException:
+        raise
     except Exception as e:
         msg = str(e)
         # 404 propre si Stripe ne connaît pas la session
@@ -4461,7 +4520,7 @@ async def sponsorship_checkout(sid: str, body: dict, user=Depends(current_user))
                 cancel_url=f"{APP_URL}/sponsor",
                 metadata={"kind": "sponsorship", "sponsorship_id": sid, "user_id": user["id"]},
             )
-            session = await stripe_checkout.create_checkout_session(req)
+            session = await _require_stripe().create_checkout_session(req)
             await db.sponsorships.update_one(
                 {"id": sid},
                 {"$set": {"stripe_session_id": session.session_id, "payment_provider": "card"}},
@@ -4521,7 +4580,9 @@ async def sponsorship_verify(sid: str, body: dict, user=Depends(current_user)):
     if not session_id:
         raise HTTPException(400, "session_id requis")
     try:
-        status_resp = await stripe_checkout.get_checkout_status(session_id)
+        status_resp = await _require_stripe().get_checkout_status(session_id)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(502, f"Vérification paiement impossible: {e}")
     if not (status_resp.payment_status == "paid" or getattr(status_resp, "status", "") == "complete"):

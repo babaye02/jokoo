@@ -16,14 +16,41 @@ export default function BookingSuccess() {
   const { bookingId, amount, priceType, applyCode } = useLocalSearchParams<{ bookingId: string; amount: string; priceType?: string; applyCode?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [method, setMethod] = useState<Method>("card");
+  const [method, setMethod] = useState<Method>("wave");
   const [loading, setLoading] = useState(false);
   const [paid, setPaid] = useState(false);
   const [promoInput, setPromoInput] = useState("");
   const [promo, setPromo] = useState<PromoState>(null);
   const [promoErr, setPromoErr] = useState<string | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
+  const [config, setConfig] = useState<{ card: boolean; wave: boolean; orange: boolean; cash: boolean }>({
+    card: false, wave: true, orange: true, cash: true,
+  });
   const autoAppliedRef = useRef<string | null>(null);
+
+  // Charge la configuration des moyens de paiement (Stripe désactivé en version Sénégal).
+  useEffect(() => {
+    api.get<any>("/payments/config").then((c) => {
+      if (c && typeof c === "object") {
+        setConfig({
+          card:   !!c.card,
+          wave:   c.wave !== false,   // Wave affiché par défaut (503 gracieux si non configuré)
+          orange: c.orange !== false, // idem
+          cash:   c.cash !== false,
+        });
+        // Si la méthode courante n'est pas activée, en choisir une valide
+        setMethod((prev) => {
+          const enabled: Record<Method, boolean> = { card: !!c.card, wave: c.wave !== false, orange: c.orange !== false, cash: c.cash !== false };
+          if (enabled[prev]) return prev;
+          if (enabled.wave) return "wave";
+          if (enabled.orange) return "orange";
+          if (enabled.cash) return "cash";
+          if (enabled.card) return "card";
+          return prev;
+        });
+      }
+    }).catch(() => {});
+  }, []);
 
   const isQuote = priceType === "quote" || !amount;
   const amountNum = parseInt(amount || "0", 10) || 0;
@@ -230,10 +257,18 @@ export default function BookingSuccess() {
             <Txt size="lg" weight="700" style={{ marginTop: spacing.xl, marginBottom: spacing.md }}>
               Moyen de paiement
             </Txt>
-            <PayOption id="card"   title="Carte bancaire"        subtitle="Visa · Mastercard (Stripe)" icon="card"             active={method === "card"}   onPress={() => setMethod("card")} />
-            <PayOption id="wave"   title="Wave"                  subtitle="Paiement mobile"            icon="phone-portrait"   active={method === "wave"}   onPress={() => setMethod("wave")} />
-            <PayOption id="orange" title="Orange Money"          subtitle="Paiement mobile"            icon="wallet"           active={method === "orange"} onPress={() => setMethod("orange")} />
-            <PayOption id="cash"   title="Payer à la prestation" subtitle="Espèces sur place"          icon="cash"             active={method === "cash"}   onPress={() => setMethod("cash")} />
+            {config.card ? (
+              <PayOption id="card"   title="Carte bancaire"        subtitle="Visa · Mastercard" icon="card"             active={method === "card"}   onPress={() => setMethod("card")} />
+            ) : null}
+            {config.wave ? (
+              <PayOption id="wave"   title="Wave"                  subtitle="Paiement mobile"            icon="phone-portrait"   active={method === "wave"}   onPress={() => setMethod("wave")} />
+            ) : null}
+            {config.orange ? (
+              <PayOption id="orange" title="Orange Money"          subtitle="Paiement mobile"            icon="wallet"           active={method === "orange"} onPress={() => setMethod("orange")} />
+            ) : null}
+            {config.cash ? (
+              <PayOption id="cash"   title="Payer à la prestation" subtitle="Espèces sur place"          icon="cash"             active={method === "cash"}   onPress={() => setMethod("cash")} />
+            ) : null}
           </>
         ) : null}
       </ScrollView>

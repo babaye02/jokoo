@@ -27,11 +27,25 @@ export default function PaymentsScreen() {
   const [items, setItems] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [config, setConfig] = useState<{ card: boolean; wave: boolean; orange: boolean; cash: boolean }>({
+    card: false, wave: true, orange: true, cash: true,
+  });
 
   const load = useCallback(async () => {
     try {
-      const r = await api.get<Payment[]>("/payments/mine");
+      const [r, cfg] = await Promise.all([
+        api.get<Payment[]>("/payments/mine").catch(() => [] as Payment[]),
+        api.get<any>("/payments/config").catch(() => null),
+      ]);
       setItems(Array.isArray(r) ? r : []);
+      if (cfg && typeof cfg === "object") {
+        setConfig({
+          card:   !!cfg.card,
+          wave:   cfg.wave !== false,
+          orange: cfg.orange !== false,
+          cash:   cfg.cash !== false,
+        });
+      }
     } catch {
       setItems([]);
     } finally {
@@ -60,25 +74,33 @@ export default function PaymentsScreen() {
         <Card>
           <Txt size="sm" weight="700">Moyens de paiement acceptés</Txt>
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            <View style={styles.method}>
-              <Ionicons name="card" size={18} color={colors.turquoise} />
-              <Txt size="xs" weight="700" style={{ marginLeft: 6 }}>Stripe</Txt>
-            </View>
-            <View style={styles.method}>
-              <Ionicons name="phone-portrait" size={18} color="#00BAFF" />
-              <Txt size="xs" weight="700" style={{ marginLeft: 6 }}>Wave</Txt>
-            </View>
-            <View style={styles.method}>
-              <Ionicons name="phone-portrait" size={18} color="#FF6600" />
-              <Txt size="xs" weight="700" style={{ marginLeft: 6 }}>Orange Money</Txt>
-            </View>
-            <View style={styles.method}>
-              <Ionicons name="cash" size={18} color={colors.textMuted} />
-              <Txt size="xs" weight="700" style={{ marginLeft: 6 }}>Espèces</Txt>
-            </View>
+            {config.card ? (
+              <View style={styles.method}>
+                <Ionicons name="card" size={18} color={colors.turquoise} />
+                <Txt size="xs" weight="700" style={{ marginLeft: 6 }}>Carte bancaire</Txt>
+              </View>
+            ) : null}
+            {config.wave ? (
+              <View style={styles.method}>
+                <Ionicons name="phone-portrait" size={18} color="#00BAFF" />
+                <Txt size="xs" weight="700" style={{ marginLeft: 6 }}>Wave</Txt>
+              </View>
+            ) : null}
+            {config.orange ? (
+              <View style={styles.method}>
+                <Ionicons name="phone-portrait" size={18} color="#FF6600" />
+                <Txt size="xs" weight="700" style={{ marginLeft: 6 }}>Orange Money</Txt>
+              </View>
+            ) : null}
+            {config.cash ? (
+              <View style={styles.method}>
+                <Ionicons name="cash" size={18} color={colors.textMuted} />
+                <Txt size="xs" weight="700" style={{ marginLeft: 6 }}>Espèces</Txt>
+              </View>
+            ) : null}
           </View>
           <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 10 }}>
-            {"Vos moyens de paiement sont stockés de façon sécurisée chez nos partenaires (Stripe, Wave, Orange Money). Jokoo ne conserve jamais votre numéro de carte."}
+            {"Vos moyens de paiement sont traités par des partenaires sécurisés (Wave, Orange Money). Jokoo ne conserve jamais votre numéro de carte ou de compte mobile."}
           </Txt>
         </Card>
 
@@ -101,7 +123,7 @@ export default function PaymentsScreen() {
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <View style={styles.iconBox}>
                 <Ionicons
-                  name={p.provider === "wave" ? "phone-portrait" : p.provider === "orange_money" ? "phone-portrait" : p.provider === "stripe" ? "card" : "cash"}
+                  name={p.provider === "wave" ? "phone-portrait" : p.provider === "orange_money" || p.provider === "orange" ? "phone-portrait" : p.provider === "card" || p.provider === "stripe" ? "card" : "cash"}
                   size={18}
                   color={colors.turquoise}
                 />
