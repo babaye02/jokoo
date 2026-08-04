@@ -1,49 +1,124 @@
-// Écran de sponsorisation (prestataire) — demande d'un boost pour X jours.
-import { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
+// Écran de sponsorisation (prestataire) — sélection de durée + choix du moyen de paiement.
+import { useCallback, useEffect, useRef, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Platform, Modal, ActivityIndicator } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as WebBrowser from "expo-web-browser";
 import { api, Sponsorship } from "@/src/api";
 import { formatXof } from "@/src/pricing";
 import { Btn, Card, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
-const PLANS: { days: 7 | 15 | 30; price: number; tag?: string }[] = [
-  { days: 7, price: 5000 },
-  { days: 15, price: 9000, tag: "Populaire" },
-  { days: 30, price: 15000, tag: "Meilleure valeur" },
+type Plan = { duration_days: 7 | 15 | 30; amount_xof: number };
+type Method = "card" | "wave" | "orange";
+
+const DEFAULT_PLANS: Plan[] = [
+  { duration_days: 7, amount_xof: 5000 },
+  { duration_days: 15, amount_xof: 10000 },
+  { duration_days: 30, amount_xof: 18000 },
 ];
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  pending:  { label: "En attente validation", color: colors.warning },
-  approved: { label: "Approuvé",              color: colors.turquoise },
-  active:   { label: "Actif",                 color: colors.success },
-  rejected: { label: "Refusé",                color: colors.danger },
-  expired:  { label: "Expiré",                color: colors.textMuted },
+  pending:         { label: "En attente",            color: colors.warning },
+  pending_payment: { label: "Paiement en attente",   color: colors.warning },
+  approved:        { label: "Approuvée",             color: colors.turquoise },
+  active:          { label: "Active ",             color: colors.success },
+  rejected:        { label: "Refusée",               color: colors.danger },
+  expired:         { label: "Expirée",               color: colors.textMuted },
 };
+
+const PLAN_LABEL = (d: number) =>
+  d === 7 ? "Boost semaine" : d === 15 ? "Boost 2 semaines" : "Boost 1 mois";
+const PLAN_TAG = (d: number) =>
+  d === 15 ? "Populaire" : d === 30 ? "Meilleure valeur" : undefined;
 
 export default function Sponsor() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ paid?: string; sid?: string; provider?: string }>();
+  const [plans, setPlans] = useState<Plan[]>(DEFAULT_PLANS);
   const [items, setItems] = useState<Sponsorship[]>([]);
   const [loading, setLoading] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [pickerFor, setPickerFor] = useState<Plan | null>(null);
+  const verifiedRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
-    try { setItems(await api.get<Sponsorship[]>("/sponsorships/mine")); } catch {}
+    try {
+      const [p, mine] = await Promise.all([
+        api.get<Plan[]>("/sponsorships/prices").catch(() => DEFAULT_PLANS),
+        api.get<Sponsorship[]>("/sponsorships/mine").catch(() => []),
+      ]);
+      if (Array.isArray(p) && p.length) setPlans(p);
+      setItems(mine || []);
+    } catch {
+      /* silencieux */
+    }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const request = async (days: 7 | 15 | 30) => {
+  // Retour depuis Stripe (checkout web) → on vérifie le paiement côté serveur
+  useEffect(() => {
+    const sid = typeof params.sid === "string" ? params.sid : "";
+    const paid = params.paid === "1";
+    if (!paid || !sid || verifiedRef.current === sid) return;
+    verifiedRef.current = sid;
+    (async () => {
+      try {
+        // Récupère le session_id si présent dans l'URL courante (web)
+        let sessionId = "";
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          const u = new URL(window.location.href);
+          sessionId = u.searchParams.get("session_id") || "";
+        }
+        if (sessionId) {
+          const r = await api.post<{ paid: boolean }>(`/sponsorships/${sid}/verify`, { session_id: sessionId });
+          if (r.paid) {
+            Alert.alert("Paiement confirmé", "Votre profil est désormais mis en avant 🚀");
+          }
+        } else if (params.provider === "wave" || params.provider === "orange") {
+          Alert.alert("Paiement en cours", "Le statut sera confirmé une fois validé par l'opérateur.");
+        }
+      } catch {
+        /* silencieux */
+      } finally {
+        load();
+      }
+    })();
+  }, [params.sid, params.paid, params.provider, load]);
+
+  const openPicker = (plan: Plan) => {
+    if (paying || loading) return;
+    setPickerFor(plan);
+  };
+
+  const startCheckout = async (plan: Plan, method: Method) => {
+    setPaying(true);
+    setPickerFor(null);
     setLoading(true);
     try {
-      await api.post("/sponsorships", { duration_days: days });
-      Alert.alert("Demande envoyée", "Un administrateur va valider votre sponsorisation.");
-      load();
+      // 1) Créer la sponsorisation (pending_payment)
+      const created = await api.post<Sponsorship>("/sponsorships", { duration_days: plan.duration_days });
+      // 2) Créer la session de checkout
+      const r = await api.post<{ url: string; session_id?: string; pay_token?: string }>(
+        `/sponsorships/${created.id}/checkout`,
+        { provider: method },
+      );
+      if (!r?.url) throw new Error("URL de paiement indisponible");
+      // 3) Ouvrir la page de paiement
+      if (Platform.OS === "web") window.location.assign(r.url);
+      else await WebBrowser.openBrowserAsync(r.url);
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      const msg = e?.message || "Impossible de démarrer le paiement.";
+      Alert.alert(
+        method === "wave" ? "Wave indisponible" : method === "orange" ? "Orange Money indisponible" : "Erreur",
+        msg,
+      );
     } finally {
+      setPaying(false);
       setLoading(false);
+      load();
     }
   };
 
@@ -67,33 +142,36 @@ export default function Sponsor() {
         </View>
 
         <Txt size="lg" weight="700" style={{ marginTop: spacing.md }}>Choisissez une durée</Txt>
-        {PLANS.map((pl) => (
-          <Pressable
-            key={pl.days}
-            onPress={() => request(pl.days)}
-            style={styles.plan}
-            disabled={loading}
-            testID={`plan-${pl.days}`}
-          >
-            <View style={styles.planIcon}>
-              <Txt size="lg" weight="700" color={colors.white}>{pl.days}</Txt>
-              <Txt size="xxs" color={colors.white}>jours</Txt>
-            </View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Txt weight="700">{pl.days === 7 ? "Boost semaine" : pl.days === 15 ? "Boost 2 semaines" : "Boost 1 mois"}</Txt>
-                {pl.tag ? (
-                  <View style={styles.tag}><Txt size="xxs" weight="700" color={colors.midnight}>{pl.tag}</Txt></View>
-                ) : null}
+        {plans.map((pl) => {
+          const tag = PLAN_TAG(pl.duration_days);
+          return (
+            <Pressable
+              key={pl.duration_days}
+              onPress={() => openPicker(pl)}
+              style={styles.plan}
+              disabled={loading || paying}
+              testID={`plan-${pl.duration_days}`}
+            >
+              <View style={styles.planIcon}>
+                <Txt size="lg" weight="700" color={colors.white}>{pl.duration_days}</Txt>
+                <Txt size="xxs" color={colors.white}>jours</Txt>
               </View>
-              <Txt size="xs" color={colors.textMuted} style={{ marginTop: 2 }}>
-                En tête pendant {pl.days} jours consécutifs
-              </Txt>
-              <Txt size="lg" weight="700" color={colors.turquoise} style={{ marginTop: 6 }}>{formatXof(pl.price)}</Txt>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.textSubtle} />
-          </Pressable>
-        ))}
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Txt weight="700">{PLAN_LABEL(pl.duration_days)}</Txt>
+                  {tag ? (
+                    <View style={styles.tag}><Txt size="xxs" weight="700" color={colors.midnight}>{tag}</Txt></View>
+                  ) : null}
+                </View>
+                <Txt size="xs" color={colors.textMuted} style={{ marginTop: 2 }}>
+                  En tête pendant {pl.duration_days} jours consécutifs
+                </Txt>
+                <Txt size="lg" weight="700" color={colors.turquoise} style={{ marginTop: 6 }}>{formatXof(pl.amount_xof)}</Txt>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSubtle} />
+            </Pressable>
+          );
+        })}
 
         <Txt size="lg" weight="700" style={{ marginTop: spacing.md }}>Historique</Txt>
         {items.length === 0 ? (
@@ -103,7 +181,7 @@ export default function Sponsor() {
           return (
             <Card key={s.id} style={{ padding: spacing.md }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Txt weight="700">Boost {s.duration_days} jours</Txt>
                   <Txt size="xs" color={colors.textMuted}>{new Date(s.created_at).toLocaleDateString("fr-FR")}</Txt>
                 </View>
@@ -113,13 +191,76 @@ export default function Sponsor() {
               </View>
               <Txt size="xs" color={colors.textMuted} style={{ marginTop: 6 }}>
                 Montant : {formatXof(s.amount_xof)}
+                {s.payment_provider ? ` · ${labelProvider(s.payment_provider)}` : ""}
                 {s.ends_at ? ` · Se termine le ${s.ends_at.slice(0, 10)}` : ""}
               </Txt>
             </Card>
           );
         })}
       </ScrollView>
+
+      {/* Modal choix moyen de paiement */}
+      <Modal transparent visible={!!pickerFor} animationType="fade" onRequestClose={() => setPickerFor(null)}>
+        <Pressable style={styles.backdrop} onPress={() => setPickerFor(null)}>
+          <Pressable style={styles.sheet} onPress={() => { /* absorb */ }}>
+            <View style={styles.grabber} />
+            <Txt size="lg" weight="700">Moyen de paiement</Txt>
+            {pickerFor ? (
+              <Txt size="sm" color={colors.textMuted} style={{ marginTop: 4 }}>
+                {PLAN_LABEL(pickerFor.duration_days)} — {formatXof(pickerFor.amount_xof)}
+              </Txt>
+            ) : null}
+            <View style={{ height: spacing.md }} />
+            <PayOption
+              icon="card" title="Carte bancaire" subtitle="Visa · Mastercard (Stripe)"
+              onPress={() => pickerFor && startCheckout(pickerFor, "card")}
+              testID="pay-card"
+            />
+            <PayOption
+              icon="phone-portrait" title="Wave" subtitle="Paiement mobile"
+              onPress={() => pickerFor && startCheckout(pickerFor, "wave")}
+              testID="pay-wave"
+            />
+            <PayOption
+              icon="wallet" title="Orange Money" subtitle="Paiement mobile"
+              onPress={() => pickerFor && startCheckout(pickerFor, "orange")}
+              testID="pay-orange"
+            />
+            <View style={{ height: 8 }} />
+            <Btn title="Annuler" variant="secondary" onPress={() => setPickerFor(null)} fullWidth />
+            {paying ? (
+              <View style={styles.overlay}>
+                <ActivityIndicator color={colors.turquoise} size="large" />
+                <Txt size="sm" color={colors.textMuted} style={{ marginTop: 8 }}>Redirection…</Txt>
+              </View>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
+  );
+}
+
+function labelProvider(p: string): string {
+  if (p === "card") return "Carte bancaire";
+  if (p === "wave") return "Wave";
+  if (p === "orange") return "Orange Money";
+  if (p === "admin_gift") return "Offert par Jokoo";
+  return p;
+}
+
+function PayOption({ icon, title, subtitle, onPress, testID }: any) {
+  return (
+    <Pressable onPress={onPress} style={styles.pay} testID={testID}>
+      <View style={styles.payIcon}>
+        <Ionicons name={icon} size={22} color={colors.turquoise} />
+      </View>
+      <View style={{ flex: 1, marginLeft: 12 }}>
+        <Txt weight="700">{title}</Txt>
+        <Txt size="xs" color={colors.textMuted}>{subtitle}</Txt>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+    </Pressable>
   );
 }
 
@@ -131,4 +272,11 @@ const styles = StyleSheet.create({
   planIcon: { width: 56, height: 56, borderRadius: 14, backgroundColor: colors.turquoise, alignItems: "center", justifyContent: "center" },
   tag: { marginLeft: 8, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: colors.brandTertiary },
   pill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.xl, paddingBottom: spacing.xl + 16 },
+  grabber: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: spacing.md },
+  pay: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surface2, borderRadius: radius.lg, padding: spacing.md, marginBottom: 10 },
+  payIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandTertiary },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.85)", alignItems: "center", justifyContent: "center", borderRadius: 24 },
 });

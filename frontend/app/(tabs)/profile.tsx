@@ -180,14 +180,19 @@ export default function Profile() {
   const [bookings, setBookings] = useState<Booking[]>([]);
 
   const [refreshing, setRefreshing] = useState(false);
+  // Le rôle "actif" prime sur `user.role` legacy (le client peut avoir
+  // roles=[client,prestataire] mais être en mode client actuellement).
+  const activeRole = (user as any)?.active_role || user?.role || "client";
+  const isProvider = activeRole === "prestataire";
+
   const load = useCallback(async () => {
     try {
-      // Trie côté serveur : created_at DESC. On garde 8 dernières réservations
-      // pour couvrir les récentes acceptations sans surcharger l'écran profil.
-      const list = await api.get<Booking[]>("/bookings");
+      // Envoi explicite du rôle actif — force le backend à filtrer côté
+      // client_id (perspective client) OU provider_id (perspective pro).
+      const list = await api.get<Booking[]>(`/bookings?as=${encodeURIComponent(activeRole)}`);
       setBookings(list.slice(0, 8));
     } catch {}
-  }, []);
+  }, [activeRole]);
 
   // useFocusEffect : ré-exécute load() chaque fois que le tab redevient actif.
   // Résout le bug où l'acceptation par le prestataire n'apparaissait pas côté

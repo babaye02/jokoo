@@ -295,10 +295,12 @@ export type Sponsorship = {
   provider_name: string;
   duration_days: 7 | 15 | 30;
   amount_xof: number;
-  status: "pending" | "approved" | "rejected" | "active" | "expired";
+  status: "pending" | "pending_payment" | "approved" | "rejected" | "active" | "expired";
   starts_at?: string | null;
   ends_at?: string | null;
+  activated_at?: string | null;
   paid?: boolean;
+  payment_provider?: "card" | "wave" | "orange" | "admin_gift" | null;
   created_at: string;
 };
 

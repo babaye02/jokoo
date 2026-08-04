@@ -1,0 +1,37 @@
+{
+  "summary": "Backend-only test of Jokoo Sponsorisations Provider Payment System. All 21 pytest cases passed against the preview URL. Covered: public prices endpoint, admin GET/PUT prices with full validation matrix (negative amount 400, invalid day 99 400, non-admin 403, empty body 400, changes reflected on public endpoint, defaults restored), sponsorship creation (pending_payment + correct amount_xof), Stripe card checkout (returns url + session_id), non-owner checkout 404, Wave/Orange endpoints reachable (503/500 acceptable — mocked), pro & admin list endpoints, admin PATCH gift activates sponsorship + creates notification + sets provider.sponsored_until, and auto-expiration on GET /sponsorships/mine after tampering ends_at in DB (status flips to expired and provider.sponsored_until cleared).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter35_sponsorships.py",
+    "/app/test_reports/pytest/iter35.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:4373 — POST /sponsorships returns doc via dict comprehension excluding _id. OK.",
+    "server.py:4327 — PUT /admin/sponsorships/prices accepts both `{prices:{...}}` and flat `{...}`. Empty body correctly rejected with 400 via `if not cleaned` branch.",
+    "server.py:4485 — Orange checkout now correctly uses `om_create_webpayment` with `notif_url` (previous blocker fixed and verified — wave/orange endpoints reachable, returning 503 as expected when creds absent).",
+    "server.py:4417 — `_expire_stale_sponsorships` is invoked in both `/sponsorships/mine` and `/admin/sponsorships`. Verified to flip status and unset provider.sponsored_until.",
+    "server.py:4561 — Gift path in PATCH /admin/sponsorships/{sid} correctly activates and inserts a `sponsorship_gifted` notification."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter35_sponsorships.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21)",
+    "frontend": "not tested (out of scope)"
+  },
+  "seed_data_creation": "None. Test used existing seeded accounts admin@jokoo.sn and pro@jokoo.sn. Sponsorship docs were created via the pending flow and the admin gift path — persisted in `sponsorships` collection under provider `pro@jokoo.sn`.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Sponsorisation backend is fully green. If retesting, note that TestSponsorshipLifecycle uses the SAME sponsorship id for card/wave/orange checkout in sequence (still pending since Stripe test session not paid), which is representative of user flow. Auto-expiration test tampers with `ends_at` via direct Mongo write (MONGO_URL + DB_NAME=jokoo_db). Wave/Orange 503 is acceptable per spec — do NOT flag.",
+  "rca_of_issue": "No issues found. Previous blocker `om_create_checkout` undefined was already fixed in server.py:4485 to use `om_create_webpayment(..., notif_url=...)`. Verified: Orange checkout call reaches the payment adapter and returns 503 gracefully when creds are missing (expected & documented as mocked)."
+}

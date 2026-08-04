@@ -2099,8 +2099,21 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
 
 
 @api.get("/bookings")
-async def list_bookings(user=Depends(current_user)):
-    if user["role"] == "prestataire":
+async def list_bookings(as_role: Optional[str] = Query(None, alias="as"), user=Depends(current_user)):
+    """
+    Retourne les réservations de l'utilisateur.
+
+    Résolution du rôle (par ordre de priorité) :
+      1. Query param ?as=client|prestataire  (explicit, override total)
+      2. user["active_role"]                   (dual-role : reflète le mode actuel)
+      3. user["role"]                          (legacy)
+
+    Cette résolution fixe le bug où un client en dual-mode (`roles: [client, prestataire]`)
+    voyait 0 réservation dans "Vos réservations" parce que son `role` legacy avait été
+    basculé en "prestataire" lors d'une visite précédente au tableau de bord pro.
+    """
+    role = (as_role or user.get("active_role") or user.get("role") or "client").lower()
+    if role == "prestataire":
         cur = db.bookings.find({"provider_id": user["id"]}, {"_id": 0})
     else:
         cur = db.bookings.find({"client_id": user["id"]}, {"_id": 0})
@@ -3502,8 +3515,14 @@ async def wave_webhook(request: Request):
 
 
 @api.get("/payments/wave/return")
-async def wave_return(booking_id: Optional[str] = None, user_id: Optional[str] = None, kind: Optional[str] = None):
+async def wave_return(booking_id: Optional[str] = None, user_id: Optional[str] = None, kind: Optional[str] = None, sponsorship_id: Optional[str] = None):
     """Wave redirects the browser here after payment. We redirect the user to the frontend confirmation page."""
+    if sponsorship_id:
+        try:
+            await _activate_sponsorship(sponsorship_id, provider="wave")
+        except Exception:
+            log.exception("wave sponsorship activation failed")
+        return RedirectResponse(url=f"{APP_URL}/sponsor?paid=1&sid={sponsorship_id}&provider=wave", status_code=302)
     qs = []
     if booking_id: qs.append(f"booking_id={booking_id}")
     if kind: qs.append(f"kind={kind}")
@@ -3592,7 +3611,13 @@ async def om_status(pay_token: str, user=Depends(current_user)):
 
 
 @api.get("/payments/orange/return")
-async def om_return(booking_id: Optional[str] = None, user_id: Optional[str] = None, kind: Optional[str] = None):
+async def om_return(booking_id: Optional[str] = None, user_id: Optional[str] = None, kind: Optional[str] = None, sponsorship_id: Optional[str] = None):
+    if sponsorship_id:
+        try:
+            await _activate_sponsorship(sponsorship_id, provider="orange")
+        except Exception:
+            log.exception("orange sponsorship activation failed")
+        return RedirectResponse(url=f"{APP_URL}/sponsor?paid=1&sid={sponsorship_id}&provider=orange", status_code=302)
     qs = []
     if booking_id: qs.append(f"booking_id={booking_id}")
     if kind: qs.append(f"kind={kind}")
@@ -4255,32 +4280,255 @@ async def admin_update_campaign(cid: str, body: dict, user=Depends(require_perm(
 
 
 # ---------- sponsorisation prestataires ----------
-SPONSOR_PRICES_XOF = {7: 5000, 15: 9000, 30: 15000}
+DEFAULT_SPONSOR_PRICES_XOF: dict[int, int] = {7: 5000, 15: 10000, 30: 18000}
+
+
+async def _get_sponsor_prices() -> dict[int, int]:
+    """Récupère les tarifs de sponsorisation depuis `system_settings`. Fallback = défauts."""
+    doc = await db.system_settings.find_one({"key": "sponsorship_prices"}, {"_id": 0})
+    if not doc or not isinstance(doc.get("value"), dict):
+        return dict(DEFAULT_SPONSOR_PRICES_XOF)
+    out: dict[int, int] = {}
+    for k, v in doc["value"].items():
+        try:
+            days = int(k)
+            price = int(v)
+            if days in (7, 15, 30) and price > 0:
+                out[days] = price
+        except Exception:
+            continue
+    # Complète les jours manquants avec les défauts
+    for d, p in DEFAULT_SPONSOR_PRICES_XOF.items():
+        out.setdefault(d, p)
+    return out
+
+
+@api.get("/sponsorships/prices")
+async def sponsor_prices():
+    """Tarifs publics utilisés par l'écran /sponsor côté prestataire."""
+    prices = await _get_sponsor_prices()
+    return [{"duration_days": k, "amount_xof": v} for k, v in sorted(prices.items())]
+
+
+@api.get("/admin/sponsorships/prices")
+async def admin_sponsor_prices(user=Depends(current_user)):
+    """Retourne les prix courants (admin)."""
+    require_admin(user)
+    prices = await _get_sponsor_prices()
+    return {"prices": prices, "defaults": DEFAULT_SPONSOR_PRICES_XOF}
+
+
+@api.put("/admin/sponsorships/prices")
+async def admin_update_sponsor_prices(body: dict, user=Depends(current_user)):
+    """Met à jour les tarifs de sponsorisation.
+    Body attendu: { "7": 5000, "15": 10000, "30": 18000 } (montants XOF, > 0).
+    """
+    require_admin(user)
+    incoming = body.get("prices") if isinstance(body.get("prices"), dict) else body
+    cleaned: dict[str, int] = {}
+    for k, v in (incoming or {}).items():
+        try:
+            days = int(k)
+            price = int(v)
+        except Exception:
+            raise HTTPException(400, "Format invalide : jours et prix doivent être des entiers")
+        if days not in (7, 15, 30):
+            raise HTTPException(400, "Durées autorisées: 7, 15 ou 30 jours")
+        if price <= 0 or price > 10_000_000:
+            raise HTTPException(400, "Montant invalide (1 - 10 000 000 XOF)")
+        cleaned[str(days)] = price
+    if not cleaned:
+        raise HTTPException(400, "Aucun tarif fourni")
+    await db.system_settings.update_one(
+        {"key": "sponsorship_prices"},
+        {"$set": {"key": "sponsorship_prices", "value": cleaned, "updated_at": now_iso(), "updated_by": user["id"]}},
+        upsert=True,
+    )
+    return {"ok": True, "prices": await _get_sponsor_prices()}
 
 
 @api.post("/sponsorships")
 async def request_sponsorship(body: SponsorshipIn, user=Depends(current_user)):
-    if user["role"] != "prestataire":
+    if user.get("active_role") != "prestataire" and user.get("role") != "prestataire":
         raise HTTPException(403, "Prestataire uniquement")
+    prices = await _get_sponsor_prices()
+    if body.duration_days not in prices:
+        raise HTTPException(400, "Durée invalide (7, 15 ou 30 jours)")
     sid = str(uuid.uuid4())
     doc = {
         "id": sid,
         "provider_id": user["id"],
         "provider_name": user["name"],
         "duration_days": body.duration_days,
-        "amount_xof": SPONSOR_PRICES_XOF[body.duration_days],
-        "status": "pending",  # pending | approved | rejected | active | expired
+        "amount_xof": prices[body.duration_days],
+        "status": "pending_payment",  # pending_payment | active | expired | rejected
         "starts_at": None,
         "ends_at": None,
         "paid": False,
+        "payment_provider": None,
+        "payment_reference": None,
         "created_at": now_iso(),
     }
     await db.sponsorships.insert_one(doc)
-    return _clean_service(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+def _activate_sponsorship_sync_doc(s: dict) -> dict:
+    """Retourne les champs à setter pour activer une sponsorisation payée."""
+    starts = datetime.now(timezone.utc)
+    ends = starts + timedelta(days=int(s.get("duration_days", 7)))
+    return {
+        "status": "active",
+        "paid": True,
+        "starts_at": starts.isoformat(),
+        "ends_at": ends.isoformat(),
+        "activated_at": now_iso(),
+    }
+
+
+async def _activate_sponsorship(sid: str, provider: str) -> dict:
+    """Active un dossier de sponsorship payé et met à jour le provider (sponsored_until).
+    Retourne le doc final."""
+    s = await db.sponsorships.find_one({"id": sid}, {"_id": 0})
+    if not s:
+        raise HTTPException(404, "Sponsorship introuvable")
+    if s.get("status") == "active" and s.get("ends_at"):
+        return s  # déjà actif
+    updates = _activate_sponsorship_sync_doc(s)
+    updates["payment_provider"] = provider
+    await db.sponsorships.update_one({"id": sid}, {"$set": updates})
+    await db.providers.update_one(
+        {"id": s["provider_id"]},
+        {"$set": {"sponsored_until": updates["ends_at"]}},
+    )
+    # Notification interne
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": s["provider_id"],
+        "type": "sponsorship_active",
+        "title": "Sponsorisation activée 🚀",
+        "body": f"Votre profil est mis en avant jusqu'au {updates['ends_at'][:10]}.",
+        "read": False,
+        "created_at": now_iso(),
+    })
+    return {**s, **updates}
+
+
+async def _expire_stale_sponsorships() -> int:
+    """Passe en `expired` toutes les sponsorisations actives dont `ends_at` est dépassé.
+    Retourne le nombre d'enregistrements mis à jour. Idempotent, safe à appeler souvent."""
+    now = now_iso()
+    cur = db.sponsorships.find(
+        {"status": "active", "ends_at": {"$ne": None, "$lt": now}},
+        {"_id": 0, "id": 1, "provider_id": 1},
+    )
+    stale = await cur.to_list(500)
+    for s in stale:
+        await db.sponsorships.update_one(
+            {"id": s["id"]},
+            {"$set": {"status": "expired", "expired_at": now}},
+        )
+        await db.providers.update_one(
+            {"id": s["provider_id"]},
+            {"$unset": {"sponsored_until": ""}},
+        )
+    return len(stale)
+
+
+@api.post("/sponsorships/{sid}/checkout")
+async def sponsorship_checkout(sid: str, body: dict, user=Depends(current_user)):
+    """Crée une session de paiement (Stripe / Wave / Orange) pour une sponsorisation
+    pending. Retourne l'URL de paiement à ouvrir côté client.
+    Body: { "provider": "card"|"wave"|"orange" }
+    """
+    s = await db.sponsorships.find_one({"id": sid}, {"_id": 0})
+    if not s or s["provider_id"] != user["id"]:
+        raise HTTPException(404, "Sponsorship introuvable")
+    if s.get("paid"):
+        raise HTTPException(400, "Sponsorisation déjà payée")
+    provider = (body.get("provider") or "card").strip().lower()
+    amount = int(s["amount_xof"])
+    if provider == "card":
+        try:
+            req = CheckoutSessionRequest(
+                amount=float(amount),
+                currency="xof",
+                success_url=f"{APP_URL}/sponsor/success?session_id={{CHECKOUT_SESSION_ID}}&sid={sid}",
+                cancel_url=f"{APP_URL}/sponsor",
+                metadata={"kind": "sponsorship", "sponsorship_id": sid, "user_id": user["id"]},
+            )
+            session = await stripe_checkout.create_checkout_session(req)
+            await db.sponsorships.update_one(
+                {"id": sid},
+                {"$set": {"stripe_session_id": session.session_id, "payment_provider": "card"}},
+            )
+            return {"url": session.url, "session_id": session.session_id}
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.exception("stripe sponsor checkout failed")
+            raise HTTPException(500, f"Paiement indisponible: {e}")
+    elif provider == "wave":
+        session = await wave_create_checkout(
+            amount_xof=amount,
+            success_url=f"{APP_URL}/api/payments/wave/return?sponsorship_id={sid}",
+            error_url=f"{APP_URL}/sponsor",
+            client_reference=f"sponsorship:{sid}",
+        )
+        await db.sponsorships.update_one(
+            {"id": sid},
+            {"$set": {"wave_session_id": session.get("id"), "payment_provider": "wave"}},
+        )
+        return {"url": session.get("wave_launch_url"), "session_id": session.get("id")}
+    elif provider == "orange":
+        order_id = f"jokoo-sponsor-{sid}"
+        r = await om_create_webpayment(
+            amount_xof=amount,
+            order_id=order_id,
+            return_url=f"{APP_URL}/api/payments/orange/return?sponsorship_id={sid}",
+            cancel_url=f"{APP_URL}/sponsor",
+            notif_url=f"{APP_URL}/api/payments/orange/notify",
+            reference="Jokoo Boost",
+        )
+        await db.sponsorships.update_one(
+            {"id": sid},
+            {"$set": {
+                "orange_order_id": order_id,
+                "om_pay_token": r.get("pay_token"),
+                "om_notif_token": r.get("notif_token"),
+                "payment_provider": "orange",
+            }},
+        )
+        return {"url": r.get("payment_url"), "pay_token": r.get("pay_token")}
+    raise HTTPException(400, "Fournisseur invalide (card|wave|orange)")
+
+
+@api.post("/sponsorships/{sid}/verify")
+async def sponsorship_verify(sid: str, body: dict, user=Depends(current_user)):
+    """Confirme côté serveur qu'une session Stripe est payée puis active la
+    sponsorisation. Body: { "session_id": "..." }. Idempotent."""
+    s = await db.sponsorships.find_one({"id": sid}, {"_id": 0})
+    if not s or s["provider_id"] != user["id"]:
+        raise HTTPException(404, "Sponsorship introuvable")
+    if s.get("paid"):
+        # Déjà activé — retourne l'état
+        return await db.sponsorships.find_one({"id": sid}, {"_id": 0})
+    session_id = (body.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(400, "session_id requis")
+    try:
+        status_resp = await stripe_checkout.get_checkout_status(session_id)
+    except Exception as e:
+        raise HTTPException(502, f"Vérification paiement impossible: {e}")
+    if not (status_resp.payment_status == "paid" or getattr(status_resp, "status", "") == "complete"):
+        return {"paid": False, "status": status_resp.payment_status}
+    updated = await _activate_sponsorship(sid, provider="card")
+    return {"paid": True, "sponsorship": updated}
 
 
 @api.get("/sponsorships/mine")
 async def my_sponsorships(user=Depends(current_user)):
+    await _expire_stale_sponsorships()
     cur = db.sponsorships.find({"provider_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
     return await cur.to_list(50)
 
@@ -4288,6 +4536,7 @@ async def my_sponsorships(user=Depends(current_user)):
 @api.get("/admin/sponsorships")
 async def admin_list_sponsorships(user=Depends(current_user)):
     require_admin(user)
+    await _expire_stale_sponsorships()
     cur = db.sponsorships.find({}, {"_id": 0}).sort("created_at", -1)
     return await cur.to_list(500)
 
@@ -4298,29 +4547,42 @@ async def admin_update_sponsorship(
     body: dict,
     user=Depends(current_user),
 ):
+    """Actions admin :
+      - `gift`   : offre la sponsorisation sans paiement (traçable).
+      - `reject` : refuse la demande (avec motif optionnel).
+      - `expire` : force l'expiration immédiate.
+    """
     require_admin(user)
     s = await db.sponsorships.find_one({"id": sid}, {"_id": 0})
     if not s:
         raise HTTPException(404, "Introuvable")
-    status_ = body.get("status")
-    updates: dict = {"updated_at": now_iso()}
-    if status_ == "approved":
-        starts = datetime.now(timezone.utc)
-        ends = starts + timedelta(days=s["duration_days"])
-        updates.update({
-            "status": "active",
-            "starts_at": starts.isoformat(),
-            "ends_at": ends.isoformat(),
-            "paid": True,
-        })
+    action = (body.get("status") or body.get("action") or "").lower()
+    updates: dict = {"updated_at": now_iso(), "reviewed_by": user["id"], "reviewed_by_name": user.get("name")}
+    if action in ("gift", "approved"):
+        upd = _activate_sponsorship_sync_doc(s)
+        upd["payment_provider"] = "admin_gift"
+        upd["gifted_by"] = user["id"]
+        updates.update(upd)
         await db.providers.update_one(
             {"id": s["provider_id"]},
-            {"$set": {"sponsored_until": ends.isoformat()}},
+            {"$set": {"sponsored_until": upd["ends_at"]}},
         )
-    elif status_ in ("rejected", "expired"):
-        updates["status"] = status_
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": s["provider_id"],
+            "type": "sponsorship_gifted",
+            "title": "Sponsorisation offerte 🎁",
+            "body": "L'équipe Jokoo vous a offert une mise en avant.",
+            "read": False,
+            "created_at": now_iso(),
+        })
+    elif action in ("rejected", "reject"):
+        updates.update({"status": "rejected", "rejection_reason": body.get("reason")})
+    elif action in ("expired", "expire"):
+        updates.update({"status": "expired", "ends_at": now_iso()})
+        await db.providers.update_one({"id": s["provider_id"]}, {"$unset": {"sponsored_until": ""}})
     else:
-        raise HTTPException(400, "status invalide")
+        raise HTTPException(400, "Action invalide (gift|reject|expire)")
     await db.sponsorships.update_one({"id": sid}, {"$set": updates})
     return {"ok": True}
 

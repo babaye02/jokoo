@@ -777,3 +777,39 @@ agent_communication:
 
       **Skip frontend** — pas de UI ajoutée ; les endpoints existants sont maintenant tous filtrés.
       **Ne pas re-tester** les flows validés dans iteration_23.json (reviews, family notebook).
+
+  - task: "Sponsorisation prestataires — paiements (Stripe/Wave/Orange) + tarifs admin"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        message: |
+          Nouveau flow Sponsorisations à valider — **backend + frontend**.
+
+          BACKEND (server.py) :
+          1. GET /api/sponsorships/prices → renvoie [{"duration_days":7,"amount_xof":5000},{15,10000},{30,18000}] par défaut.
+          2. GET /api/admin/sponsorships/prices (admin) → { prices, defaults }.
+          3. PUT /api/admin/sponsorships/prices (admin) body { "prices": {"7":6000,"15":11000,"30":20000} } → applique.
+             - Contrôles: admin only, montants > 0 et <= 10_000_000, days ∈ {7,15,30}.
+             - Après PUT, GET /api/sponsorships/prices doit refléter les nouveaux montants.
+          4. POST /api/sponsorships (prestataire) body {"duration_days":7} → crée un dossier `pending_payment`, amount_xof suit les tarifs courants.
+          5. POST /api/sponsorships/{sid}/checkout (prestataire) body {"provider":"card"} → renvoie { url, session_id } (Stripe test).
+             - provider="wave" → 503 si WAVE_API_KEY vide (comportement attendu), sinon renvoie {url}.
+             - provider="orange" → 503 si OM non configuré (attendu), sinon {url, pay_token}.
+          6. POST /api/sponsorships/{sid}/verify body {"session_id":"..."} → active la sponsorisation si Stripe indique paid.
+          7. GET /api/sponsorships/mine (prestataire) → historique.
+          8. GET /api/admin/sponsorships (admin) → tout l'historique.
+          9. PATCH /api/admin/sponsorships/{sid} status="gift" → active sans paiement + notification prestataire.
+          10. Expiration auto : une sponso `active` dont `ends_at` est passé doit passer `expired` lors du prochain GET (mine/admin) et le provider doit perdre `sponsored_until`.
+
+          Credentials : admin@jokoo.sn / Admin1234!, pro@jokoo.sn / Passw0rd!.
+          Backend URL externe : https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com/api/*.
+
+          Rapport dans /app/test_reports/iteration_35.json.
+
+          **Skip frontend testing** — le frontend sera testé manuellement par l'utilisateur (choix modal Stripe/Wave/Orange et éditeur de tarifs admin déjà branchés).
