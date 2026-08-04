@@ -21,7 +21,7 @@ import {
   Alert,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { api, PromoCode, PromoCodeStatus } from "@/src/api";
@@ -72,6 +72,20 @@ function discountLabel(p: PromoCode): string {
 export default function PromoCodesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // Params : quand on arrive depuis un checkout, on récupère le montant et
+  // la route de retour pour propager le code sélectionné au bon écran.
+  const params = useLocalSearchParams<{
+    returnTo?: string;
+    bookingId?: string;
+    amount?: string;
+    category?: string;
+  }>();
+  const returnTo = typeof params.returnTo === "string" ? params.returnTo : "";
+  const returnBookingId = typeof params.bookingId === "string" ? params.bookingId : "";
+  const contextAmount = Math.max(500, parseInt(String(params.amount || "15000"), 10) || 15000);
+  const contextCategory = (typeof params.category === "string" && params.category) || "all";
+  const fromCheckout = !!returnTo && !!returnBookingId;
+
   const [codes, setCodes] = useState<PromoCode[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [input, setInput] = useState("");
@@ -80,16 +94,12 @@ export default function PromoCodesScreen() {
   const [applyLoading, setApplyLoading] = useState(false);
   const [filter, setFilter] = useState<FilterKey>("all");
 
-  // Simulated context (future: read from checkout screen params)
-  const SAMPLE_AMOUNT = 15000;
-  const SAMPLE_CATEGORY = "all";
-
   const load = useCallback(async () => {
     try {
-      const list = await api.get<PromoCode[]>(`/promo-codes?amount=${SAMPLE_AMOUNT}&category=${SAMPLE_CATEGORY}`);
+      const list = await api.get<PromoCode[]>(`/promo-codes?amount=${contextAmount}&category=${contextCategory}`);
       setCodes(list);
     } catch { /* noop */ }
-  }, []);
+  }, [contextAmount, contextCategory]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -140,13 +150,43 @@ export default function PromoCodesScreen() {
     setApplied(null);
   };
 
-  const applyFromCard = (p: PromoCode) => {
+  const applyFromCard = async (p: PromoCode) => {
     if (p.status !== "applicable" && p.status !== "available") {
       Alert.alert("Non applicable", p.reason || "Ce code ne peut pas être appliqué pour l'instant.");
       return;
     }
+    // Feedback visuel immédiat côté écran (indépendant du checkout)
     LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
     setApplied({ ...p, status: "applicable" });
+
+    // Si on vient d'un écran de checkout : valider auprès du serveur puis
+    // repartir vers le checkout avec le code appliqué. Sinon (écran standalone)
+    // rester ici et laisser l'utilisateur choisir.
+    if (fromCheckout) {
+      try {
+        const r = await api.post<any>("/promo-codes/validate", {
+          code: p.code,
+          amount: contextAmount,
+          category: contextCategory,
+        });
+        if (!r.valid) {
+          setApplied(null);
+          Alert.alert("Code non applicable", r.reason || "Ce code n'est plus valide pour votre panier.");
+          return;
+        }
+      } catch (e: any) {
+        setApplied(null);
+        Alert.alert("Erreur", e?.message || "Impossible de valider le code, réessayez.");
+        return;
+      }
+      // Retour au checkout avec le code sélectionné.
+      router.replace(
+        `${returnTo}?bookingId=${encodeURIComponent(returnBookingId)}&amount=${encodeURIComponent(String(contextAmount))}&applyCode=${encodeURIComponent(p.code)}`
+      );
+    } else {
+      // Écran standalone : feedback de confirmation
+      Alert.alert("Code sélectionné", `Le code ${p.code} sera appliqué à votre prochaine réservation éligible.`);
+    }
   };
 
   // ─── Filtering ─────

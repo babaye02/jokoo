@@ -90,6 +90,9 @@ export default function BookingScreen() {
     }
     if (!address.trim()) return setErr("Veuillez indiquer une adresse");
     if (!description.trim()) return setErr("Décrivez votre besoin pour permettre au prestataire de répondre");
+    if (!providerId || typeof providerId !== "string") {
+      return setErr("Prestataire introuvable, revenez en arrière et réessayez.");
+    }
     setLoading(true);
     try {
       const b = await api.post<any>("/bookings", {
@@ -100,14 +103,18 @@ export default function BookingScreen() {
         address,
         description,
       });
-      router.replace({
-        pathname: "/booking/success",
-        params: {
-          bookingId: b.id,
-          amount: String(b.price ?? ""),
-          priceType: priceSource?.price_type || "quote",
-        },
-      });
+      if (!b || !b.id) {
+        throw new Error("Réponse invalide du serveur");
+      }
+      // Log pour diagnostic (visible dans la console Expo dev)
+      console.log("[booking] created", { id: b.id, price: b.price, price_type: b.price_type });
+      // Navigation avec query string (plus fiable que { pathname, params } côté iOS/Android)
+      const qs = new URLSearchParams({
+        bookingId: String(b.id),
+        amount: String(b.price ?? ""),
+        priceType: String(b.price_type || priceSource?.price_type || "quote"),
+      }).toString();
+      router.replace(`/booking/success?${qs}`);
     } catch (e: any) {
       // 401 = session expirée → redirection propre vers /login
       if (e?.status === 401) {
@@ -115,7 +122,8 @@ export default function BookingScreen() {
         router.replace({ pathname: "/login", params: { redirect_to: target } });
         return;
       }
-      setErr(e.message || "Erreur");
+      console.warn("[booking] submit failed", e?.status, e?.message);
+      setErr(e?.message || "Impossible de créer la réservation, réessayez.");
     } finally {
       setLoading(false);
     }

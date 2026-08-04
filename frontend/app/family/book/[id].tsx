@@ -123,11 +123,17 @@ export default function BookFamily() {
         notes: notes.trim(),
         emergency_contact: { name: ecName.trim(), phone: ecPhone.trim() },
       };
-      await api.post("/family/bookings", body);
-      // Redirection immédiate — pas d'Alert.alert (bloqué sur certains navigateurs web)
-      router.replace({ pathname: "/family/mine", params: { just_booked: "1" } });
+      const created: any = await api.post("/family/bookings", body);
+      if (!created || !created.id) {
+        throw new Error("Réponse invalide du serveur");
+      }
+      console.log("[family/book] created", { id: created.id, hourly_rate: b.hourly_rate_xof });
+      // Redirection immédiate — query string plutôt que { pathname, params }
+      // (plus fiable côté iOS/Android en expo-router)
+      router.replace(`/family/mine?just_booked=1`);
     } catch (e: any) {
-      setErr(e.message || "Erreur");
+      console.warn("[family/book] submit failed", e?.status, e?.message);
+      setErr(e?.message || "Impossible de créer la réservation, réessayez.");
     } finally {
       setBusy(false);
     }

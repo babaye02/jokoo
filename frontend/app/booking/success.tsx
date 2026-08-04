@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert, Platform, TextInput, Text } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -13,7 +13,7 @@ type Method = "card" | "wave" | "orange" | "cash";
 type PromoState = { code: string; discount: number; final: number; title?: string } | null;
 
 export default function BookingSuccess() {
-  const { bookingId, amount, priceType } = useLocalSearchParams<{ bookingId: string; amount: string; priceType?: string }>();
+  const { bookingId, amount, priceType, applyCode } = useLocalSearchParams<{ bookingId: string; amount: string; priceType?: string; applyCode?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [method, setMethod] = useState<Method>("card");
@@ -23,13 +23,14 @@ export default function BookingSuccess() {
   const [promo, setPromo] = useState<PromoState>(null);
   const [promoErr, setPromoErr] = useState<string | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
+  const autoAppliedRef = useRef<string | null>(null);
 
   const isQuote = priceType === "quote" || !amount;
   const amountNum = parseInt(amount || "0", 10) || 0;
   const finalAmount = promo ? promo.final : amountNum;
 
-  const applyPromo = async () => {
-    const code = promoInput.trim().toUpperCase();
+  const applyPromoCode = async (rawCode: string): Promise<void> => {
+    const code = rawCode.trim().toUpperCase();
     if (!code) return;
     setPromoBusy(true);
     setPromoErr(null);
@@ -47,6 +48,17 @@ export default function BookingSuccess() {
       setPromoBusy(false);
     }
   };
+
+  const applyPromo = () => applyPromoCode(promoInput);
+
+  // Auto-application quand on revient depuis /promo-codes avec ?applyCode=XXX
+  useEffect(() => {
+    const code = typeof applyCode === "string" ? applyCode.trim().toUpperCase() : "";
+    if (!code || autoAppliedRef.current === code || amountNum <= 0) return;
+    autoAppliedRef.current = code;
+    applyPromoCode(code);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyCode, amountNum]);
 
   const removePromo = () => { setPromo(null); setPromoErr(null); };
 
@@ -171,7 +183,15 @@ export default function BookingSuccess() {
                       <Text style={styles.promoErrTxt}>{promoErr}</Text>
                     </View>
                   ) : null}
-                  <Pressable onPress={() => router.push("/promo-codes")} style={{ marginTop: 8 }} hitSlop={6}>
+                  <Pressable
+                    onPress={() =>
+                      router.push(
+                        `/promo-codes?returnTo=${encodeURIComponent("/booking/success")}&bookingId=${encodeURIComponent(String(bookingId || ""))}&amount=${encodeURIComponent(String(amountNum))}&category=provider`
+                      )
+                    }
+                    style={{ marginTop: 8 }}
+                    hitSlop={6}
+                  >
                     <Text style={{ fontSize: 12, fontWeight: "700", color: colors.primary }}>Voir tous les codes disponibles →</Text>
                   </Pressable>
                 </View>
