@@ -52,7 +52,15 @@ load_dotenv(ROOT_DIR / ".env")
 # ---------- config ----------
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
-JWT_SECRET = os.environ.get("JWT_SECRET", "jokoo-dev-secret-change-me")
+JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
+if not JWT_SECRET:
+    # Dev fallback : autorisé uniquement quand DEBUG=1, sinon on plante fort au démarrage.
+    if os.environ.get("DEBUG", "0") == "1":
+        JWT_SECRET = "jokoo-dev-secret-change-me"
+    else:
+        raise RuntimeError(
+            "JWT_SECRET manquant en production. Définir la variable d'environnement JWT_SECRET avant de démarrer."
+        )
 JWT_ALG = "HS256"
 JWT_EXP_DAYS = 30
 
@@ -62,10 +70,17 @@ JWT_EXP_DAYS = 30
 STRIPE_KEY = os.environ.get("STRIPE_API_KEY", "").strip()
 # Ne considérer Stripe "activé" que si la clé n'est pas vide et pas un placeholder.
 STRIPE_ENABLED = bool(STRIPE_KEY) and STRIPE_KEY.lower() not in {"disabled", "placeholder", "none", "off"}
-APP_URL = os.environ.get(
-    "APP_URL",
-    "https://868fd53e-1f85-41aa-80f4-13c6ad7575b7.preview.emergentagent.com",
-)
+APP_URL = os.environ.get("APP_URL", "").strip()
+if not APP_URL:
+    # Fallback dev : autorisé uniquement quand DEBUG=1 (preview locale).
+    # En production, APP_URL DOIT être fourni pour que les callbacks Stripe/Wave/Orange
+    # et les liens des emails pointent vers le bon domaine.
+    if os.environ.get("DEBUG", "0") == "1":
+        APP_URL = "http://localhost:8001"
+    else:
+        raise RuntimeError(
+            "APP_URL manquant en production. Définir APP_URL (ex: https://api.jokooservices.com) avant de démarrer."
+        )
 try:
     stripe_checkout = StripeCheckout(api_key=STRIPE_KEY) if STRIPE_ENABLED else None
 except Exception:
