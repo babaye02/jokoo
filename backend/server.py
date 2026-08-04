@@ -4765,6 +4765,18 @@ async def admin_update_sponsorship(
             "read": False,
             "created_at": now_iso(),
         })
+        # Push mobile — non-bloquant
+        try:
+            await send_push(
+                recipients=[s["provider_id"]],
+                data={
+                    "title": "Sponsorisation offerte 🎁",
+                    "message": f"L'équipe Jokoo vous a offert un boost jusqu'au {upd['ends_at'][:10]}.",
+                    "action_url": "/sponsor",
+                },
+            )
+        except Exception as e:
+            log.warning(f"Push failed (non-blocking): {e}")
     elif action in ("rejected", "reject"):
         updates.update({"status": "rejected", "rejection_reason": body.get("reason")})
     elif action in ("expired", "expire"):
