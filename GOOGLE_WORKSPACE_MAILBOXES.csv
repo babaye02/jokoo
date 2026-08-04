@@ -1,0 +1,13 @@
+First Name [Required],Last Name [Required],Email Address [Required],Password [Required],Password Hash Function [UPLOAD ONLY],Org Unit Path [Required],New Primary Email [UPLOAD ONLY],Recovery Email,Home Secondary Email,Work Secondary Email,Recovery Phone [MUST BE IN THE E.164 FORMAT],Work Phone,Home Phone,Mobile Phone,Work Address,Home Address,Employee ID,Employee Type,Employee Title,Manager Email,Department,Cost Center,Building ID,Floor Name,Floor Section,Change Password at Next Sign-In,New Status [UPLOAD ONLY],2sv Enrolled [READ ONLY],2sv Enforced [READ ONLY]
+No,Reply,noreply@jokooservices.com,Ch@ngeMe2026!,,/,,admin@jokooservices.com,,,,,,,,,,Service Account,Expéditeur transactionnel,admin@jokooservices.com,Système,,,,,True,,,
+Équipe,Support,support@jokooservices.com,Ch@ngeMe2026!,,/Support,,admin@jokooservices.com,,,,+221338000000,,,Dakar,,,Service Account,Support utilisateur,admin@jokooservices.com,Support,,,,,True,,,
+Équipe,Contact,contact@jokooservices.com,Ch@ngeMe2026!,,/,,admin@jokooservices.com,,,,,,,,,,Service Account,Contact général,admin@jokooservices.com,Marketing,,,,,True,,,
+Équipe,Legal,legal@jokooservices.com,Ch@ngeMe2026!,,/Legal,,admin@jokooservices.com,,,,,,,,,,Service Account,Affaires juridiques,admin@jokooservices.com,Legal,,,,,True,,,
+DPO,Jokoo,dpo@jokooservices.com,Ch@ngeMe2026!,,/Legal,,admin@jokooservices.com,,,,,,,,,,Service Account,Délégué protection données,admin@jokooservices.com,Legal,,,,,True,,,
+Équipe,Paiements,paiements@jokooservices.com,Ch@ngeMe2026!,,/Finance,,admin@jokooservices.com,,,,,,,,,,Service Account,Support paiements,admin@jokooservices.com,Finance,,,,,True,,,
+Équipe,Vérification,verification@jokooservices.com,Ch@ngeMe2026!,,/Modération,,admin@jokooservices.com,,,,,,,,,,Service Account,Vérification KYC,admin@jokooservices.com,Modération,,,,,True,,,
+Équipe,Prestataires,prestataires@jokooservices.com,Ch@ngeMe2026!,,/Partenariats,,admin@jokooservices.com,,,,,,,,,,Service Account,Support prestataires Pro,admin@jokooservices.com,Partenariats,,,,,True,,,
+Équipe,Security,security@jokooservices.com,Ch@ngeMe2026!,,/Tech,,admin@jokooservices.com,,,,,,,,,,Service Account,Sécurité informatique,admin@jokooservices.com,Tech,,,,,True,,,
+Équipe,Fraude,fraude@jokooservices.com,Ch@ngeMe2026!,,/Modération,,admin@jokooservices.com,,,,,,,,,,Service Account,Signalement fraude,admin@jokooservices.com,Modération,,,,,True,,,
+Équipe,Family,family@jokooservices.com,Ch@ngeMe2026!,,/Modération,,admin@jokooservices.com,,,,,,,,,,Service Account,Support Jokoo Family (SOS),admin@jokooservices.com,Modération,,,,,True,,,
+Équipe,Presse,press@jokooservices.com,Ch@ngeMe2026!,,/Marketing,,admin@jokooservices.com,,,,,,,,,,Service Account,Presse & médias,admin@jokooservices.com,Marketing,,,,,True,,,

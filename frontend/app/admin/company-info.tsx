@@ -12,11 +12,16 @@ import { colors, shadow, spacing } from "@/src/theme";
 type Socials = { facebook?: string; instagram?: string; linkedin?: string; tiktok?: string; x?: string; youtube?: string };
 type AppDownload = { ios_url?: string; android_url?: string };
 type Brand = { primary_color?: string; secondary_color?: string; logo_url?: string };
+type Emails = {
+  noreply?: string; support?: string; contact?: string; legal?: string; dpo?: string;
+  paiements?: string; verification?: string; prestataires?: string; security?: string;
+  fraude?: string; family?: string; press?: string;
+};
 type CompanyInfo = {
   company_name?: string; trade_name?: string; legal_form?: string;
   rccm?: string; ninea?: string; address?: string; city?: string; country?: string;
   email?: string; phone?: string; whatsapp?: string; website?: string;
-  socials?: Socials; app_download?: AppDownload; brand?: Brand;
+  socials?: Socials; app_download?: AppDownload; brand?: Brand; emails?: Emails;
   hosting_provider?: string; director_name?: string; updated_at?: string;
 };
 
@@ -44,6 +49,7 @@ export default function AdminCompanyInfo() {
   const setSocial = (k: keyof Socials, v: string) => setData((d) => ({ ...d, socials: { ...(d.socials || {}), [k]: v } }));
   const setDownload = (k: keyof AppDownload, v: string) => setData((d) => ({ ...d, app_download: { ...(d.app_download || {}), [k]: v } }));
   const setBrand = (k: keyof Brand, v: string) => setData((d) => ({ ...d, brand: { ...(d.brand || {}), [k]: v } }));
+  const setEmail = (k: keyof Emails, v: string) => setData((d) => ({ ...d, emails: { ...(d.emails || {}), [k]: v } }));
 
   const save = async () => {
     setSaving(true);
@@ -113,6 +119,22 @@ export default function AdminCompanyInfo() {
         <Section title="Téléchargement app (stores)" icon="cloud-download">
           <Field label="URL App Store (iOS)"   value={data.app_download?.ios_url}     onChangeText={(v) => setDownload("ios_url",     v)} placeholder="https://apps.apple.com/…"       testID="d-ios" />
           <Field label="URL Play Store (Android)" value={data.app_download?.android_url} onChangeText={(v) => setDownload("android_url", v)} placeholder="https://play.google.com/store/…" testID="d-and" />
+        </Section>
+
+        {/* Emails professionnels */}
+        <Section title="Emails professionnels (12)" icon="mail-open">
+          <Field label="Expéditeur transactionnel (no-reply)" value={data.emails?.noreply}      onChangeText={(v) => setEmail("noreply",      v)} placeholder="noreply@jokooservices.com"      keyboardType="email-address" testID="e-noreply" />
+          <Field label="Support utilisateur"                  value={data.emails?.support}      onChangeText={(v) => setEmail("support",      v)} placeholder="support@jokooservices.com"      keyboardType="email-address" testID="e-support" />
+          <Field label="Contact général"                      value={data.emails?.contact}      onChangeText={(v) => setEmail("contact",      v)} placeholder="contact@jokooservices.com"      keyboardType="email-address" testID="e-contact" />
+          <Field label="Juridique"                            value={data.emails?.legal}        onChangeText={(v) => setEmail("legal",        v)} placeholder="legal@jokooservices.com"        keyboardType="email-address" testID="e-legal" />
+          <Field label="DPO (protection des données)"         value={data.emails?.dpo}          onChangeText={(v) => setEmail("dpo",          v)} placeholder="dpo@jokooservices.com"          keyboardType="email-address" testID="e-dpo" />
+          <Field label="Support paiements"                    value={data.emails?.paiements}    onChangeText={(v) => setEmail("paiements",    v)} placeholder="paiements@jokooservices.com"    keyboardType="email-address" testID="e-pay" />
+          <Field label="Vérification KYC"                     value={data.emails?.verification} onChangeText={(v) => setEmail("verification", v)} placeholder="verification@jokooservices.com" keyboardType="email-address" testID="e-kyc" />
+          <Field label="Support prestataires (Pro)"           value={data.emails?.prestataires} onChangeText={(v) => setEmail("prestataires", v)} placeholder="prestataires@jokooservices.com" keyboardType="email-address" testID="e-pro" />
+          <Field label="Sécurité (responsible disclosure)"    value={data.emails?.security}     onChangeText={(v) => setEmail("security",     v)} placeholder="security@jokooservices.com"     keyboardType="email-address" testID="e-sec" />
+          <Field label="Signalement de fraude"                value={data.emails?.fraude}       onChangeText={(v) => setEmail("fraude",       v)} placeholder="fraude@jokooservices.com"       keyboardType="email-address" testID="e-fraud" />
+          <Field label="Jokoo Family (SOS)"                   value={data.emails?.family}       onChangeText={(v) => setEmail("family",       v)} placeholder="family@jokooservices.com"       keyboardType="email-address" testID="e-fam" />
+          <Field label="Presse / médias"                      value={data.emails?.press}        onChangeText={(v) => setEmail("press",        v)} placeholder="press@jokooservices.com"        keyboardType="email-address" testID="e-press" />
         </Section>
 
         {/* Branding */}

@@ -1287,7 +1287,8 @@ async def register(body: RegisterIn, request: Request):
     try:
         from services.emails import send_email, tpl_welcome, EmailPayload
         subject, html = tpl_welcome(body.name)
-        await send_email(EmailPayload(to=body.email.lower(), subject=subject, html=html))
+        support_email = await get_email_for("support")
+        await send_email(EmailPayload(to=body.email.lower(), subject=subject, html=html, reply_to=support_email))
     except Exception:
         pass
     return {"token": token, "user": user}
@@ -2204,7 +2205,8 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
             address=doc.get("address", ""),
             price_label=(f"{doc.get('quote_amount')} FCFA" if doc.get("quote_amount") else "Sur devis"),
         )
-        await send_email(EmailPayload(to=user["email"], subject=s1, html=h1))
+        support_email = await get_email_for("support")
+        await send_email(EmailPayload(to=user["email"], subject=s1, html=h1, reply_to=support_email))
         # Prestataire (email seulement si on a un doc user pour lui)
         pu = await db.users.find_one({"id": body.provider_id}, {"_id": 0, "email": 1})
         if pu and pu.get("email"):
@@ -2214,7 +2216,8 @@ async def create_booking(body: BookingIn, user=Depends(current_user)):
                 date=doc.get("date", ""),
                 time=doc.get("time", ""),
             )
-            await send_email(EmailPayload(to=pu["email"], subject=s2, html=h2))
+            pro_email = await get_email_for("prestataires")
+            await send_email(EmailPayload(to=pu["email"], subject=s2, html=h2, reply_to=pro_email))
     except Exception:
         pass
     return {k: v for k, v in doc.items() if k != "_id"}
@@ -2342,7 +2345,8 @@ async def forgot_password(body: ForgotPasswordIn, request: Request):
         reset_link = f"{os.environ.get('APP_URL', 'https://jokooservices.com').rstrip('/')}/reset-password?token={token}"
         subject, html = tpl_reset_password(reset_link)
         # Envoi non-bloquant : si l'API email tombe, le user peut toujours utiliser le dev_token en dev.
-        await send_email(EmailPayload(to=email, subject=subject, html=html))
+        support_email = await get_email_for("support")
+        await send_email(EmailPayload(to=email, subject=subject, html=html, reply_to=support_email))
     resp = {"ok": True}
     # Retourner dev_token uniquement si aucun provider email actif (mode dev pur)
     from services.emails import _current_mode as _mode
@@ -6644,6 +6648,23 @@ DEFAULT_COMPANY_INFO = {
         "secondary_color": "#0f172a",
         "logo_url":        "",
     },
+    # ─── Emails professionnels (infrastructure jokooservices.com) ───
+    # Chaque adresse peut être personnalisée dans /admin/company-info → Emails.
+    # Utilisées dans les templates d'emails transactionnels + reply_to + pages légales.
+    "emails": {
+        "noreply":      "noreply@jokooservices.com",       # Expéditeur transactionnel
+        "support":      "support@jokooservices.com",       # Reply-to par défaut
+        "contact":      "contact@jokooservices.com",       # Formulaire contact site
+        "legal":        "legal@jokooservices.com",         # Juridique
+        "dpo":          "dpo@jokooservices.com",           # RGPD / DPO
+        "paiements":    "paiements@jokooservices.com",     # Paiements / remboursements
+        "verification": "verification@jokooservices.com",  # KYC
+        "prestataires": "prestataires@jokooservices.com",  # Support prestataires Pro
+        "security":     "security@jokooservices.com",      # Sécurité / disclosure
+        "fraude":       "fraude@jokooservices.com",        # Signalement fraude
+        "family":       "family@jokooservices.com",        # Jokoo Family SOS
+        "press":        "press@jokooservices.com",         # Presse
+    },
     "hosting_provider": "",        # obligatoire mentions légales
     "director_name": "",           # directeur de la publication
     "updated_at": None,
@@ -6657,12 +6678,20 @@ async def _get_company_info() -> dict:
     merged = dict(DEFAULT_COMPANY_INFO)
     val = doc["value"]
     for k, v in val.items():
-        if k in ("socials", "app_download", "brand") and isinstance(v, dict):
+        if k in ("socials", "app_download", "brand", "emails") and isinstance(v, dict):
             merged[k] = {**merged.get(k, {}), **v}
         else:
             merged[k] = v
     merged["updated_at"] = doc.get("updated_at")
     return merged
+
+
+async def get_email_for(role: str, fallback: str = "support@jokooservices.com") -> str:
+    """Retourne l'adresse email pro pour un rôle donné, éditable via /admin/company-info.
+    Rôles : noreply, support, contact, legal, dpo, paiements, verification, prestataires, security, fraude, family, press."""
+    info = await _get_company_info()
+    emails = info.get("emails", {}) or {}
+    return (emails.get(role) or "").strip() or fallback
 
 
 @api.get("/public/company-info")
@@ -6686,7 +6715,7 @@ async def admin_update_company_info(body: dict, user=Depends(current_user)):
     current = await _get_company_info()
     new_val = {**current}
     for k, v in body.items():
-        if k in ("socials", "app_download", "brand") and isinstance(v, dict) and isinstance(new_val.get(k), dict):
+        if k in ("socials", "app_download", "brand", "emails") and isinstance(v, dict) and isinstance(new_val.get(k), dict):
             new_val[k] = {**new_val[k], **v}
         elif k == "updated_at":
             continue
