@@ -31,7 +31,7 @@ from emergentintegrations.payments.stripe.checkout import (
 )
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -6268,6 +6268,181 @@ async def record_acceptance(body: LegalAcceptanceIn, user=Depends(current_user))
 async def my_acceptances(user=Depends(current_user)):
     cur = db.legal_acceptances.find({"user_id": user["id"]}, {"_id": 0}).sort("accepted_at", -1)
     return await cur.to_list(200)
+
+
+# --- Admin editor ---
+# ─────────────────────────────────────────────────────────────
+# 🌐 Public API (CORS-safe) — pour le site web jokooservices.com
+# Ces endpoints ne requièrent PAS d'authentification et retournent
+# le CMS Jokoo de manière à ce que le site externe reste toujours
+# synchronisé avec l'app mobile.
+# ─────────────────────────────────────────────────────────────
+
+# Slugs officiels utilisés par le site web
+_PUBLIC_LEGAL_SLUGS: dict[str, str] = {
+    "privacy":            "Politique de confidentialité",
+    "cgu":                "Conditions Générales d'Utilisation",
+    "terms-clients":      "Conditions Clients",
+    "terms-prestataires": "Conditions Prestataires",
+    "mentions-legales":   "Mentions légales",
+    "cookies":            "Politique de cookies",
+    "help-center":        "Centre d'aide",
+}
+
+
+@api.get("/public/legal")
+async def public_legal_index(language: str = "fr", country: str = "SN"):
+    """Liste publique des documents légaux publiés (sans contenu)."""
+    docs = await db.legal_documents.find(
+        {"language": language, "country": country, "published": True},
+        {"_id": 0, "content": 0},
+    ).sort([("category", 1), ("order", 1), ("title", 1)]).to_list(200)
+    # Filtre + garantit la présence des 5 slugs publics prioritaires en tête
+    priority = list(_PUBLIC_LEGAL_SLUGS.keys())
+    docs.sort(key=lambda d: (priority.index(d["slug"]) if d.get("slug") in priority else 999, d.get("order", 100)))
+    return {
+        "count": len(docs),
+        "language": language,
+        "country": country,
+        "documents": docs,
+    }
+
+
+@api.get("/public/legal/{slug}")
+async def public_legal_get(slug: str, language: str = "fr", country: str = "SN", format: str = "json"):
+    """Contenu public d'un document légal.
+    format=json → JSON structuré ; format=html → HTML rendu (utilisable en <iframe> ou fetch texte)."""
+    d = await db.legal_documents.find_one(
+        {"slug": slug, "language": language, "country": country, "published": True},
+        {"_id": 0},
+    )
+    if not d:
+        raise HTTPException(404, "Document introuvable")
+    if format == "html":
+        # Rendu HTML minimal (le contenu est déjà en Markdown → converti en HTML très simple)
+        content_md = d.get("content", "")
+        # Conversion Markdown minimaliste sans dépendance (titres, gras, italiques, listes)
+        import re as _re
+        html = content_md
+        html = _re.sub(r"^### (.+)$", r"<h3>\1</h3>", html, flags=_re.M)
+        html = _re.sub(r"^## (.+)$", r"<h2>\1</h2>", html, flags=_re.M)
+        html = _re.sub(r"^# (.+)$", r"<h1>\1</h1>", html, flags=_re.M)
+        html = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
+        html = _re.sub(r"\*(.+?)\*", r"<em>\1</em>", html)
+        html = _re.sub(r"`([^`]+)`", r"<code>\1</code>", html)
+        # Listes
+        html = _re.sub(r"(?:^|\n)- (.+)", r"\n<li>\1</li>", html)
+        # Paragraphes (double newline)
+        parts = [p.strip() for p in html.split("\n\n") if p.strip()]
+        html = "".join([f"<p>{p}</p>" if not p.startswith("<") else p for p in parts])
+        page = f"""<!doctype html><html lang="{language}"><head><meta charset="utf-8">
+<title>{d.get('title')} — Jokoo</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:780px;margin:40px auto;padding:0 20px;color:#0f172a;line-height:1.6}}h1,h2,h3{{color:#0f172a}}a{{color:#14b8a6}}code{{background:#f1f5f9;padding:2px 6px;border-radius:4px}}li{{margin:6px 0}}</style>
+</head><body>
+<article><h1>{d.get('title')}</h1><p><small>Version {d.get('version')} · en vigueur au {d.get('effective_date','')}</small></p>{html}<hr><p><small>© Jokoo Services · Extrait du CMS Jokoo (auto-synchronisé)</small></p></article>
+</body></html>"""
+        return Response(content=page, media_type="text/html; charset=utf-8")
+    return {
+        "slug": d.get("slug"),
+        "title": d.get("title"),
+        "summary": d.get("summary"),
+        "content_md": d.get("content"),
+        "category": d.get("category"),
+        "language": d.get("language"),
+        "country": d.get("country"),
+        "version": d.get("version"),
+        "effective_date": d.get("effective_date"),
+        "updated_at": d.get("updated_at"),
+    }
+
+
+# ─── Informations entreprise (admin-éditables) ─────────────
+DEFAULT_COMPANY_INFO = {
+    "company_name": "",
+    "trade_name": "Jokoo Services",
+    "legal_form": "",              # ex : "SARL", "SAS"...
+    "rccm": "",                    # numéro RCCM Sénégal
+    "ninea": "",                   # NINEA
+    "address": "",
+    "city": "Dakar",
+    "country": "Sénégal",
+    "email": "support@jokooservices.com",
+    "phone": "",
+    "whatsapp": "",
+    "website": "https://jokooservices.com",
+    "socials": {
+        "facebook":  "",
+        "instagram": "",
+        "linkedin":  "",
+        "tiktok":    "",
+        "x":         "",
+        "youtube":   "",
+    },
+    "app_download": {
+        "ios_url":     "",
+        "android_url": "",
+    },
+    "brand": {
+        "primary_color":   "#14b8a6",
+        "secondary_color": "#0f172a",
+        "logo_url":        "",
+    },
+    "hosting_provider": "",        # obligatoire mentions légales
+    "director_name": "",           # directeur de la publication
+    "updated_at": None,
+}
+
+
+async def _get_company_info() -> dict:
+    doc = await db.system_settings.find_one({"key": "company_info"}, {"_id": 0})
+    if not doc or not isinstance(doc.get("value"), dict):
+        return dict(DEFAULT_COMPANY_INFO)
+    merged = dict(DEFAULT_COMPANY_INFO)
+    val = doc["value"]
+    for k, v in val.items():
+        if k in ("socials", "app_download", "brand") and isinstance(v, dict):
+            merged[k] = {**merged.get(k, {}), **v}
+        else:
+            merged[k] = v
+    merged["updated_at"] = doc.get("updated_at")
+    return merged
+
+
+@api.get("/public/company-info")
+async def public_company_info():
+    """Coordonnées / branding officiels de l'entreprise (site web + app + mentions légales)."""
+    return await _get_company_info()
+
+
+@api.get("/admin/company-info")
+async def admin_get_company_info(user=Depends(current_user)):
+    require_admin(user)
+    return await _get_company_info()
+
+
+@api.put("/admin/company-info")
+async def admin_update_company_info(body: dict, user=Depends(current_user)):
+    require_admin(user)
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Payload invalide")
+    # On merge avec les défauts pour ne pas écraser accidentellement des sous-objets
+    current = await _get_company_info()
+    new_val = {**current}
+    for k, v in body.items():
+        if k in ("socials", "app_download", "brand") and isinstance(v, dict) and isinstance(new_val.get(k), dict):
+            new_val[k] = {**new_val[k], **v}
+        elif k == "updated_at":
+            continue
+        else:
+            new_val[k] = v
+    new_val["updated_at"] = now_iso()
+    await db.system_settings.update_one(
+        {"key": "company_info"},
+        {"$set": {"key": "company_info", "value": new_val, "updated_at": now_iso(), "updated_by": user["id"]}},
+        upsert=True,
+    )
+    return {"ok": True, "company_info": new_val}
 
 
 # --- Admin editor ---

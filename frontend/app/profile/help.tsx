@@ -1,11 +1,12 @@
-// Écran Aide — FAQ + contact équipe Jokoo.
-import { useState } from "react";
+// Écran Aide — FAQ + contact équipe Jokoo (contact dynamique via CMS).
+import { useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Linking } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { api } from "@/src/api";
 import { Card, Txt } from "@/src/components/ui";
-import { colors, radius, shadow, spacing } from "@/src/theme";
+import { colors, shadow, spacing } from "@/src/theme";
 
 const FAQ = [
   {
@@ -42,8 +43,18 @@ export default function HelpScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState<number | null>(0);
+  const [info, setInfo] = useState<any>({});
+
+  useEffect(() => {
+    api.get<any>("/public/company-info").then(setInfo).catch(() => {});
+  }, []);
 
   const openLink = (url: string) => Linking.openURL(url).catch(() => {});
+  const email = info.email || "support@jokooservices.com";
+  const phone = info.phone || "";
+  const whatsapp = (info.whatsapp || "").replace(/[^0-9]/g, "");
+  const website = info.website || "https://jokooservices.com";
+  const legalName = [info.company_name, info.city, info.country].filter(Boolean).join(" · ") || "Jokoo Services · Dakar, Sénégal";
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface2 }}>
@@ -66,10 +77,14 @@ export default function HelpScreen() {
               <Txt size="xs" color={colors.textMuted}>Réponse sous 24h en semaine</Txt>
             </View>
           </View>
-          <Row icon="mail-outline"        label="Écrire à support@jokooservices.com"        onPress={() => openLink("mailto:support@jokooservices.com?subject=Aide%20Jokoo")} />
-          <Row icon="logo-whatsapp"       label="WhatsApp · +221 77 000 00 00"               onPress={() => openLink("https://wa.me/221770000000")} />
-          <Row icon="call-outline"        label="Téléphone · +221 33 800 00 00"              onPress={() => openLink("tel:+22133800000000")} />
-          <Row icon="globe-outline"       label="Site web · jokooservices.com"               onPress={() => openLink("https://jokooservices.com")} />
+          <Row icon="mail-outline"        label={`Écrire à ${email}`}                                       onPress={() => openLink(`mailto:${email}?subject=Aide%20Jokoo`)} />
+          {whatsapp ? (
+            <Row icon="logo-whatsapp"     label={`WhatsApp · ${info.whatsapp}`}                              onPress={() => openLink(`https://wa.me/${whatsapp}`)} />
+          ) : null}
+          {phone ? (
+            <Row icon="call-outline"      label={`Téléphone · ${phone}`}                                     onPress={() => openLink(`tel:${phone.replace(/\s/g, "")}`)} />
+          ) : null}
+          <Row icon="globe-outline"       label={`Site web · ${website.replace(/^https?:\/\//, "")}`}       onPress={() => openLink(website)} />
         </Card>
 
         <Txt size="md" weight="700" style={{ marginTop: 4 }}>Questions fréquentes</Txt>
@@ -89,7 +104,7 @@ export default function HelpScreen() {
         ))}
 
         <Txt size="xxs" color={colors.textSubtle} style={{ textAlign: "center", marginTop: spacing.md }}>
-          Jokoo Services SARL · Dakar, Sénégal
+          {legalName}
         </Txt>
       </ScrollView>
     </View>
