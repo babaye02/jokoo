@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Linking, Platform } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,9 +7,25 @@ import { api, Ride } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { formatXof } from "@/src/pricing";
 import { Txt, Btn, Avatar, ErrorBox, Card, Badge, BadgeRow } from "@/src/components/ui";
+import { JokooMap } from "@/src/components/JokooMap";
 import { colors, shadow, spacing } from "@/src/theme";
 
 const WEEKDAY_FR: Record<string, string> = { mon: "Lun", tue: "Mar", wed: "Mer", thu: "Jeu", fri: "Ven", sat: "Sam", sun: "Dim" };
+
+// Ouvre l'itinéraire dans l'app maps native (Apple Maps sur iOS, Google Maps sur Android)
+function openInExternalMaps(ride: Ride) {
+  const from = encodeURIComponent(`${ride.from_address || ""} ${ride.from_city || ""}`.trim());
+  const to = encodeURIComponent(`${ride.to_address || ""} ${ride.to_city || ""}`.trim());
+  if (!to) return;
+  const url = Platform.select({
+    ios: `http://maps.apple.com/?saddr=${from}&daddr=${to}&dirflg=d`,
+    android: `google.navigation:q=${to}`,
+    default: `https://www.google.com/maps/dir/?api=1&origin=${from}&destination=${to}`,
+  }) as string;
+  Linking.openURL(url).catch(() => {
+    Linking.openURL(`https://www.google.com/maps/dir/?api=1&origin=${from}&destination=${to}`).catch(() => {});
+  });
+}
 
 export default function RideDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -165,6 +181,17 @@ export default function RideDetail() {
             </View>
           ) : null}
         </Card>
+
+        {/* Aperçu carte du trajet */}
+        <View style={{ marginTop: spacing.md }} testID="ride-map">
+          <JokooMap
+            origin={{ city: ride.from_city, address: ride.from_address || undefined }}
+            destination={{ city: ride.to_city, address: ride.to_address || undefined }}
+            waypoints={(ride.stops || []).map((s) => ({ city: s.city, address: s.address || undefined }))}
+            height={200}
+            onOpenExternal={() => openInExternalMaps(ride)}
+          />
+        </View>
 
         {/* Driver */}
         <View style={{ marginTop: spacing.md }}>
