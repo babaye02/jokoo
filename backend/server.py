@@ -101,6 +101,7 @@ def _require_stripe():
 
 # Import différé pour éviter l'ordre d'import
 from payments_local import WAVE_API_KEY as _WAVE_KEY, OM_CLIENT_ID as _OM_ID, OM_CLIENT_SECRET as _OM_SECRET, OM_MERCHANT_KEY as _OM_MERCH  # noqa: E402
+from seed_legal_contents import _build_seed_legal_contents  # noqa: E402
 
 
 def _wave_enabled() -> bool:
@@ -6949,6 +6950,59 @@ async def seed(request: Request, user=Depends(current_user)):
             {"$set": {"is_admin": True, "staff_role": "super_admin"}},
         )
 
+    # ------ Demo end-user accounts (QA & App Store / Play Store review) ------
+    # Ces comptes sont documentés dans /app/memory/test_credentials.md et doivent
+    # exister systématiquement pour permettre aux reviewers stores de tester
+    # le parcours Client + le tableau de bord Prestataire.
+    demo_end_users = [
+        {
+            "email": "client@jokoo.sn",
+            "password": "Passw0rd!",
+            "name": "Aïda Client",
+            "role": "client",
+            "phone": "+221770001111",
+            "city": "Dakar",
+            "avatar": "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg",
+        },
+        {
+            "email": "pro@jokoo.sn",
+            "password": "Passw0rd!",
+            "name": "Moussa Prestataire",
+            "role": "prestataire",
+            "phone": "+221770002222",
+            "city": "Dakar",
+            "avatar": "https://images.pexels.com/photos/1516680/pexels-photo-1516680.jpeg",
+        },
+    ]
+    for du in demo_end_users:
+        existing = await db.users.find_one({"email": du["email"]})
+        if existing:
+            # Rafraîchit le mot de passe pour rester en phase avec test_credentials.md
+            await db.users.update_one(
+                {"email": du["email"]},
+                {"$set": {
+                    "password_hash": hash_password(du["password"]),
+                    "role": du["role"],
+                    "active": True,
+                }},
+            )
+        else:
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": du["email"],
+                "password_hash": hash_password(du["password"]),
+                "name": du["name"],
+                "role": du["role"],
+                "phone": du["phone"],
+                "city": du["city"],
+                "avatar": du["avatar"],
+                "is_admin": False,
+                "staff_role": None,
+                "permissions": [],
+                "active": True,
+                "created_at": now_iso(),
+            })
+
     inserted = 0
     dakar_zones = ["Almadies", "Plateau", "Yoff", "Ouakam", "Point E", "Sacré-Cœur", "Mermoz"]
     for s in SEED_PROVIDERS:
@@ -7367,7 +7421,13 @@ async def seed(request: Request, user=Depends(current_user)):
             "updated_at": now_iso(),
         })
 
-    # Seed legal documents (Jokoo Legal Center) — placeholders "À rédiger"
+    # Seed legal documents (Jokoo Legal Center)
+    #
+    # Les documents essentiels à la review App Store / Play Store (Privacy Policy,
+    # CGU, Mentions légales, Cookies, Conditions Clients & Prestataires) sont
+    # publiés avec un contenu réel. Les documents secondaires restent des
+    # placeholders "à rédiger" que l'équipe juridique enrichira ensuite via
+    # l'admin CMS — cela n'impacte pas la review store.
     LEGAL_DOCS = [
         ("cgu", "Conditions générales d'utilisation", "conditions", True, 10),
         ("privacy", "Politique de confidentialité", "conditions", True, 20),
@@ -7392,29 +7452,36 @@ async def seed(request: Request, user=Depends(current_user)):
         ("help-center", "Centre d'aide", "aide", False, 210),
         ("legal-contact", "Contact juridique", "aide", False, 220),
     ]
+
+    # Contenu production-ready pour les documents review-critical.
+    LEGAL_CONTENTS = _build_seed_legal_contents()
+
     for slug, title, category, requires_acc, order in LEGAL_DOCS:
         existing = await db.legal_documents.find_one({"slug": slug, "language": "fr", "country": "SN"})
         if existing:
             continue
-        placeholder = (
-            f"# {title}\n\n"
-            f"> ⚠️ **Contenu à rédiger** — Ce document est un espace réservé.\n"
-            f"> L'équipe juridique de Jokoo publiera prochainement la version officielle.\n\n"
-            f"## À propos de ce document\n\n"
-            f"Cette section détaillera prochainement la politique de Jokoo concernant : "
-            f"**{title.lower()}**.\n\n"
-            f"## Sections prévues\n\n"
-            f"- Objet du document\n- Champ d'application\n- Vos droits et obligations\n"
-            f"- Nos engagements\n- Modifications & mises à jour\n- Contact\n\n"
-            f"---\n\n"
-            f"*Pour toute question, contactez-nous à support@jokoo.sn.*\n"
-        )
+        content = LEGAL_CONTENTS.get(slug)
+        if not content:
+            content = (
+                f"# {title}\n\n"
+                f"> ⚠️ **Contenu à rédiger** — Ce document est un espace réservé.\n"
+                f"> L'équipe juridique de Jokoo publiera prochainement la version officielle.\n\n"
+                f"## À propos de ce document\n\n"
+                f"Cette section détaillera prochainement la politique de Jokoo concernant : "
+                f"**{title.lower()}**.\n\n"
+                f"## Sections prévues\n\n"
+                f"- Objet du document\n- Champ d'application\n- Vos droits et obligations\n"
+                f"- Nos engagements\n- Modifications & mises à jour\n- Contact\n\n"
+                f"---\n\n"
+                f"*Pour toute question, contactez-nous à support@jokoo.sn.*\n"
+            )
+        summary = f"Document juridique de Jokoo — {title}"
         now = now_iso()
         doc = {
             "slug": slug,
             "title": title,
-            "content": placeholder,
-            "summary": f"Document juridique de Jokoo — {title}",
+            "content": content,
+            "summary": summary,
             "category": category,
             "language": "fr",
             "country": "SN",
