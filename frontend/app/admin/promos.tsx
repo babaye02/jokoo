@@ -19,6 +19,7 @@ export default function AdminPromos() {
   const [items, setItems] = useState<Promo[]>([]);
   const [editing, setEditing] = useState<EditingPromo | null>(null);
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try { setItems(await api.get<Promo[]>("/admin/promos")); }
