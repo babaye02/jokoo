@@ -4,22 +4,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 import { Txt } from "@/src/components/ui";
 import { geocodeCitySN, haversineKm, LatLng } from "@/src/utils/geo";
-import type { JokooMapProps } from "./JokooMap";
+import { buildLeafletHtml } from "@/src/utils/leafletHtml";
+import type { JokooMapProps, JokooMapPoint } from "./JokooMap";
 
 /**
  * Version Web du composant JokooMap.
  *
- * Sur navigateur, `react-native-maps` n'est pas disponible (Metro refuse
- * les modules natifs). On propose ici une version simplifiée mais élégante :
- * un aperçu SVG stylisé avec les 2 marqueurs et un CTA "Ouvrir dans Maps"
- * qui délègue à Google Maps directions dans un nouvel onglet.
- *
- * Métro sélectionne automatiquement ce fichier lorsque `Platform.OS === 'web'`.
+ * On réutilise le HTML Leaflet généré par `buildLeafletHtml` mais on le
+ * charge dans une <iframe srcDoc>. Résultat : même carte OpenStreetMap
+ * qu'en natif, sans dépendance npm supplémentaire, sans clé API.
  */
 
 const DAKAR_FALLBACK: LatLng = { latitude: 14.7167, longitude: -17.4677 };
 
-function resolveCoords(p?: JokooMapProps["origin"]): LatLng | null {
+function resolveCoords(p?: JokooMapPoint | null): LatLng | null {
   if (!p) return null;
   if (p.coords) return p.coords;
   return geocodeCitySN(p.city);
@@ -28,22 +26,41 @@ function resolveCoords(p?: JokooMapProps["origin"]): LatLng | null {
 export function JokooMap({
   origin,
   destination,
+  waypoints = [],
   height = 200,
   borderRadius = radius.lg,
+  interactive = false,
   hideDistance = false,
   onPress,
   onOpenExternal,
 }: JokooMapProps) {
   const from = useMemo(() => resolveCoords(origin), [origin]);
   const to = useMemo(() => resolveCoords(destination), [destination]);
+  const wps = useMemo(
+    () => waypoints.map(resolveCoords).filter((c): c is LatLng => !!c),
+    [waypoints]
+  );
+
   const distanceKm = from && to ? haversineKm(from, to) : null;
 
-  const openMaps = () => {
+  const html = useMemo(
+    () =>
+      buildLeafletHtml({
+        origin: from ?? undefined,
+        destination: to ?? undefined,
+        waypoints: wps,
+        fallbackCenter: DAKAR_FALLBACK,
+        static: !interactive,
+      }),
+    [from, to, wps, interactive]
+  );
+
+  const openExternal = () => {
     if (onOpenExternal) return onOpenExternal();
-    const o = from || DAKAR_FALLBACK;
-    const d = to;
-    if (!d) return;
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${o.latitude},${o.longitude}&destination=${d.latitude},${d.longitude}`;
+    if (!to) return;
+    const dest = `${to.latitude},${to.longitude}`;
+    const orig = from ? `${from.latitude},${from.longitude}` : "";
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${orig}&destination=${dest}`;
     Linking.openURL(url).catch(() => {});
   };
 
@@ -51,7 +68,8 @@ export function JokooMap({
 
   if (noPoints) {
     return (
-      <View
+      <Pressable
+        onPress={openExternal}
         style={[
           styles.container,
           {
@@ -67,56 +85,37 @@ export function JokooMap({
         <Txt size="xs" color={colors.textMuted} style={{ marginTop: 6 }}>
           Localisation non renseignée
         </Txt>
-      </View>
+      </Pressable>
     );
   }
 
+  const Wrapper: any = onPress ? Pressable : View;
+
+  // Sur react-native-web, `View` accepte un enfant HTML natif via createElement.
+  // On utilise directement une iframe React pour charger le HTML Leaflet.
   return (
-    <Pressable
-      onPress={onPress || openMaps}
-      style={[
-        styles.container,
-        {
-          height,
-          borderRadius,
-        },
-      ]}
+    <Wrapper
+      onPress={onPress}
+      style={[styles.container, { height, borderRadius }]}
     >
-      {/* Fond stylisé (dégradé subtil beige → turquoise pâle) */}
-      <View style={StyleSheet.absoluteFillObject}>
-        <View style={styles.gradA} />
-        <View style={styles.gradB} />
-      </View>
-
-      {/* Contenu central */}
-      <View style={styles.content}>
-        <View style={styles.route}>
-          {from ? (
-            <View style={styles.pointRow}>
-              <View style={[styles.dot, { backgroundColor: colors.turquoise }]} />
-              <Txt size="sm" weight="700" numberOfLines={1} style={{ maxWidth: 180 }}>
-                {origin?.city || "Départ"}
-              </Txt>
-            </View>
-          ) : null}
-          {from && to ? <View style={styles.line} /> : null}
-          {to ? (
-            <View style={styles.pointRow}>
-              <View style={[styles.dot, { backgroundColor: colors.midnight }]} />
-              <Txt size="sm" weight="700" numberOfLines={1} style={{ maxWidth: 180 }}>
-                {destination?.city || "Arrivée"}
-              </Txt>
-            </View>
-          ) : null}
-        </View>
-
-        <Pressable onPress={openMaps} style={styles.cta} hitSlop={8}>
-          <Ionicons name="navigate" size={13} color={colors.white} />
-          <Txt size="xs" weight="700" color={colors.white} style={{ marginLeft: 6 }}>
-            Ouvrir dans Maps
-          </Txt>
-        </Pressable>
-      </View>
+      {React.createElement("iframe", {
+        srcDoc: html,
+        title: "Jokoo Map",
+        style: {
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: "100%",
+          height: "100%",
+          border: "none",
+          pointerEvents: interactive ? "auto" : "none",
+        },
+        sandbox: "allow-scripts allow-same-origin",
+        loading: "lazy",
+        referrerPolicy: "no-referrer",
+      })}
 
       {!hideDistance && distanceKm != null ? (
         <View style={styles.footer} pointerEvents="none">
@@ -128,7 +127,16 @@ export function JokooMap({
           </View>
         </View>
       ) : null}
-    </Pressable>
+
+      <Pressable
+        onPress={openExternal}
+        style={styles.externalBtn}
+        hitSlop={10}
+        testID="map-open-external"
+      >
+        <Ionicons name="open-outline" size={14} color={colors.midnight} />
+      </Pressable>
+    </Wrapper>
   );
 }
 
@@ -138,57 +146,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceWarm,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    ...shadow.sm,
-  },
-  gradA: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.brandTertiary,
-    opacity: 0.6,
-  },
-  gradB: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: "40%",
-    bottom: 0,
-    backgroundColor: colors.surfaceWarm,
-    opacity: 0.7,
-  },
-  content: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: spacing.lg,
-  },
-  route: {
-    alignItems: "flex-start",
-  },
-  pointRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 10,
-  },
-  line: {
-    width: 2,
-    height: 20,
-    backgroundColor: colors.turquoise,
-    marginLeft: 4,
-    marginVertical: 2,
-    opacity: 0.6,
-  },
-  cta: {
-    marginTop: spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.turquoise,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
     ...shadow.sm,
   },
   footer: {
@@ -203,6 +160,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
+    ...shadow.sm,
+  },
+  externalBtn: {
+    position: "absolute",
+    right: spacing.sm,
+    top: spacing.sm,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.card,
+    alignItems: "center",
+    justifyContent: "center",
     ...shadow.sm,
   },
 });

@@ -36,11 +36,6 @@
       "package": "com.jokoo.app",
       "versionCode": 3,
       "googleServicesFile": "./google-services.json",
-      "config": {
-        "googleMaps": {
-          "apiKey": "REPLACE_WITH_GOOGLE_MAPS_ANDROID_API_KEY"
-        }
-      },
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",

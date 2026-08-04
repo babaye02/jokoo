@@ -1,8 +1,7 @@
-import React, { useMemo, useRef } from "react";
-import Constants from "expo-constants";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import React, { useMemo } from "react";
+import { Linking, Platform, Pressable, StyleSheet, View } from "react-native";
+import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
-import MapView, { Marker, Polyline, PROVIDER_DEFAULT, PROVIDER_GOOGLE } from "react-native-maps";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 import { Txt } from "@/src/components/ui";
 import {
@@ -10,60 +9,23 @@ import {
   haversineKm,
   LatLng,
   regionForCoordinates,
-  regionForPoint,
 } from "@/src/utils/geo";
-import type { JokooMapProps } from "./JokooMap";
-
-// Détection : la clé Google Maps Android est-elle configurée ?
-// On lit depuis expo-constants (app.json > android.config.googleMaps.apiKey).
-// Si absente ou = placeholder, on retombe sur PROVIDER_DEFAULT pour éviter
-// un crash silencieux au runtime (Google Maps SDK Android refuse de charger
-// les tuiles sans clé valide).
-function androidGoogleMapsKeyIsValid(): boolean {
-  try {
-    const cfg: any = (Constants.expoConfig as any) || (Constants.manifest as any);
-    const key: string | undefined = cfg?.android?.config?.googleMaps?.apiKey;
-    if (!key) return false;
-    if (key.startsWith("REPLACE_")) return false;
-    if (key.length < 20) return false; // vraie clé Google ~ 39 chars
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { buildLeafletHtml } from "@/src/utils/leafletHtml";
+import type { JokooMapProps, JokooMapPoint } from "./JokooMap";
 
 /**
  * Jokoo — Composant carte réutilisable (version native iOS/Android).
  *
- * Usage typique :
- *  <JokooMap
- *     origin={{ city: "Dakar", address: "Plateau" }}
- *     destination={{ city: "Thiès", address: "Centre" }}
- *     height={180}
- *  />
+ * IMPLÉMENTATION : WebView + Leaflet + OpenStreetMap.
+ * → 100 % gratuit, aucune clé API, aucune dépendance native lourde.
+ * → Fonctionne dans Expo Go, dev build et build prod sans configuration.
  *
- * Comportement :
- * - iOS : Apple Maps par défaut (aucune clé API requise).
- * - Android : Google Maps si clé configurée dans `app.json`, sinon carte grise
- *   avec fallback CTA "Ouvrir dans Maps".
- * - Ni origin ni destination géocodable → fallback UI, jamais de crash.
- * - Pas d'interaction (scrollEnabled=false par défaut) pour un usage
- *   "aperçu" à l'intérieur d'un ScrollView. Passer `interactive` pour un
- *   plein écran.
- *
- * Sur Web, Metro remplace automatiquement ce fichier par `JokooMap.web.tsx`.
+ * Metro remplace automatiquement ce fichier par `JokooMap.web.tsx` sur Web.
  */
-
-export interface JokooMapPoint {
-  city?: string | null;
-  address?: string | null;
-  coords?: LatLng | null;
-  label?: string;
-}
 
 const DAKAR_FALLBACK: LatLng = { latitude: 14.7167, longitude: -17.4677 };
 
-function resolveCoords(p?: JokooMapPoint): LatLng | null {
+function resolveCoords(p?: JokooMapPoint | null): LatLng | null {
   if (!p) return null;
   if (p.coords) return p.coords;
   return geocodeCitySN(p.city);
@@ -80,8 +42,6 @@ export function JokooMap({
   onPress,
   onOpenExternal,
 }: JokooMapProps) {
-  const mapRef = useRef<MapView>(null);
-
   const from = useMemo(() => resolveCoords(origin), [origin]);
   const to = useMemo(() => resolveCoords(destination), [destination]);
   const wps = useMemo(
@@ -89,34 +49,42 @@ export function JokooMap({
     [waypoints]
   );
 
-  const region = useMemo(() => {
-    if (from && to) return regionForCoordinates(from, to);
-    if (from) return regionForPoint(from, 0.1);
-    if (to) return regionForPoint(to, 0.1);
-    return regionForPoint(DAKAR_FALLBACK, 0.25);
-  }, [from, to]);
-
   const distanceKm = from && to ? haversineKm(from, to) : null;
 
-  // Sur iOS on utilise Apple Maps (PROVIDER_DEFAULT = pas de clé requise).
-  // Sur Android, Google Maps n'est utilisé QUE si une clé valide est
-  // configurée. Sinon on retombe sur PROVIDER_DEFAULT pour éviter un
-  // écran gris au runtime (build ok, mais tuiles ne se chargent pas).
-  const provider =
-    Platform.OS === "ios"
-      ? PROVIDER_DEFAULT
-      : androidGoogleMapsKeyIsValid()
-        ? PROVIDER_GOOGLE
-        : PROVIDER_DEFAULT;
+  const html = useMemo(
+    () =>
+      buildLeafletHtml({
+        origin: from ?? undefined,
+        destination: to ?? undefined,
+        waypoints: wps,
+        fallbackCenter: DAKAR_FALLBACK,
+        static: !interactive,
+      }),
+    [from, to, wps, interactive]
+  );
 
   const noPoints = !from && !to;
 
-  // Si on n'a AUCUN point géocodable et pas de fallback, on montre une UI
-  // "carte indisponible" plutôt qu'une carte vide.
+  const openExternal = () => {
+    if (onOpenExternal) return onOpenExternal();
+    if (!to) return;
+    const dest = `${to.latitude},${to.longitude}`;
+    const orig = from ? `${from.latitude},${from.longitude}` : "";
+    const url = Platform.select({
+      ios: `http://maps.apple.com/?saddr=${orig}&daddr=${dest}&dirflg=d`,
+      android: `google.navigation:q=${dest}`,
+      default: `https://www.google.com/maps/dir/?api=1&origin=${orig}&destination=${dest}`,
+    }) as string;
+    Linking.openURL(url).catch(() => {
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&origin=${orig}&destination=${dest}`).catch(() => {});
+    });
+  };
+
+  // Si aucun point géocodable → UI "carte indisponible" plutôt que WebView vide.
   if (noPoints) {
     return (
       <Pressable
-        onPress={onOpenExternal}
+        onPress={openExternal}
         style={[
           styles.container,
           { height, borderRadius, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceWarm },
@@ -137,71 +105,25 @@ export function JokooMap({
       onPress={onPress}
       style={[styles.container, { height, borderRadius }]}
     >
-      <MapView
-        ref={mapRef}
-        provider={provider}
+      <WebView
+        originWhitelist={["*"]}
+        source={{ html }}
         style={StyleSheet.absoluteFillObject}
-        initialRegion={region}
+        javaScriptEnabled
+        domStorageEnabled
+        scalesPageToFit
         scrollEnabled={interactive}
-        zoomEnabled={interactive}
-        rotateEnabled={false}
-        pitchEnabled={false}
-        toolbarEnabled={false}
-        showsCompass={false}
-        showsScale={false}
-        showsMyLocationButton={false}
-        loadingEnabled
-        loadingBackgroundColor={colors.surfaceWarm}
-        loadingIndicatorColor={colors.turquoise}
-      >
-        {from ? (
-          <Marker
-            coordinate={from}
-            title={origin?.city || "Départ"}
-            description={origin?.address || undefined}
-            pinColor={Platform.OS === "ios" ? "#18C6A3" : undefined}
-          >
-            {Platform.OS === "android" ? (
-              <View style={[styles.marker, { backgroundColor: colors.turquoise }]}>
-                <Ionicons name="radio-button-on" size={14} color={colors.white} />
-              </View>
-            ) : null}
-          </Marker>
-        ) : null}
-        {wps.map((c, i) => (
-          <Marker
-            key={`wp-${i}`}
-            coordinate={c}
-            title={waypoints[i]?.city || `Arrêt ${i + 1}`}
-            description={waypoints[i]?.address || undefined}
-            pinColor="gray"
-          />
-        ))}
-        {to ? (
-          <Marker
-            coordinate={to}
-            title={destination?.city || "Arrivée"}
-            description={destination?.address || undefined}
-            pinColor={Platform.OS === "ios" ? "#1F1F1F" : undefined}
-          >
-            {Platform.OS === "android" ? (
-              <View style={[styles.marker, { backgroundColor: colors.midnight }]}>
-                <Ionicons name="flag" size={12} color={colors.white} />
-              </View>
-            ) : null}
-          </Marker>
-        ) : null}
-        {from && to ? (
-          <Polyline
-            coordinates={[from, ...wps, to]}
-            strokeColor={colors.turquoise}
-            strokeWidth={3}
-            lineDashPattern={[6, 4]}
-          />
-        ) : null}
-      </MapView>
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
+        automaticallyAdjustContentInsets={false}
+        androidLayerType="hardware"
+        // Sur iOS, on désactive la sélection texte pour un feeling app natif.
+        allowsBackForwardNavigationGestures={false}
+        // Réglage important : on ne veut pas que la WebView bloque les gestures
+        // du ScrollView parent quand `interactive` est faux.
+        pointerEvents={interactive ? "auto" : "none"}
+      />
 
-      {/* Overlay footer : distance + CTA ouvrir en externe */}
       {!hideDistance && distanceKm != null ? (
         <View style={styles.footer} pointerEvents="none">
           <View style={styles.pill}>
@@ -213,19 +135,31 @@ export function JokooMap({
         </View>
       ) : null}
 
-      {onOpenExternal ? (
+      <Pressable
+        onPress={openExternal}
+        style={styles.externalBtn}
+        hitSlop={10}
+        testID="map-open-external"
+      >
+        <Ionicons name="open-outline" size={14} color={colors.midnight} />
+      </Pressable>
+
+      {/* Overlay transparent : capture les taps quand !interactive pour éviter
+          que la WebView vole le tap et permettre onPress parent. */}
+      {!interactive && onPress ? (
         <Pressable
-          onPress={onOpenExternal}
-          style={styles.externalBtn}
-          hitSlop={10}
-          testID="map-open-external"
-        >
-          <Ionicons name="open-outline" size={14} color={colors.midnight} />
-        </Pressable>
+          onPress={onPress}
+          style={StyleSheet.absoluteFillObject}
+          testID="map-tap-overlay"
+        />
       ) : null}
     </Wrapper>
   );
 }
+
+// Region calculée pour un futur usage (map plein-écran interactif) — évite
+// dead code élimination si tree-shaking agressif.
+export const _debugRegionHelper = regionForCoordinates;
 
 const styles = StyleSheet.create({
   container: {
@@ -234,16 +168,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     ...shadow.sm,
-  },
-  marker: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: colors.white,
-    ...shadow.md,
   },
   footer: {
     position: "absolute",
