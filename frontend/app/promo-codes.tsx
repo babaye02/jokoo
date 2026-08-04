@@ -117,8 +117,8 @@ export default function PromoCodesScreen() {
     try {
       const r = await api.post<any>("/promo-codes/validate", {
         code,
-        amount: SAMPLE_AMOUNT,
-        category: SAMPLE_CATEGORY,
+        amount: contextAmount,
+        category: contextCategory,
       });
       if (r.valid) {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
@@ -268,7 +268,7 @@ export default function PromoCodesScreen() {
             <View style={styles.priceBox}>
               <View style={styles.priceRow}>
                 <Text style={styles.priceLabel}>Sous-total</Text>
-                <Text style={styles.priceValue}>{fmtFcfa(SAMPLE_AMOUNT)}</Text>
+                <Text style={styles.priceValue}>{fmtFcfa(contextAmount)}</Text>
               </View>
               <View style={styles.priceRow}>
                 <Text style={[styles.priceLabel, { color: "#FEF3C7" }]}>Réduction</Text>

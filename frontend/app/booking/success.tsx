@@ -115,10 +115,20 @@ export default function BookingSuccess() {
               : "Le prestataire recevra votre demande. Vous pouvez régler dès maintenant pour bloquer le créneau."}
           </Txt>
 
-          {!isQuote ? (
+          {!isQuote && !paid ? (
             <View style={styles.amountBox}>
               <Txt size="sm" color={colors.textMuted}>Montant à régler</Txt>
-              <Txt size="xxl" weight="700" color={colors.turquoise}>{formatXof(amountNum)} CFA</Txt>
+              <Txt size="xxl" weight="700" color={colors.turquoise}>{formatXof(finalAmount)} CFA</Txt>
+              {promo && promo.discount > 0 ? (
+                <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4, textDecorationLine: "line-through" }}>
+                  {formatXof(amountNum)} CFA
+                </Txt>
+              ) : null}
+            </View>
+          ) : !isQuote && paid ? (
+            <View style={styles.amountBox}>
+              <Txt size="sm" color={colors.textMuted}>Montant payé</Txt>
+              <Txt size="xxl" weight="700" color={colors.success}>{formatXof(finalAmount)} CFA</Txt>
             </View>
           ) : (
             <View style={[styles.amountBox, { borderTopWidth: 0, paddingTop: spacing.md }]}>
