@@ -106,8 +106,6 @@ export default function BookingScreen() {
       if (!b || !b.id) {
         throw new Error("Réponse invalide du serveur");
       }
-      // Log pour diagnostic (visible dans la console Expo dev)
-      console.log("[booking] created", { id: b.id, price: b.price, price_type: b.price_type });
       // Navigation avec query string (plus fiable que { pathname, params } côté iOS/Android)
       const qs = new URLSearchParams({
         bookingId: String(b.id),
@@ -122,7 +120,7 @@ export default function BookingScreen() {
         router.replace({ pathname: "/login", params: { redirect_to: target } });
         return;
       }
-      console.warn("[booking] submit failed", e?.status, e?.message);
+      if (__DEV__) console.warn("[booking] submit failed", e?.status, e?.message);
       setErr(e?.message || "Impossible de créer la réservation, réessayez.");
     } finally {
       setLoading(false);

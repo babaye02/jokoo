@@ -67,6 +67,9 @@ export function Btn({ title, onPress, variant = "primary", size = "md", icon, lo
       testID={testID}
       onPress={onPress}
       disabled={disabled || loading}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: !!(disabled || loading), busy: !!loading }}
       style={({ pressed }) => [
         {
           backgroundColor: bg,

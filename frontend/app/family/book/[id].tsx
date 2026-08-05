@@ -127,12 +127,11 @@ export default function BookFamily() {
       if (!created || !created.id) {
         throw new Error("Réponse invalide du serveur");
       }
-      console.log("[family/book] created", { id: created.id, hourly_rate: b.hourly_rate_xof });
       // Redirection immédiate — query string plutôt que { pathname, params }
       // (plus fiable côté iOS/Android en expo-router)
       router.replace(`/family/mine?just_booked=1`);
     } catch (e: any) {
-      console.warn("[family/book] submit failed", e?.status, e?.message);
+      if (__DEV__) console.warn("[family/book] submit failed", e?.status, e?.message);
       setErr(e?.message || "Impossible de créer la réservation, réessayez.");
     } finally {
       setBusy(false);

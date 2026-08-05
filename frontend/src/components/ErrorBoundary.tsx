@@ -20,7 +20,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.warn("[ErrorBoundary]", error, info?.componentStack);
+    if (__DEV__) console.warn("[ErrorBoundary]", error, info?.componentStack);
     // TODO: forward to Sentry / Crashlytics when instrumented.
   }
 

@@ -5,6 +5,11 @@ const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 export const API = `${BASE}/api`;
 export const TOKEN_KEY = "jokoo_token";
 
+// Timeout par défaut : 25 s. Assez long pour tolérer une 3G lente au Sénégal
+// mais suffisamment court pour ne pas geler l'UI indéfiniment. Configurable
+// par requête via `request(path, { signal }, ...)` si besoin.
+const DEFAULT_TIMEOUT_MS = 25_000;
+
 export type ApiError = { status: number; message: string };
 
 // In-memory token cache — évite les race conditions avec SecureStore/AsyncStorage.
@@ -52,14 +57,39 @@ async function request<T = any>(
       const t = await resolveToken();
       if (t) headers["Authorization"] = `Bearer ${t}`;
     }
-    return fetch(`${API}${path}`, { ...init, headers });
+    // Timeout via AbortController — protège contre les fetch qui ne
+    // reviennent jamais (proxy silencieux, réseau qui coupe pendant l'upload).
+    // Si l'appelant a déjà passé son propre `signal`, on le respecte.
+    let controller: AbortController | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let signal = init.signal;
+    if (!signal) {
+      controller = new AbortController();
+      signal = controller.signal;
+      timeoutId = setTimeout(() => controller!.abort(), DEFAULT_TIMEOUT_MS);
+    }
+    try {
+      return await fetch(`${API}${path}`, { ...init, headers, signal });
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
   };
 
-  let res = await doFetch(false);
+  let res: Response;
+  try {
+    res = await doFetch(false);
+  } catch (e: any) {
+    // Traduction des erreurs bas-niveau (timeout, réseau coupé, DNS) en
+    // messages français cohérents pour l'utilisateur.
+    if (e?.name === "AbortError") {
+      throw { status: 0, message: "La requête a mis trop de temps. Vérifiez votre connexion." } as ApiError;
+    }
+    throw { status: 0, message: e?.message || "Connexion impossible. Vérifiez votre réseau." } as ApiError;
+  }
   // Retry ONCE : si 401 sur une route protégée, on force la relecture du token
   // (peut se déclencher après un hot-reload qui a vidé la mémoire mais pas le storage).
   if (res.status === 401 && auth) {
-    res = await doFetch(true);
+    try { res = await doFetch(true); } catch { /* on retombera sur le throw ci-dessous */ }
   }
   // Auto-retry sur 429 (rate limit) — jusqu'à 2 tentatives supplémentaires,
   // avec backoff exponentiel court (150ms, 400ms). Après quoi on remonte
@@ -67,8 +97,10 @@ async function request<T = any>(
   if (res.status === 429) {
     for (let i = 0; i < 2; i++) {
       await new Promise((r) => setTimeout(r, i === 0 ? 150 : 400));
-      res = await doFetch(false);
-      if (res.status !== 429) break;
+      try {
+        res = await doFetch(false);
+        if (res.status !== 429) break;
+      } catch { break; }
     }
   }
 

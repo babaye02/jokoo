@@ -7813,6 +7813,30 @@ async def _startup_ensure_indexes():
         await db.bookings.create_index([("client_id", 1), ("created_at", -1)])
         await db.bookings.create_index([("provider_id", 1), ("created_at", -1)])
         await db.messages.create_index([("conv_id", 1), ("created_at", 1)])
+        # P2 : indexes manquants critiques pour perf (audit iter42)
+        # favorites — write-heavy sur chaque "like"
+        await db.favorites.create_index([("user_id", 1), ("target_id", 1)], unique=True, sparse=True)
+        await db.favorites.create_index([("user_id", 1), ("created_at", -1)])
+        # push_events — pour analytics par user
+        await db.push_events.create_index([("user_id", 1), ("created_at", -1)])
+        await db.push_events.create_index("campaign_id", sparse=True)
+        # push_devices — pour envoi ciblé
+        await db.push_devices.create_index("user_id", sparse=True)
+        # promo_codes — uniqueness + lookup
+        await db.promo_codes.create_index("code", unique=True, sparse=True)
+        await db.promo_codes.create_index("active", sparse=True)
+        # promo_code_uses — uniqueness idempotency
+        await db.promo_code_uses.create_index([("user_id", 1), ("code", 1)], unique=True, sparse=True)
+        # kyc_requests — filtre admin
+        await db.kyc_requests.create_index([("user_id", 1), ("status", 1)])
+        await db.kyc_requests.create_index([("status", 1), ("created_at", -1)])
+        # family_reviews — rating aggregation
+        await db.family_reviews.create_index([("babysitter_id", 1), ("created_at", -1)])
+        await db.family_reviews.create_index("booking_id", sparse=True)
+        # rate_limit — TTL pour auto-clean après 24h (locked_until + 24h)
+        await db.rate_limit.create_index("updated_at", expireAfterSeconds=86400)
+        # ambassador_referrals — index unique déjà présent mais confirme
+        await db.ambassador_referrals.create_index("referred_user_id", unique=True, sparse=True)
     except Exception:
         pass
 
