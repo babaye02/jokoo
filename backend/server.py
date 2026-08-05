@@ -36,7 +36,7 @@ from emergentintegrations.payments.stripe.checkout import (
 )
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request, Query
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -7712,6 +7712,55 @@ async def seed(request: Request, user=Depends(current_user)):
 @api.get("/")
 async def root():
     return {"service": "Jokoo API", "status": "ok"}
+
+
+# ---------- store assets download (App Store screenshots) ----------
+# TEMPORARY: exposes /api/store-assets/* for downloading the generated App Store
+# screenshots from the pod filesystem. Safe because it only serves files inside
+# /app/store-assets/screenshots/final (whitelisted, no path traversal possible).
+_STORE_ASSETS_DIR = Path("/app/store-assets/screenshots/final")
+_STORE_ASSETS_ZIP = Path("/app/store-assets/jokoo_appstore_screenshots.zip")
+
+
+@api.get("/store-assets/zip")
+async def download_store_assets_zip():
+    if not _STORE_ASSETS_ZIP.exists():
+        raise HTTPException(404, "Screenshots archive not generated yet")
+    return FileResponse(
+        _STORE_ASSETS_ZIP,
+        media_type="application/zip",
+        filename="jokoo_appstore_screenshots.zip",
+    )
+
+
+@api.get("/store-assets/list")
+async def list_store_assets():
+    if not _STORE_ASSETS_DIR.exists():
+        return {"items": []}
+    items = sorted(
+        {"name": p.name, "size_kb": p.stat().st_size // 1024}
+        for p in _STORE_ASSETS_DIR.glob("*.png")
+    ) if False else [
+        {"name": p.name, "size_kb": p.stat().st_size // 1024}
+        for p in sorted(_STORE_ASSETS_DIR.glob("*.png"))
+    ]
+    zip_exists = _STORE_ASSETS_ZIP.exists()
+    return {
+        "items": items,
+        "zip_available": zip_exists,
+        "zip_size_kb": (_STORE_ASSETS_ZIP.stat().st_size // 1024) if zip_exists else None,
+    }
+
+
+@api.get("/store-assets/{filename}")
+async def download_store_asset(filename: str):
+    # Whitelist: only files inside the fixed directory, only PNGs.
+    if "/" in filename or "\\" in filename or not filename.endswith(".png"):
+        raise HTTPException(400, "Invalid filename")
+    target = _STORE_ASSETS_DIR / filename
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "Screenshot not found")
+    return FileResponse(target, media_type="image/png", filename=filename)
 
 
 # ---------- mount ----------
