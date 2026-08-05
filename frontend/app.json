@@ -15,10 +15,6 @@
       "usesAppleSignIn": true,
       "buildNumber": "3",
       "requireFullScreen": false,
-      "associatedDomains": [
-        "applinks:jokooservices.com",
-        "applinks:www.jokooservices.com"
-      ],
       "infoPlist": {
         "NSCameraUsageDescription": "Prenez une photo pour vos missions et profil.",
         "NSPhotoLibraryUsageDescription": "Choisissez des photos pour votre profil et missions.",
