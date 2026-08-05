@@ -554,6 +554,8 @@ class RegisterIn(BaseModel):
     role: Role
     phone: Optional[str] = Field(default=None, max_length=32)
     city: Optional[str] = Field(default=None, max_length=80)
+    # Jokoo Partners — code ou slug de parrainage (optionnel, in-app deep link)
+    referral_code: Optional[str] = Field(default=None, max_length=40)
 
     @field_validator("password")
     @classmethod
@@ -1299,6 +1301,20 @@ async def register(body: RegisterIn, request: Request):
     audit_log("auth.register", user_id=uid, email=body.email.lower(), role=body.role, ip=_client_ip(request))
     token = make_token(uid)
     user = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
+    # Jokoo Partners — rattachement à un ambassadeur si code fourni
+    if body.referral_code:
+        try:
+            await _amb_hook_user_registered(
+                db,
+                new_user_id=uid,
+                new_user_role=body.role,
+                ambassador_code_or_slug=body.referral_code,
+                new_user_email=body.email.lower(),
+                new_user_phone=body.phone,
+                ip=_client_ip(request),
+            )
+        except Exception as _amb_err:
+            log.debug("ambassador attach on register failed: %s", _amb_err)
     # Email de bienvenue (non-bloquant : si échoue, log seulement)
     try:
         from services.emails import send_email, tpl_welcome, EmailPayload
@@ -2318,6 +2334,13 @@ async def confirm_completion(bid: str, user=Depends(current_user)):
             "read": False,
             "created_at": now_iso(),
         })
+        # Jokoo Partners — hook pour calcul commissions + validation referral
+        try:
+            b_full = {**b, **updates}
+            amount = int(b_full.get("total_xof") or b_full.get("price_xof") or b_full.get("amount_xof") or 0)
+            await _amb_hook_booking_completed(db, b_full, amount)
+        except Exception as _amb_err:
+            log.debug("ambassador booking hook failed: %s", _amb_err)
     return {"ok": True, "status": "completed" if both else b.get("status"), "both_confirmed": both}
 
 
@@ -5439,6 +5462,11 @@ async def admin_approve_kyc(kyc_id: str, user=Depends(require_perm("kyc:write"))
         )
     except Exception as e:
         log.warning(f"Push failed (non-blocking): {e}")
+    # Jokoo Partners — signale au module ambassadors que ce user est KYC-OK
+    try:
+        await _amb_hook_kyc_verified(db, doc["user_id"])
+    except Exception as _amb_err:
+        log.debug("ambassador kyc hook failed: %s", _amb_err)
     return {"ok": True, "status": "approved"}
 
 
@@ -7525,6 +7553,32 @@ _push_crm_router = create_push_crm_router(
 )
 # Le préfixe /admin/push est déjà défini dans le router → montage sous /api
 app.include_router(_push_crm_router, prefix="/api")
+
+
+# 🤝 Jokoo Partners — programme d'affiliation (Ambassadeurs)
+from ambassadors import (  # noqa: E402
+    create_ambassadors_router,
+    ensure_indexes as _ambassadors_ensure_indexes,
+    hook_user_registered as _amb_hook_user_registered,
+    hook_kyc_verified as _amb_hook_kyc_verified,
+    hook_booking_completed as _amb_hook_booking_completed,
+)
+_ambassadors_router = create_ambassadors_router(
+    db=db,
+    current_user=current_user,
+    require_admin=require_admin,
+    send_push=send_push,
+)
+app.include_router(_ambassadors_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def _ambassadors_startup():
+    """Crée les index MongoDB nécessaires au module ambassadors."""
+    try:
+        await _ambassadors_ensure_indexes(db)
+    except Exception as _e:
+        log.warning("ambassadors ensure_indexes failed: %s", _e)
 
 
 @app.on_event("startup")

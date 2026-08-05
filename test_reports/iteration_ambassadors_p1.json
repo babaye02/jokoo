@@ -1,0 +1,56 @@
+{
+  "summary": "Jokoo Partners (ambassadors) Phase 1 backend — 30/30 tests PASSED (100%). All 17 requirements from the review request verified: admin toggle/list/config/commission endpoints, self endpoints (/me, /me/referrals, /me/commissions), public leaderboard (no monetary data leak), resolve/invite public endpoints, /auth/register auto-attach hook (pending referral created), self-referral blocked, rate-limit 20/IP/day enforced, KYC hook, and booking-completion hook (correct rate + amount + idempotence + tier snapshot). No blocker found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ambassadors_p1.py",
+    "/app/test_reports/pytest/ambassadors_p1.xml"
+  ],
+  "action_items": [
+    "Ready to move to Phase 2 (UI wiring / Next.js SSR landing / deep-link handler). No backend fix needed.",
+    "OPTIONAL — minor DX improvement: consider tightening self-attach to return an explicit 400 ('self-referral not allowed') instead of a silent {ok: false}, so the mobile UI can display a clean error. Currently the endpoint returns 200 with {ok: false, ambassador_id: null} which is fine but ambiguous."
+  ],
+  "critical_code_review_comments": [
+    "ambassadors.py is well-isolated, ~900 lines — module-level split is not urgent yet.",
+    "Hook _amb_hook_booking_completed uses booking `total_xof || price_xof || amount_xof` fallbacks — good.",
+    "Anti-fraud path in hook_user_registered correctly handles: (a) self-referral (same user_id), (b) rate limit via ip_hash, (c) idempotency (one referral per user).",
+    "Commission idempotency: enforced via unique (ambassador_id, booking_id) lookup — verified in test.",
+    "Public leaderboard correctly hides monetary data (name/tier/prestataires/clients only).",
+    "PII: /me/referrals correctly strips ip_hash / email_hash / phone_hash from response."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ambassadors_p1.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (per request)"},
+  "seed_data_creation": "No permanent seed created. All test rows (users, referrals, commissions) generated during pytest were cleaned up. Aïda ambassador state restored to original: verified_count=1, pending_count=2, 3 referrals, 1 commission.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Test file /app/backend/tests/test_ambassadors_p1.py can be re-run standalone (pytest tests/test_ambassadors_p1.py). It auto-cleans its own DB inserts for hooks/rate-limit tests. HTTP-level register tests leave TEST_amb_*@example.com users behind — clean via `db.users.delete_many({'email': {'$regex': 'test_amb_.*@example.com'}})` and delete their ambassador_referrals rows by referred_user_id. Aïda (client@jokoo.sn) is the seeded ambassador — code=5GB3EH, slug=aida-client, tier=starter.",
+  "detailed_results_per_requirement": {
+    "1_admin_toggle_ambassador": "PASS — 200 for admin (idempotent), 403 for non-admin, 404 for unknown uid, deactivate→reactivate keeps same code/slug.",
+    "2_admin_list_ambassadors": "PASS — 200 admin, 403 non-admin, returns Aïda with correct code/slug/tier/active.",
+    "3_admin_get_config": "PASS — thresholds Bronze=5/Silver=20/Gold=50/Diamond=150/Elite=500 and commissions starter=0.02/bronze=0.03/silver=0.05/gold=0.07/diamond=0.09/elite=0.12 all match spec.",
+    "4_admin_put_config": "PASS — updates persist (verified via GET), 403 for non-admin.",
+    "5_admin_patch_commission": "PASS — status=paid sets paid_at, invalid status → 400, unknown id → 404, non-admin → 403.",
+    "6_me_profile": "PASS — is_ambassador:false when not activated; full profile with stats (verified_total, pending_total, prestataires_verified, clients_verified, bookings_generated, commissions, month_progress), tier, next_tier and config when activated.",
+    "7_me_referrals": "PASS — returns list, PII fields (ip_hash / email_hash / phone_hash) stripped from response; 403 for non-ambassador.",
+    "8_me_commissions": "PASS — returns list; 403 for non-ambassador.",
+    "9_public_leaderboard": "PASS — no auth required; response contains only {rank, name, avatar, tier, badge, prestataires, clients} — NO monetary field.",
+    "10_attach_idempotent": "PASS — second attach returns {ok:true, already_attached:true, ambassador_id:...}.",
+    "11_resolve": "PASS — by code AND by slug; 404 for invalid.",
+    "12_public_invite_meta": "PASS — valid=true with links{web,app} for valid code; valid=false 200 for invalid code (SSR-safe).",
+    "13_register_referral_code_hook": "PASS — new user gets referral row with status='pending', referred_role matches signup role, ambassador_id links to Aïda.",
+    "14_self_referral_blocked": "PASS — Aïda calling /ambassadors/attach with her own code creates NO referral (verified via DB).",
+    "15_rate_limit_20_per_ip_per_day": "PASS — validated via direct hook_user_registered call: 21st attempt from same IP returns None; MAX_ATTACH_PER_IP_PER_DAY constant = 20.",
+    "16_booking_completion_hook": "PASS — client referral pending→verified after 1st completed booking, first_booking_at set, verified_count bumped, commission created with correct rate (starter=0.02, e.g. 50000 XOF × 0.02 = 1000 XOF), status='pending', tier_snapshot recorded. Idempotence: calling hook twice with same booking_id creates only ONE commission.",
+    "17_kyc_hook": "PASS — hook_kyc_verified sets kyc_verified_at on referral; if first_booking_at was already set on a prestataire → status transitions to verified and verified_count bumps. Without prior booking, referral stays pending (correct spec behavior)."
+  }
+}

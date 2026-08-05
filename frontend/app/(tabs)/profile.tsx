@@ -7,6 +7,7 @@ import { useAuth } from "@/src/auth";
 import { api, Booking } from "@/src/api";
 import { Avatar, Card, Txt, Badge } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
+import { useAmbassadorStatus } from "@/src/hooks/useAmbassadorStatus";
 
 /** RoleSwitcher — Bouton pour basculer ou activer le second profil. */
 function RoleSwitcher() {
@@ -178,6 +179,7 @@ export default function Profile() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const { isAmbassador, data: ambData } = useAmbassadorStatus();
 
   const [refreshing, setRefreshing] = useState(false);
   // Le rôle "actif" prime sur `user.role` legacy (le client peut avoir
@@ -241,12 +243,33 @@ export default function Profile() {
                 <Txt size="lg" weight="700" color={colors.white}>Tableau de bord</Txt>
                 <Txt size="sm" color="rgba(255,255,255,0.8)" style={{ marginTop: 2 }}>Revenus, calendrier, demandes</Txt>
               </View>
-              <Ionicons name="arrow-forward-circle" size={32} color={colors.white} />
-            </Pressable>
+              <Ionicons name="arrow-forward-circle" size={32} color={colors.white} />            </Pressable>
           </View>
         ) : (
           <View style={{ height: spacing.xl }} />
         )}
+
+        {/* Jokoo Partners card — visible seulement pour les ambassadeurs */}
+        {isAmbassador && ambData?.ambassador ? (
+          <View style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.xl }}>
+            <Pressable
+              onPress={() => router.push("/ambassador/dashboard")}
+              style={styles.partnersCta}
+              testID="open-jokoo-partners"
+            >
+              <View style={styles.partnersIcon}>
+                <Txt size="xxl">🤝</Txt>
+              </View>
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
+                <Txt size="lg" weight="800" color={colors.white}>Jokoo Partners</Txt>
+                <Txt size="xs" color="rgba(255,255,255,0.85)" style={{ marginTop: 2 }}>
+                  {ambData.ambassador.badge} · Code {ambData.ambassador.code}
+                </Txt>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={colors.white} />
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* Recent bookings */}
         <View style={{ paddingHorizontal: spacing.xl }}>
@@ -347,6 +370,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.midnight, borderRadius: radius.lg, padding: spacing.lg,
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     ...shadow.card,
+  },
+  partnersCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    ...shadow.card,
+  },
+  partnersIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   row: {
     backgroundColor: colors.surface, borderRadius: radius.lg, padding: 14,

@@ -2,6 +2,26 @@
 const nextConfig = {
   reactStrictMode: true,
   images: { remotePatterns: [{ protocol: "https", hostname: "**" }] },
+  async headers() {
+    // Universal Links (iOS) — le fichier doit être servi en application/json.
+    // App Links (Android) — assetlinks.json doit être application/json aussi.
+    return [
+      {
+        source: "/.well-known/apple-app-site-association",
+        headers: [
+          { key: "Content-Type", value: "application/json" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
+      {
+        source: "/.well-known/assetlinks.json",
+        headers: [
+          { key: "Content-Type", value: "application/json" },
+          { key: "Cache-Control", value: "public, max-age=3600" },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     // Proxifie /api/* vers le backend FastAPI (même que l'app mobile).
     // Ceci évite les problèmes CORS + rend l'app web transparente.

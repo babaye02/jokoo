@@ -1,0 +1,27 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "TEAMID.com.jokoo.app"
+        ],
+        "components": [
+          {
+            "/": "/i/*",
+            "comment": "Lien de parrainage Jokoo Partners (court)"
+          },
+          {
+            "/": "/invite/*",
+            "comment": "Lien de parrainage Jokoo Partners (explicite)"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "TEAMID.com.jokoo.app"
+    ]
+  }
+}
