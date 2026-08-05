@@ -2553,7 +2553,25 @@ async def update_booking(bid: str, body: BookingUpdate, user=Depends(current_use
     if len(updates) == 1:
         raise HTTPException(400, "Aucune mise à jour fournie")
 
+    # Si passage en `completed` via PATCH direct (par le prestataire) — on aligne
+    # les timestamps + on déclenche le hook Jokoo Partners.
+    triggered_completion = updates.get("status") == "completed"
+    if triggered_completion and not b.get("completed_at"):
+        updates["completed_at"] = now_iso()
+
     await db.bookings.update_one({"id": bid}, {"$set": updates})
+
+    # Jokoo Partners — hook post-completion (compute commissions + verify referrals)
+    # Idempotent : le hook lui-même vérifie s'il a déjà été appliqué (via first_booking_at
+    # sur le referral). Peut donc être appelé plusieurs fois sans risque.
+    if triggered_completion:
+        try:
+            b_full = {**b, **updates}
+            amount = int(b_full.get("total_xof") or b_full.get("price_xof") or b_full.get("amount_xof") or b_full.get("price") or 0)
+            await _amb_hook_booking_completed(db, b_full, amount, notify=send_push)
+        except Exception as _amb_err:
+            log.debug("ambassador booking hook failed (via PATCH): %s", _amb_err)
+
     return {"ok": True}
 
 
