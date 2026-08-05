@@ -17,6 +17,9 @@ interface Commission {
   status: "pending" | "approved" | "paid" | "cancelled";
   created_at: string;
   paid_at?: string | null;
+  approved_at?: string | null;
+  eligible_at?: string | null;
+  auto_approved?: boolean;
 }
 
 function statusMeta(s: string) {
@@ -24,6 +27,17 @@ function statusMeta(s: string) {
   if (s === "approved") return { tone: "info", label: "Approuvée" } as const;
   if (s === "cancelled") return { tone: "danger", label: "Annulée" } as const;
   return { tone: "warn", label: "En attente" } as const;
+}
+
+/** Renvoie "Auto-approbation dans X jour(s)" ou "Aujourd'hui" ou null si passé. */
+function daysUntilEligible(eligibleAt?: string | null): string | null {
+  if (!eligibleAt) return null;
+  const now = Date.now();
+  const target = new Date(eligibleAt).getTime();
+  const diffMs = target - now;
+  if (diffMs <= 0) return "Éligible dès aujourd'hui";
+  const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  return `Auto-approbation dans ${days} jour${days > 1 ? "s" : ""}`;
 }
 
 export default function AmbassadorCommissions() {
@@ -75,6 +89,7 @@ export default function AmbassadorCommissions() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           renderItem={({ item }) => {
             const m = statusMeta(item.status);
+            const countdown = item.status === "pending" ? daysUntilEligible(item.eligible_at) : null;
             return (
               <Card style={{ padding: spacing.md }}>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -89,6 +104,24 @@ export default function AmbassadorCommissions() {
                     {new Date(item.created_at).toLocaleDateString("fr-FR")}
                   </Txt>
                 </View>
+                {countdown ? (
+                  <View style={styles.countdown}>
+                    <Ionicons name="time-outline" size={13} color={colors.turquoise} />
+                    <Txt size="xxs" weight="600" color={colors.turquoise} style={{ marginLeft: 6, flex: 1 }}>
+                      {countdown}
+                    </Txt>
+                  </View>
+                ) : null}
+                {item.status === "approved" && item.auto_approved ? (
+                  <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 4 }}>
+                    ✓ Auto-approuvée le {item.approved_at ? new Date(item.approved_at).toLocaleDateString("fr-FR") : "—"}
+                  </Txt>
+                ) : null}
+                {item.status === "paid" && item.paid_at ? (
+                  <Txt size="xxs" color={colors.success} weight="600" style={{ marginTop: 4 }}>
+                    💳 Payée le {new Date(item.paid_at).toLocaleDateString("fr-FR")}
+                  </Txt>
+                ) : null}
               </Card>
             );
           }}
@@ -101,4 +134,15 @@ export default function AmbassadorCommissions() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  countdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0FDFA",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginTop: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#99F6E4",
+  },
 });

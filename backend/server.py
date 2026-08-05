@@ -7682,6 +7682,30 @@ async def _push_scheduler_startup():
     import asyncio as _asyncio
     _asyncio.create_task(push_scheduler_loop(db=db, send_push=send_push, log=log, poll_seconds=60))
 
+
+async def _ambassador_commissions_cron():
+    """Cron ambassadeur : auto-approbation des commissions arrivées à J+14.
+    Tourne 1× par heure — safe car idempotent (query filter sur status=pending)."""
+    import asyncio as _asyncio
+    from ambassadors import auto_approve_ready_commissions as _auto_approve
+    log.info("ambassador commissions cron started (every 3600s)")
+    # Petit délai au démarrage pour ne pas gêner le boot
+    await _asyncio.sleep(30)
+    while True:
+        try:
+            res = await _auto_approve(db, notify=send_push)
+            if res.get("promoted") or res.get("cancelled"):
+                log.info("ambassador cron: %s", res)
+        except Exception as e:
+            log.warning("ambassador cron failed (non-blocking): %s", e)
+        await _asyncio.sleep(3600)  # 1h
+
+
+@app.on_event("startup")
+async def _ambassador_cron_startup():
+    import asyncio as _asyncio
+    _asyncio.create_task(_ambassador_commissions_cron())
+
 # SEC : CORS restreint. On lit CORS_ORIGINS (CSV) depuis l'env. Wildcard '*'
 # NE peut JAMAIS être combiné avec allow_credentials=True (échec silencieux navigateur
 # et surface d'attaque CSRF côté navigateur web).

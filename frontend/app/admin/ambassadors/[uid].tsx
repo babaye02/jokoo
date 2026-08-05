@@ -37,6 +37,10 @@ interface Commission {
   status: "pending" | "approved" | "paid" | "cancelled";
   created_at: string;
   paid_at?: string | null;
+  approved_at?: string | null;
+  eligible_at?: string | null;
+  auto_approved?: boolean;
+  cancel_reason?: string | null;
 }
 
 interface CommissionsListResp {
@@ -318,6 +322,21 @@ export default function AdminAmbassadorDetail() {
                       {new Date(c.created_at).toLocaleDateString("fr-FR")}
                     </Txt>
                   </View>
+                  {c.status === "pending" && c.eligible_at ? (
+                    <Txt size="xxs" color={colors.turquoise} weight="600" style={{ marginTop: 4 }}>
+                      ⏱ Auto-approbation le {new Date(c.eligible_at).toLocaleDateString("fr-FR")}
+                    </Txt>
+                  ) : null}
+                  {c.status === "approved" && c.auto_approved ? (
+                    <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 4 }}>
+                      ✓ Auto-approuvée
+                    </Txt>
+                  ) : null}
+                  {c.status === "cancelled" && c.cancel_reason ? (
+                    <Txt size="xxs" color={colors.danger} style={{ marginTop: 4 }}>
+                      Motif : {c.cancel_reason}
+                    </Txt>
+                  ) : null}
                   {nextAction ? (
                     <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
                       <Pressable

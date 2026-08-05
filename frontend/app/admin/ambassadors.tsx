@@ -179,6 +179,35 @@ export default function AdminAmbassadors() {
           <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
         </Pressable>
 
+        {/* Auto-approve button */}
+        <Pressable
+          onPress={async () => {
+            try {
+              const res = await api.post<{ promoted: number; cancelled: number }>(
+                "/admin/ambassadors/commissions/run-auto-approve",
+                {}
+              );
+              Alert.alert(
+                "Auto-approbation lancée",
+                `✅ ${res.promoted} commission(s) approuvée(s)\n❌ ${res.cancelled} annulée(s)`
+              );
+              onRefresh();
+            } catch (e: any) {
+              Alert.alert("Erreur", e?.message || "Échec");
+            }
+          }}
+          style={styles.autoApproveRow}
+        >
+          <Ionicons name="checkmark-done-outline" size={20} color={colors.turquoise} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Txt weight="700">Lancer l&apos;auto-approbation</Txt>
+            <Txt size="xxs" color={colors.textMuted}>
+              Force le batch cron (sinon tourne 1× par heure automatiquement)
+            </Txt>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        </Pressable>
+
         {/* Search bar */}
         <View style={styles.searchBar}>
           <Ionicons name="search-outline" size={18} color={colors.textMuted} />
@@ -596,6 +625,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
+  },
+  autoApproveRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0FDFA",
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#99F6E4",
   },
   searchBar: {
     flexDirection: "row",

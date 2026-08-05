@@ -120,6 +120,11 @@ DEFAULT_INVITE_HOST = "https://jokooservices.com"
 
 MAX_ATTACH_PER_IP_PER_DAY = 200
 
+# Auto-approbation des commissions : nombre de jours après la mission avant que
+# la commission passe automatiquement de `pending` à `approved`. Cette période
+# de rétractation protège contre les litiges/remboursements post-mission.
+AUTO_APPROVE_DAYS = 14
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -254,6 +259,8 @@ async def ensure_indexes(db) -> None:
         await db.ambassador_referrals.create_index("referred_user_id", unique=True, sparse=True)
         await db.ambassador_commissions.create_index([("ambassador_id", 1), ("created_at", -1)])
         await db.ambassador_commissions.create_index("booking_id", sparse=True)
+        # Index pour le cron d'auto-approbation (query : status=pending AND eligible_at<=now)
+        await db.ambassador_commissions.create_index([("status", 1), ("eligible_at", 1)])
     except Exception as e:  # noqa
         logger.warning("ambassadors ensure_indexes failed: %s", e)
 
@@ -580,6 +587,9 @@ async def hook_booking_completed(
     rate = float(cfg["commissions"].get(tier, DEFAULT_TIER_COMMISSIONS.get(tier, 0.02)))
     amount = int(round(booking_amount_xof * rate))
 
+    now = datetime.now(timezone.utc)
+    eligible = now + timedelta(days=AUTO_APPROVE_DAYS)
+
     await db.ambassador_commissions.insert_one({
         "id": str(uuid.uuid4()),
         "ambassador_id": commission_target,
@@ -588,11 +598,15 @@ async def hook_booking_completed(
         "rate": rate,
         "tier_snapshot": tier,
         "status": "pending",
-        "created_at": _now_iso(),
+        "created_at": now.isoformat(),
+        # Auto-approbation : cette commission passera automatiquement en
+        # "approved" à partir de cette date (J+14) — sauf litige/annulation
+        # intervenus entre-temps (vérifiés par `auto_approve_ready_commissions`).
+        "eligible_at": eligible.isoformat(),
     })
     logger.info(
-        "commission created: amb=%s booking=%s tier=%s rate=%.2f amount=%d XOF",
-        commission_target, booking_id, tier, rate, amount,
+        "commission created: amb=%s booking=%s tier=%s rate=%.2f amount=%d XOF (eligible %s)",
+        commission_target, booking_id, tier, rate, amount, eligible.strftime("%Y-%m-%d"),
     )
     # Notification push à l'ambassadeur (best-effort)
     if notify and amount > 0:
@@ -629,6 +643,93 @@ async def _finalize_referral(db, ambassador_id: str, referred_user_id: str, noti
                 )
             except Exception:
                 pass
+
+async def auto_approve_ready_commissions(
+    db,
+    notify: Optional[Callable] = None,
+    dry_run: bool = False,
+) -> dict:
+    """Auto-approbation des commissions arrivées à échéance (J+14 par défaut).
+
+    Une commission passe de `pending` → `approved` si :
+      * `status == pending`
+      * `eligible_at <= now` (déjà 14 jours écoulés depuis la mission)
+      * Le booking associé est toujours en statut terminal `completed` ou `delivered`
+        (protection contre remboursement/annulation intervenus depuis)
+
+    Idempotent-safe : si une commission a déjà été promue manuellement en
+    approved/paid/cancelled avant l'échéance, elle est skippée (query filter).
+
+    :param dry_run: True pour lister ce qui serait fait sans modifier la DB.
+    :return: {"promoted": N, "cancelled": N, "skipped": N}
+    """
+    now_iso_str = _now_iso()
+    promoted = 0
+    cancelled = 0
+
+    query = {
+        "status": "pending",
+        "eligible_at": {"$lte": now_iso_str},
+    }
+    async for cm in db.ambassador_commissions.find(query):
+        booking_id = cm.get("booking_id")
+        # Retrouve le booking dans une des 3 collections possibles
+        booking = None
+        for coll_name in ("bookings", "babysitting_bookings", "parcels"):
+            b = await db[coll_name].find_one({"id": booking_id})
+            if b:
+                booking = b
+                break
+
+        if not booking:
+            logger.warning("auto-approve: commission=%s booking=%s introuvable → cancel", cm["id"], booking_id)
+            if not dry_run:
+                await db.ambassador_commissions.update_one(
+                    {"id": cm["id"]},
+                    {"$set": {"status": "cancelled", "cancelled_at": now_iso_str, "cancel_reason": "booking_not_found"}},
+                )
+            cancelled += 1
+            continue
+
+        b_status = booking.get("status")
+        if b_status not in ("completed", "delivered"):
+            # Booking annulé/remboursé/rejeté depuis la création de la commission → cancel
+            logger.info("auto-approve: commission=%s booking status=%s → cancel", cm["id"], b_status)
+            if not dry_run:
+                await db.ambassador_commissions.update_one(
+                    {"id": cm["id"]},
+                    {"$set": {"status": "cancelled", "cancelled_at": now_iso_str, "cancel_reason": f"booking_status_{b_status}"}},
+                )
+            cancelled += 1
+            continue
+
+        # OK → promotion en approved
+        if not dry_run:
+            await db.ambassador_commissions.update_one(
+                {"id": cm["id"]},
+                {"$set": {"status": "approved", "approved_at": now_iso_str, "auto_approved": True}},
+            )
+            if notify:
+                try:
+                    amount = cm.get("amount_xof", 0)
+                    await notify(
+                        cm["ambassador_id"],
+                        "💰 Commission approuvée",
+                        f"{amount:,} F XOF prêts à être payés.".replace(",", " "),
+                        {"type": "ambassador_commission_approved", "commission_id": cm["id"], "amount_xof": amount, "auto": True},
+                    )
+                except Exception:
+                    pass
+        promoted += 1
+
+    if promoted or cancelled:
+        logger.info(
+            "auto_approve_ready_commissions: promoted=%d, cancelled=%d (dry_run=%s)",
+            promoted, cancelled, dry_run,
+        )
+    return {"promoted": promoted, "cancelled": cancelled}
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -817,8 +918,18 @@ def create_ambassadors_router(
         if status not in ("pending", "approved", "paid", "cancelled"):
             raise HTTPException(400, "Invalid status")
         updates: dict = {"status": status}
+        now = _now_iso()
+        if status == "approved":
+            updates["approved_at"] = now
+            updates["auto_approved"] = False  # explicit manual approval by admin
         if status == "paid":
-            updates["paid_at"] = _now_iso()
+            updates["paid_at"] = now
+            # Si passage direct pending → paid, tracer aussi approved_at
+            existing = await db.ambassador_commissions.find_one({"id": cid}, {"approved_at": 1})
+            if existing and not existing.get("approved_at"):
+                updates["approved_at"] = now
+        if status == "cancelled":
+            updates["cancelled_at"] = now
         r = await db.ambassador_commissions.update_one({"id": cid}, {"$set": updates})
         if r.matched_count == 0:
             raise HTTPException(404, "Commission not found")
@@ -832,6 +943,13 @@ def create_ambassadors_router(
         except Exception as _err:
             logger.debug("commission notif failed: %s", _err)
         return {"ok": True}
+
+    @router.post("/admin/ambassadors/commissions/run-auto-approve")
+    async def admin_run_auto_approve(dry_run: bool = Query(default=False), _admin=Depends(_admin_dep)):
+        """Force le cron d'auto-approbation à tourner immédiatement.
+        Utile pour tester ou traiter tôt un batch. Idempotent."""
+        res = await auto_approve_ready_commissions(db, notify=send_push, dry_run=dry_run)
+        return {"ok": True, "dry_run": dry_run, **res}
 
     @router.get("/admin/ambassadors/commissions")
     async def admin_list_commissions(
