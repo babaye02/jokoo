@@ -162,10 +162,16 @@ def _slugify(name: str) -> str:
     return s or "partner"
 
 
-def _hash_ip(ip: Optional[str]) -> Optional[str]:
-    if not ip:
+def _hash_pii(value: Optional[str]) -> Optional[str]:
+    """SHA-256 tronqué à 16 hex chars. Utilisé pour anonymiser IP, email, phone.
+    (Ne convient PAS comme lookup key — les collisions courtes sont possibles.)"""
+    if not value:
         return None
-    return hashlib.sha256(ip.encode()).hexdigest()[:16]
+    return hashlib.sha256(value.encode()).hexdigest()[:16]
+
+
+# Alias rétro-compat (legacy naming) — utilise _hash_pii en interne
+_hash_ip = _hash_pii
 
 
 def _get_ip(request: Request) -> Optional[str]:
@@ -319,8 +325,10 @@ async def _get_or_create_ambassador(
     return doc
 
 
-async def _refresh_ambassador_stats(db, ambassador_id: str) -> dict:
-    """Recompute stats + tier for one ambassador. Renvoie le doc mis à jour."""
+async def _refresh_ambassador_stats(db, ambassador_id: str, notify: Optional[Callable] = None) -> dict:
+    """Recompute stats + tier for one ambassador. Renvoie le doc mis à jour.
+    :param notify: callback optionnel `async (user_id, title, body, data)` — sera
+                   appelé si le tier a été promu (upgrade)."""
     amb = await db.ambassadors.find_one({"user_id": ambassador_id})
     if not amb:
         return {}
@@ -331,19 +339,37 @@ async def _refresh_ambassador_stats(db, ambassador_id: str) -> dict:
         {"ambassador_id": ambassador_id, "status": "verified"}
     )
     cfg = await get_config(db)
-    tier = compute_tier(verified, cfg["thresholds"])
+    new_tier = compute_tier(verified, cfg["thresholds"])
+    old_tier = amb.get("tier", "starter")
+    tier_upgraded = (
+        TIER_ORDER.index(new_tier) > TIER_ORDER.index(old_tier)
+        if new_tier in TIER_ORDER and old_tier in TIER_ORDER
+        else False
+    )
     await db.ambassadors.update_one(
         {"user_id": ambassador_id},
         {"$set": {
             "verified_count": verified,
             "pending_count": pending,
-            "tier": tier,
+            "tier": new_tier,
             "updated_at": _now_iso(),
         }},
     )
     amb["verified_count"] = verified
     amb["pending_count"] = pending
-    amb["tier"] = tier
+    amb["tier"] = new_tier
+
+    # Notification promotion de tier (best effort)
+    if tier_upgraded and notify:
+        try:
+            await notify(
+                ambassador_id,
+                f"🎉 Promotion : {TIER_BADGES.get(new_tier, new_tier)}",
+                f"Félicitations ! Vous avez atteint le tier {new_tier.capitalize()}.",
+                {"type": "ambassador_tier_upgraded", "tier": new_tier, "previous_tier": old_tier},
+            )
+        except Exception as e:  # noqa
+            logger.debug("tier upgrade notif failed: %s", e)
     return amb
 
 
@@ -360,6 +386,7 @@ async def hook_user_registered(
     new_user_phone: Optional[str] = None,
     ip: Optional[str] = None,
     skip_ip_check: bool = False,
+    notify: Optional[Callable] = None,
 ) -> Optional[str]:
     """Rattache un nouvel utilisateur à un ambassadeur si un code/slug est fourni.
 
@@ -369,6 +396,7 @@ async def hook_user_registered(
     :param skip_ip_check: True pour bypass le rate-limit IP (usage : appel
         depuis /ambassadors/attach où le user est déjà authentifié, on a
         donc une identité plus forte que l'IP).
+    :param notify: callback push optionnel `async (user_id, title, body, data)`.
     """
     if not ambassador_code_or_slug:
         return None
@@ -389,7 +417,7 @@ async def hook_user_registered(
         return None
 
     # Anti-fraude : rate limit par IP (seulement pour le signup anonyme)
-    ip_hash = _hash_ip(ip)
+    ip_hash = _hash_pii(ip)
     if ip_hash and not skip_ip_check:
         since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         recent = await db.ambassador_referrals.count_documents({
@@ -410,13 +438,21 @@ async def hook_user_registered(
         "ambassador_id": amb["user_id"],
         "referred_user_id": new_user_id,
         "referred_role": new_user_role,
-        "referred_email_hash": _hash_ip(new_user_email) if new_user_email else None,
-        "referred_phone_hash": _hash_ip(new_user_phone) if new_user_phone else None,
+        "referred_email_hash": _hash_pii(new_user_email) if new_user_email else None,
+        "referred_phone_hash": _hash_pii(new_user_phone) if new_user_phone else None,
         "status": "pending",
         "created_at": _now_iso(),
         "ip_hash": ip_hash,
     }
-    await db.ambassador_referrals.insert_one(doc)
+    try:
+        await db.ambassador_referrals.insert_one(doc)
+    except Exception as e:
+        # Collision unique index (race condition) → get existing
+        logger.debug("ambassador referral insert race: %s", e)
+        existing = await db.ambassador_referrals.find_one({"referred_user_id": new_user_id})
+        if existing:
+            return existing.get("ambassador_id")
+        return None
 
     # Bump pending count (tier ne change pas car verified inchangé)
     await db.ambassadors.update_one(
@@ -427,10 +463,21 @@ async def hook_user_registered(
         "ambassador referral: %s → %s (role=%s)",
         amb["user_id"], new_user_id, new_user_role,
     )
+    # Notification best-effort à l'ambassadeur
+    if notify:
+        try:
+            await notify(
+                amb["user_id"],
+                "🎉 Nouveau filleul inscrit !",
+                "Un nouvel utilisateur s'est inscrit avec votre code. Suivez sa progression.",
+                {"type": "ambassador_new_referral", "role": new_user_role},
+            )
+        except Exception:
+            pass
     return amb["user_id"]
 
 
-async def hook_kyc_verified(db, user_id: str) -> None:
+async def hook_kyc_verified(db, user_id: str, notify: Optional[Callable] = None) -> None:
     """Marque le referral prestataire comme KYC-vérifié. Ne le passe PAS encore
     en 'verified' — il faut aussi 1 réservation."""
     ref = await db.ambassador_referrals.find_one({"referred_user_id": user_id})
@@ -442,13 +489,14 @@ async def hook_kyc_verified(db, user_id: str) -> None:
     )
     # Si prestataire ET a déjà une réservation → passe en verified
     if ref.get("referred_role") == "prestataire" and ref.get("first_booking_at"):
-        await _finalize_referral(db, ref["ambassador_id"], user_id)
+        await _finalize_referral(db, ref["ambassador_id"], user_id, notify=notify)
 
 
 async def hook_booking_completed(
     db,
     booking: dict,
     booking_amount_xof: int,
+    notify: Optional[Callable] = None,
 ) -> None:
     """Appelé quand une réservation passe en 'completed'. Peut faire 2 choses :
       1. Finaliser le referral (passer pending → verified si prestataire KYC OK
@@ -474,10 +522,10 @@ async def hook_booking_completed(
             )
         # Client : verified dès le 1er booking completed
         if role == "client" and ref.get("status") == "pending":
-            await _finalize_referral(db, ref["ambassador_id"], uid)
+            await _finalize_referral(db, ref["ambassador_id"], uid, notify=notify)
         # Prestataire : verified si aussi KYC vérifié
         if role == "prestataire" and ref.get("status") == "pending" and ref.get("kyc_verified_at"):
-            await _finalize_referral(db, ref["ambassador_id"], uid)
+            await _finalize_referral(db, ref["ambassador_id"], uid, notify=notify)
 
     # 2) Commission — on utilise le prestataire (celui qui exécute la mission)
     # Note : on choisit UN seul ambassadeur qui touche la commission. Pour éviter
@@ -528,9 +576,20 @@ async def hook_booking_completed(
         "commission created: amb=%s booking=%s tier=%s rate=%.2f amount=%d XOF",
         commission_target, booking_id, tier, rate, amount,
     )
+    # Notification push à l'ambassadeur (best-effort)
+    if notify and amount > 0:
+        try:
+            await notify(
+                commission_target,
+                "💰 Nouvelle commission",
+                f"+{amount:,} F XOF sur une réservation terminée.".replace(",", " "),
+                {"type": "ambassador_commission_created", "amount_xof": amount, "booking_id": str(booking_id)},
+            )
+        except Exception:
+            pass
 
 
-async def _finalize_referral(db, ambassador_id: str, referred_user_id: str) -> None:
+async def _finalize_referral(db, ambassador_id: str, referred_user_id: str, notify: Optional[Callable] = None) -> None:
     """Passe le referral de 'pending' à 'verified' et déclenche re-tier."""
     r = await db.ambassador_referrals.update_one(
         {"referred_user_id": referred_user_id, "status": "pending"},
@@ -541,7 +600,17 @@ async def _finalize_referral(db, ambassador_id: str, referred_user_id: str) -> N
             {"user_id": ambassador_id},
             {"$inc": {"pending_count": -1, "verified_count": 1}},
         )
-        await _refresh_ambassador_stats(db, ambassador_id)
+        await _refresh_ambassador_stats(db, ambassador_id, notify=notify)
+        if notify:
+            try:
+                await notify(
+                    ambassador_id,
+                    "✅ Nouveau filleul vérifié",
+                    "Un de vos filleuls vient d'être validé. Vos stats sont à jour.",
+                    {"type": "ambassador_referral_verified"},
+                )
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -595,18 +664,28 @@ def create_ambassadors_router(
 
         if not body.active:
             # Désactivation soft : on garde l'historique + les commissions
-            await db.ambassadors.update_one(
+            r = await db.ambassadors.update_one(
                 {"user_id": uid},
                 {"$set": {"active": False, "updated_at": _now_iso()}},
             )
+            if r.matched_count == 0:
+                raise HTTPException(404, "Ambassador not found for this user")
             return {"ok": True, "active": False}
 
-        # Custom slug validation
+        # Custom slug validation (si fourni)
+        new_slug: Optional[str] = None
         if body.custom_slug:
             clean = _slugify(body.custom_slug)
-            other = await db.ambassadors.find_one({"slug": clean, "user_id": {"$ne": uid}}, {"_id": 1})
+            if not clean or len(clean) < 3:
+                raise HTTPException(400, "Slug invalide (min 3 caractères).")
+            other = await db.ambassadors.find_one(
+                {"slug": clean, "user_id": {"$ne": uid}}, {"_id": 1}
+            )
             if other:
-                raise HTTPException(400, "Slug déjà utilisé.")
+                raise HTTPException(400, "Slug déjà utilisé par un autre ambassadeur.")
+            new_slug = clean
+
+        was_new = (await db.ambassadors.find_one({"user_id": uid}, {"_id": 1})) is None
 
         amb = await _get_or_create_ambassador(
             db,
@@ -616,21 +695,29 @@ def create_ambassadors_router(
             custom_slug=body.custom_slug,
             custom_bio=body.custom_bio,
         )
-        # Re-activate if previously deactivated
-        updates = {"active": True, "updated_at": _now_iso()}
+
+        # Re-activate + application des updates (goal, bio, slug si fourni)
+        updates: dict = {"active": True, "updated_at": _now_iso()}
         if body.monthly_goal is not None:
             updates["monthly_goal"] = body.monthly_goal
         if body.custom_bio is not None:
             updates["custom_bio"] = body.custom_bio
+
+        # Slug : si fourni et différent de l'actuel, on met à jour + rebuild links
+        if new_slug and new_slug != amb.get("slug"):
+            updates["slug"] = new_slug
+            updates["links"] = _build_links(amb["code"], new_slug)
+
         await db.ambassadors.update_one({"user_id": uid}, {"$set": updates})
 
-        # Notification
-        await _notify(
-            uid,
-            "🤝 Bienvenue chez Jokoo Partners !",
-            f"Votre code de parrainage : {amb['code']}. Partagez et gagnez.",
-            {"type": "ambassador_activated", "code": amb["code"]},
-        )
+        # Notification uniquement à la première activation (was_new) — évite spam
+        if was_new:
+            await _notify(
+                uid,
+                "🤝 Bienvenue chez Jokoo Partners !",
+                f"Votre code de parrainage : {amb['code']}. Partagez et gagnez.",
+                {"type": "ambassador_activated", "code": amb["code"]},
+            )
         amb = await db.ambassadors.find_one({"user_id": uid})
         return {"ok": True, "ambassador": _serialize_ambassador(amb, user)}
 
@@ -638,17 +725,52 @@ def create_ambassadors_router(
     async def admin_list_ambassadors(
         _admin=Depends(_admin_dep),
         active: Optional[bool] = None,
+        q: Optional[str] = Query(default=None, max_length=80, description="Recherche nom/code/slug"),
+        skip: int = Query(default=0, ge=0, le=10000),
         limit: int = Query(default=100, ge=1, le=500),
     ):
-        q: dict = {}
+        query: dict = {}
         if active is not None:
-            q["active"] = active
-        cur = db.ambassadors.find(q, {"_id": 0}).sort("verified_count", -1).limit(limit)
+            query["active"] = active
+
+        # Recherche : d'abord matcher côté users (nom), puis côté ambassadors (code/slug)
+        matched_uids: set[str] = set()
+        if q and q.strip():
+            token = q.strip()
+            # Users matching by name / email (case-insensitive)
+            import re as _re
+            safe = _re.escape(token)
+            regex = {"$regex": safe, "$options": "i"}
+            async for u in db.users.find(
+                {"$or": [{"name": regex}, {"email": regex}]}, {"_id": 0, "id": 1}
+            ).limit(200):
+                matched_uids.add(u["id"])
+            # Ambassadors matching by code/slug
+            ambs_query = {
+                "$or": [
+                    {"code": {"$regex": _re.escape(token.upper()), "$options": "i"}},
+                    {"slug": {"$regex": safe, "$options": "i"}},
+                ]
+            }
+            async for a in db.ambassadors.find(ambs_query, {"_id": 0, "user_id": 1}).limit(200):
+                matched_uids.add(a["user_id"])
+            if not matched_uids:
+                return {"total": 0, "items": []}
+            query["user_id"] = {"$in": list(matched_uids)}
+
+        total = await db.ambassadors.count_documents(query)
+        cur = (
+            db.ambassadors.find(query, {"_id": 0})
+            .sort("verified_count", -1)
+            .skip(skip)
+            .limit(limit)
+        )
         rows = await cur.to_list(length=limit)
         # Enrich with user info
         uids = [r["user_id"] for r in rows]
         users = {u["id"]: u async for u in db.users.find({"id": {"$in": uids}})}
-        return [_serialize_ambassador(r, users.get(r["user_id"], {})) for r in rows]
+        items = [_serialize_ambassador(r, users.get(r["user_id"], {})) for r in rows]
+        return {"total": total, "items": items}
 
     @router.get("/admin/ambassadors/config")
     async def admin_get_config(_admin=Depends(_admin_dep)):
@@ -682,7 +804,84 @@ def create_ambassadors_router(
         r = await db.ambassador_commissions.update_one({"id": cid}, {"$set": updates})
         if r.matched_count == 0:
             raise HTTPException(404, "Commission not found")
+        # Notification à l'ambassadeur si passage à approved/paid
+        try:
+            cm = await db.ambassador_commissions.find_one({"id": cid}, {"_id": 0})
+            if cm and status in ("approved", "paid"):
+                title = "💰 Commission approuvée" if status == "approved" else "💳 Commission payée"
+                body_ = f"{cm.get('amount_xof', 0):,} F XOF" .replace(",", " ")
+                await _notify(cm["ambassador_id"], title, body_, {"type": f"commission_{status}", "commission_id": cid})
+        except Exception as _err:
+            logger.debug("commission notif failed: %s", _err)
         return {"ok": True}
+
+    @router.get("/admin/ambassadors/commissions")
+    async def admin_list_commissions(
+        _admin=Depends(_admin_dep),
+        user_id: Optional[str] = None,
+        status: Optional[str] = None,
+        skip: int = Query(default=0, ge=0, le=10000),
+        limit: int = Query(default=100, ge=1, le=500),
+    ):
+        q: dict = {}
+        if user_id:
+            q["ambassador_id"] = user_id
+        if status:
+            q["status"] = status
+        total = await db.ambassador_commissions.count_documents(q)
+        cur = (
+            db.ambassador_commissions.find(q, {"_id": 0})
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+        items = await cur.to_list(length=limit)
+        return {"total": total, "items": items}
+
+    @router.get("/admin/ambassadors/{uid}")
+    async def admin_get_ambassador(uid: str, _admin=Depends(_admin_dep)):
+        amb = await db.ambassadors.find_one({"user_id": uid}, {"_id": 0})
+        if not amb:
+            raise HTTPException(404, "Ambassador not found")
+        user = await db.users.find_one(
+            {"id": uid}, {"_id": 0, "id": 1, "name": 1, "email": 1, "avatar": 1, "role": 1, "phone": 1}
+        )
+        # Rafraichit les stats en même temps pour éviter incohérence d'affichage
+        refreshed = await _refresh_ambassador_stats(db, uid)
+        return _serialize_ambassador(refreshed or amb, user)
+
+    @router.put("/admin/ambassadors/{uid}")
+    async def admin_update_ambassador(uid: str, body: ToggleAmbassadorBody, _admin=Depends(_admin_dep)):
+        """Modifie objectif, bio, slug d'un ambassadeur existant. Ne change PAS
+        son état actif (utilisez `POST /admin/users/{uid}/ambassador` pour ça)."""
+        amb = await db.ambassadors.find_one({"user_id": uid}, {"_id": 0})
+        if not amb:
+            raise HTTPException(404, "Ambassador not found")
+
+        updates: dict = {"updated_at": _now_iso()}
+        if body.monthly_goal is not None:
+            updates["monthly_goal"] = body.monthly_goal
+        if body.custom_bio is not None:
+            updates["custom_bio"] = body.custom_bio.strip() or None
+
+        # Slug : validation + regen des liens
+        if body.custom_slug is not None:
+            clean = _slugify(body.custom_slug)
+            if not clean or len(clean) < 3:
+                raise HTTPException(400, "Slug invalide (min 3 caractères).")
+            if clean != amb.get("slug"):
+                other = await db.ambassadors.find_one(
+                    {"slug": clean, "user_id": {"$ne": uid}}, {"_id": 1}
+                )
+                if other:
+                    raise HTTPException(400, "Slug déjà utilisé par un autre ambassadeur.")
+                updates["slug"] = clean
+                updates["links"] = _build_links(amb["code"], clean)
+
+        await db.ambassadors.update_one({"user_id": uid}, {"$set": updates})
+        user = await db.users.find_one({"id": uid}, {"_id": 0})
+        amb = await db.ambassadors.find_one({"user_id": uid}, {"_id": 0})
+        return {"ok": True, "ambassador": _serialize_ambassador(amb, user)}
 
     # ---- User (self) ----
 
@@ -710,21 +909,27 @@ def create_ambassadors_router(
             "status": "verified",
             "verified_at": {"$gte": month_start},
         })
+        # PERF : agrégation UNIQUE pour breakdown par rôle (au lieu de 2x count_documents)
+        role_counts = {"prestataire": 0, "client": 0}
+        async for r in db.ambassador_referrals.aggregate([
+            {"$match": {"ambassador_id": user["id"], "status": "verified"}},
+            {"$group": {"_id": "$referred_role", "n": {"$sum": 1}}},
+        ]):
+            key = r.get("_id") or "client"
+            role_counts[key] = r["n"]
+        # PERF : total bookings générés (idempotent : approx = nb de commissions distinctes)
+        bookings_generated = await db.ambassador_commissions.count_documents({
+            "ambassador_id": user["id"]
+        })
         return {
             "is_ambassador": True,
             "ambassador": _serialize_ambassador(amb, user),
             "stats": {
                 "verified_total": amb.get("verified_count", 0),
                 "pending_total": amb.get("pending_count", 0),
-                "prestataires_verified": await db.ambassador_referrals.count_documents({
-                    "ambassador_id": user["id"], "status": "verified", "referred_role": "prestataire"
-                }),
-                "clients_verified": await db.ambassador_referrals.count_documents({
-                    "ambassador_id": user["id"], "status": "verified", "referred_role": "client"
-                }),
-                "bookings_generated": await db.ambassador_commissions.count_documents({
-                    "ambassador_id": user["id"]
-                }),
+                "prestataires_verified": int(role_counts.get("prestataire", 0)),
+                "clients_verified": int(role_counts.get("client", 0)),
+                "bookings_generated": bookings_generated,
                 "commissions": {
                     "pending_xof": totals["pending"],
                     "approved_xof": totals["approved"],
@@ -746,12 +951,19 @@ def create_ambassadors_router(
         }
 
     @router.get("/ambassadors/me/referrals")
-    async def my_referrals(user=Depends(current_user), limit: int = Query(50, ge=1, le=200)):
+    async def my_referrals(
+        user=Depends(current_user),
+        status: Optional[str] = Query(default=None, description="pending|verified|invalid"),
+        limit: int = Query(50, ge=1, le=200),
+    ):
         amb = await db.ambassadors.find_one({"user_id": user["id"]}, {"_id": 1})
         if not amb:
             raise HTTPException(403, "Not an ambassador")
+        q: dict = {"ambassador_id": user["id"]}
+        if status and status in ("pending", "verified", "invalid"):
+            q["status"] = status
         rows = await db.ambassador_referrals.find(
-            {"ambassador_id": user["id"]}, {"_id": 0, "ip_hash": 0, "referred_email_hash": 0, "referred_phone_hash": 0}
+            q, {"_id": 0, "ip_hash": 0, "referred_email_hash": 0, "referred_phone_hash": 0}
         ).sort("created_at", -1).limit(limit).to_list(length=limit)
         # Enrich with user names
         uids = [r["referred_user_id"] for r in rows]
@@ -761,6 +973,19 @@ def create_ambassadors_router(
             r["name"] = u.get("name")
             r["avatar"] = u.get("avatar")
             r["role"] = u.get("role") or r.get("referred_role")
+            # Hint UX : quel est le prochain jalon pour valider ce filleul ?
+            if r.get("status") == "pending":
+                if r.get("referred_role") == "prestataire":
+                    if not r.get("kyc_verified_at"):
+                        r["next_step"] = "kyc"
+                    elif not r.get("first_booking_at"):
+                        r["next_step"] = "first_booking"
+                    else:
+                        r["next_step"] = "processing"
+                else:
+                    r["next_step"] = "first_booking" if not r.get("first_booking_at") else "processing"
+            else:
+                r["next_step"] = None
         return rows
 
     @router.get("/ambassadors/me/commissions")
@@ -844,6 +1069,7 @@ def create_ambassadors_router(
             new_user_phone=user.get("phone"),
             ip=ip,
             skip_ip_check=True,  # user déjà authentifié → skip anti-fraude IP
+            notify=send_push,
         )
         if not aid:
             # Seul cas restant : rate limit atteint

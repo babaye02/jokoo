@@ -2,6 +2,10 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { storage } from "@/src/utils/storage";
 import { api, TOKEN_KEY, User, setAuthToken } from "@/src/api";
 import { registerForPush } from "@/src/push/register";
+import { clearAmbassadorCache } from "@/src/hooks/useAmbassadorStatus";
+
+// Clé SecureStore commune (miroir de app/invite/[code].tsx pour éviter cycle d'import)
+const REFERRAL_STORAGE_KEY = "jokoo_referral_code";
 
 type AuthState = {
   user: User | null;
@@ -10,7 +14,7 @@ type AuthState = {
   signIn: (email: string, password: string) => Promise<User>;
   signInWithOtp: (phone: string, code: string) => Promise<User>;
   requestOtp: (phone: string) => Promise<{ ok: boolean; otp_dev_only?: string }>;
-  signUp: (payload: { email: string; password: string; name: string; role: "client" | "prestataire"; phone?: string; city?: string }) => Promise<User>;
+  signUp: (payload: { email: string; password: string; name: string; role: "client" | "prestataire"; phone?: string; city?: string; referral_code?: string }) => Promise<User>;
   signInWithApple: (identityToken: string, name?: string, email?: string) => Promise<User>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -74,24 +78,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (payload: any) => {
+    // Injecte automatiquement le code de parrainage stocké depuis le deep link
+    // (`/invite/[code]`), si aucun n'est déjà fourni dans le payload.
+    if (!payload?.referral_code) {
+      try {
+        const stored = await storage.secureGet<string>(REFERRAL_STORAGE_KEY, "");
+        if (stored) payload.referral_code = stored;
+      } catch {}
+    }
     const r = await api.post<{ token: string; user: User }>("/auth/register", payload, false);
     setAuthToken(r.token);
     await storage.secureSet(TOKEN_KEY, r.token);
     setToken(r.token);
     setUser(r.user);
+    // Consomme le code de parrainage — évite un double rattachement futur
+    try {
+      await storage.secureRemove(REFERRAL_STORAGE_KEY);
+    } catch {}
     return r.user;
   };
 
   const signInWithApple = async (identityToken: string, name?: string, email?: string) => {
+    // Récupère le code de parrainage en attente pour le passer à l'API
+    let referral_code: string | undefined;
+    try {
+      const stored = await storage.secureGet<string>(REFERRAL_STORAGE_KEY, "");
+      if (stored) referral_code = stored;
+    } catch {}
     const r = await api.post<{ token: string; user: User }>("/auth/apple", {
       identity_token: identityToken,
       name: name || null,
       email: email || null,
+      referral_code,
     }, false);
     setAuthToken(r.token);
     await storage.secureSet(TOKEN_KEY, r.token);
     setToken(r.token);
     setUser(r.user);
+    // Purge le code une fois utilisé (empêche re-attach futur silencieux)
+    if (referral_code) {
+      try { await storage.secureRemove(REFERRAL_STORAGE_KEY); } catch {}
+    }
     return r.user;
   };
 
@@ -100,6 +127,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await storage.secureRemove(TOKEN_KEY);
     setToken(null);
     setUser(null);
+    // Purge caches liés à l'identité pour éviter fuite d'état inter-comptes
+    try { clearAmbassadorCache(); } catch {}
   };
 
   const refresh = async () => {

@@ -1322,6 +1322,7 @@ async def register(body: RegisterIn, request: Request):
                 new_user_email=body.email.lower(),
                 new_user_phone=body.phone,
                 ip=_client_ip(request),
+                notify=send_push,
             )
         except Exception as _amb_err:
             log.debug("ambassador attach on register failed: %s", _amb_err)
@@ -1485,6 +1486,8 @@ class AppleSignInIn(BaseModel):
     # First sign-in only — Apple gives these once, we must save them immediately
     name: Optional[str] = None
     email: Optional[str] = None
+    # Jokoo Partners — code/slug de parrainage (deep-link)
+    referral_code: Optional[str] = Field(default=None, max_length=40)
 
 
 async def _verify_apple_token(identity_token: str) -> dict:
@@ -1560,6 +1563,20 @@ async def sign_in_with_apple(body: AppleSignInIn):
         }
         await db.users.insert_one(doc)
         user = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
+        # Jokoo Partners — rattachement à l'ambassadeur (best-effort)
+        if body.referral_code:
+            try:
+                await _amb_hook_user_registered(
+                    db,
+                    new_user_id=uid,
+                    new_user_role="client",
+                    ambassador_code_or_slug=body.referral_code,
+                    new_user_email=apple_email,
+                    ip=None,
+                    notify=send_push,
+                )
+            except Exception as _amb_err:
+                log.debug("apple signup ambassador attach failed: %s", _amb_err)
     else:
         user = {k: v for k, v in user.items() if k not in ("password_hash", "_id")}
 
@@ -2348,7 +2365,7 @@ async def confirm_completion(bid: str, user=Depends(current_user)):
         try:
             b_full = {**b, **updates}
             amount = int(b_full.get("total_xof") or b_full.get("price_xof") or b_full.get("amount_xof") or 0)
-            await _amb_hook_booking_completed(db, b_full, amount)
+            await _amb_hook_booking_completed(db, b_full, amount, notify=send_push)
         except Exception as _amb_err:
             log.debug("ambassador booking hook failed: %s", _amb_err)
     return {"ok": True, "status": "completed" if both else b.get("status"), "both_confirmed": both}
@@ -5474,7 +5491,7 @@ async def admin_approve_kyc(kyc_id: str, user=Depends(require_perm("kyc:write"))
         log.warning(f"Push failed (non-blocking): {e}")
     # Jokoo Partners — signale au module ambassadors que ce user est KYC-OK
     try:
-        await _amb_hook_kyc_verified(db, doc["user_id"])
+        await _amb_hook_kyc_verified(db, doc["user_id"], notify=send_push)
     except Exception as _amb_err:
         log.debug("ambassador kyc hook failed: %s", _amb_err)
     return {"ok": True, "status": "approved"}

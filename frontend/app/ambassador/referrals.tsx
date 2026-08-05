@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, FlatList, RefreshControl } from "react-native";
+import { View, StyleSheet, FlatList, RefreshControl, Pressable } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { Card, Txt, Avatar, Badge, ErrorBox } from "@/src/components/ui";
-import { colors, spacing } from "@/src/theme";
+import { colors, radius, spacing } from "@/src/theme";
 
 interface Referral {
   id: string;
@@ -17,6 +17,7 @@ interface Referral {
   verified_at?: string | null;
   first_booking_at?: string | null;
   kyc_verified_at?: string | null;
+  next_step?: "kyc" | "first_booking" | "processing" | null;
   name?: string | null;
   avatar?: string | null;
   role?: string | null;
@@ -26,6 +27,13 @@ function statusMeta(s: string) {
   if (s === "verified") return { tone: "success", label: "Vérifié" } as const;
   if (s === "invalid") return { tone: "danger", label: "Invalide" } as const;
   return { tone: "warn", label: "En attente" } as const;
+}
+
+function nextStepMeta(step?: string | null) {
+  if (step === "kyc") return { label: "En attente KYC", icon: "shield-outline" as const };
+  if (step === "first_booking") return { label: "1re résa attendue", icon: "calendar-outline" as const };
+  if (step === "processing") return { label: "Validation en cours", icon: "sync-outline" as const };
+  return null;
 }
 
 function roleLabel(r?: string | null) {
@@ -40,10 +48,12 @@ export default function AmbassadorReferrals() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<"all" | "pending" | "verified">("all");
 
   const load = useCallback(async () => {
     try {
-      const r = await api.get<Referral[]>("/ambassadors/me/referrals");
+      const statusParam = filter !== "all" ? `?status=${filter}` : "";
+      const r = await api.get<Referral[]>(`/ambassadors/me/referrals${statusParam}`);
       setRows(r);
       setError(null);
     } catch (e: any) {
@@ -51,7 +61,7 @@ export default function AmbassadorReferrals() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filter]);
 
   useEffect(() => { load(); }, [load]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
@@ -59,6 +69,18 @@ export default function AmbassadorReferrals() {
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <Stack.Screen options={{ title: "Mes filleuls", headerBackTitle: "Retour" }} />
+
+      {/* Filter tabs */}
+      <View style={styles.tabs}>
+        {(["all", "pending", "verified"] as const).map((f) => (
+          <Pressable key={f} onPress={() => setFilter(f)} style={[styles.tab, filter === f && styles.tabActive]}>
+            <Txt weight="700" size="sm" color={filter === f ? colors.midnight : colors.textMuted}>
+              {f === "all" ? "Tous" : f === "pending" ? "En attente" : "Vérifiés"}
+            </Txt>
+          </Pressable>
+        ))}
+      </View>
+
       {error ? (
         <View style={styles.center}><ErrorBox text={error} /></View>
       ) : loading ? (
@@ -67,7 +89,11 @@ export default function AmbassadorReferrals() {
         <View style={[styles.center, { padding: spacing.xl }]}>
           <Ionicons name="people-outline" size={48} color={colors.textMuted} />
           <Txt weight="700" size="md" style={{ marginTop: spacing.md, textAlign: "center" }}>
-            {"Aucun filleul pour l'instant"}
+            {filter === "all"
+              ? "Aucun filleul pour l'instant"
+              : filter === "pending"
+                ? "Aucun filleul en attente"
+                : "Aucun filleul vérifié"}
           </Txt>
           <Txt color={colors.textMuted} size="sm" style={{ marginTop: 6, textAlign: "center" }}>
             Partagez votre code de parrainage pour inviter clients et prestataires.
@@ -82,6 +108,7 @@ export default function AmbassadorReferrals() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           renderItem={({ item }) => {
             const m = statusMeta(item.status);
+            const step = nextStepMeta(item.next_step);
             return (
               <Card style={{ padding: spacing.md }}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -94,12 +121,11 @@ export default function AmbassadorReferrals() {
                   </View>
                   <Badge label={m.label} tone={m.tone} size="sm" />
                 </View>
-                {(item.kyc_verified_at || item.first_booking_at) ? (
-                  <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                    {item.kyc_verified_at ? <Badge label="KYC OK" tone="info" size="sm" icon="shield-checkmark" /> : null}
-                    {item.first_booking_at ? <Badge label="1re résa" tone="info" size="sm" icon="calendar" /> : null}
-                  </View>
-                ) : null}
+                <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                  {item.kyc_verified_at ? <Badge label="KYC OK" tone="info" size="sm" icon="shield-checkmark" /> : null}
+                  {item.first_booking_at ? <Badge label="1re résa" tone="info" size="sm" icon="calendar" /> : null}
+                  {step ? <Badge label={step.label} tone="warn" size="sm" icon={step.icon} /> : null}
+                </View>
               </Card>
             );
           }}
@@ -112,4 +138,21 @@ export default function AmbassadorReferrals() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  tabs: {
+    flexDirection: "row",
+    backgroundColor: colors.surfaceWarm,
+    padding: 4,
+    borderRadius: radius.md,
+    margin: spacing.md,
+    marginBottom: 0,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: radius.sm,
+  },
+  tabActive: {
+    backgroundColor: colors.card,
+  },
 });

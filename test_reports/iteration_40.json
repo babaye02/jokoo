@@ -1,0 +1,55 @@
+{
+  "summary": "Jokoo Partners (ambassadors) Phase 2 audit — backend-only. Created new test suite /app/backend/tests/test_ambassadors_p2.py covering all NEW/refactored features from the audit: 35/35 P2 tests PASS. Also updated /app/backend/tests/test_ambassadors_p1.py (3 tests) to align with spec changes (list format `{total, items}`, self-attach returning explicit 400, rate-limit constant 200). Full ambassadors suite = 64 passed + 1 skipped (0 failures). All 6 requirement blocks from review request verified: (1) admin config CRUD + list new format + search q + active filter + pagination + new single GET/PUT, (2) user self endpoints incl. `?status=` referrals filter, (3) public endpoints (leaderboard shape + resolve + /public/invite/{code}), (4) end-to-end referral hook (register creates pending referral), (5) security guards (401/403/400 self-referral/404 invalid code), (6) edge cases (partial thresholds → defaults, invalid commission status → 400, slug accents normalized to 'aida-test', slug already taken → 400, route ordering /config not shadowed by /{uid}). MAX_ATTACH_PER_IP_PER_DAY correctly = 200.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ambassadors_p2.py (new — 35 tests, all pass)",
+    "/app/backend/tests/test_ambassadors_p1.py (updated — 29 tests + 1 skipped, all pass)",
+    "/app/test_reports/pytest/ambassadors_p2.xml"
+  ],
+  "action_items": [
+    "OK: module Jokoo Partners is production-ready from a backend perspective. Route ordering bug fix confirmed (config/commissions routes reachable before /{uid} regex catch-all).",
+    "OPTIONAL — /admin/ambassadors/{uid} returns the ambassador object directly (not wrapped in {ambassador: ...}); PUT variant returns {ok, ambassador}. Consider harmonizing both shapes to always wrap in {ok, ambassador} for consistency (currently the frontend has to handle 2 shapes).",
+    "OPTIONAL — /ambassadors/me/referrals accepts ?status=<value> but silently ignores invalid values (returns unfiltered). Consider returning 400 on invalid status to help debug frontend bugs."
+  ],
+  "critical_code_review_comments": [
+    "ambassadors.py (1157 lines) is getting close to 700-line soft-limit. Consider splitting into ambassadors/router.py + ambassadors/hooks.py + ambassadors/config.py to keep responsibilities focused.",
+    "Route ordering: literal paths /admin/ambassadors/config and /admin/ambassadors/commissions ARE now correctly declared BEFORE /admin/ambassadors/{uid} (lines 775, 795, 818, 841). Verified via test_config_route_reachable & test_commissions_route_reachable.",
+    "Slug normalization via _slugify() strips accents (unicode NFD) and non-alphanum — verified 'Aïdà-Tést' → 'aida-test'.",
+    "Slug uniqueness enforced via unique sparse index + explicit conflict check in POST/PUT handlers (400 on collision).",
+    "Config merge: `get_config()` correctly merges DB values on top of DEFAULT_TIER_THRESHOLDS + DEFAULT_TIER_COMMISSIONS, so partial updates (bronze only) keep diamond=150 elite=500 as defaults. Verified.",
+    "Auth guards: /admin/* → 401 without token / 403 with client token; /ambassadors/me* → 401 without token / 403 for non-ambassador. All paths verified.",
+    "Self-referral: /ambassadors/attach now returns 400 explicit ('Vous ne pouvez pas être votre propre parrain') instead of silent no-op — good UX improvement.",
+    "Rate-limit: MAX_ATTACH_PER_IP_PER_DAY raised from 20 → 200 (aligned with review request; skip_ip_check=True for authenticated attach).",
+    "PII stripped from /me/referrals response (ip_hash / email_hash / phone_hash excluded via projection).",
+    "No MongoDB _id leaks in any of the 20+ endpoints tested."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ambassadors_p2.py (NEW — 35 tests P2 audit)",
+    "/app/backend/tests/test_ambassadors_p1.py (updated 3 tests to align with refactored spec: list new format, self-attach 400, rate-limit constant=200)"
+  ],
+  "success_rate": {"backend": "100% (64/64 pass, 1 skipped for missing seed commission)", "frontend": "not tested (per request)"},
+  "seed_data_creation": "No permanent seed created. Two TEST_p2_amb_*@example.com users may remain from TestRegisterReferral test run (adds 1 pending referral per run to Aïda). Aïda ambassador stats resynced: pending_count=6, verified_count=0 after cleanup. To clean up test-created data: `db.ambassador_referrals.delete_many({'referred_user_id': {'$regex': 'TEST_'}})` and `db.users.delete_many({'email': {'$regex': 'TEST_p2_amb_.*@example.com'}})`.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Two test files cover the Jokoo Partners module comprehensively: (1) /app/backend/tests/test_ambassadors_p1.py — 30 tests, core P1 (config, self endpoints, leaderboard, resolve, hooks, register, rate-limit); (2) /app/backend/tests/test_ambassadors_p2.py — 35 tests, P2 audit (new list format, search/filter/pagination, single GET/PUT, route ordering, slug edge cases, config partial merge, auth guards). Run: `pytest /app/backend/tests/test_ambassadors_p1.py /app/backend/tests/test_ambassadors_p2.py -v`. Base URL: http://localhost:8001. Aïda ambassador (code=5GB3EH, slug=aida-client, user_id=9a455f27-5b4b-43ee-9cfc-46bdb5847500) is the reference test subject. If verified_count/pending_count drift due to test runs, resync with `pending=count_documents({status:pending})` + update ambassadors doc.",
+  "curl_reproductions": {
+    "list_new_format": "curl -H \"Authorization: Bearer $TOK\" http://localhost:8001/api/admin/ambassadors  → {total:N, items:[...]}",
+    "search_q": "curl -H \"Authorization: Bearer $TOK\" 'http://localhost:8001/api/admin/ambassadors?q=aida'  → filtered items",
+    "get_single": "curl -H \"Authorization: Bearer $TOK\" http://localhost:8001/api/admin/ambassadors/9a455f27-5b4b-43ee-9cfc-46bdb5847500  → ambassador detail",
+    "put_single": "curl -X PUT -H \"Authorization: Bearer $TOK\" -H \"Content-Type: application/json\" -d '{\"custom_slug\":\"aida-client\"}' http://localhost:8001/api/admin/ambassadors/cad65851-...  → 400 if slug taken",
+    "config_not_shadowed": "curl -H \"Authorization: Bearer $TOK\" http://localhost:8001/api/admin/ambassadors/config  → {thresholds, commissions, monthly_goal} (NOT 404 for 'config' as uid)",
+    "self_referral_400": "curl -X POST -H \"Authorization: Bearer $CLIENT_TOK\" -H \"Content-Type: application/json\" -d '{\"code\":\"5GB3EH\"}' http://localhost:8001/api/ambassadors/attach  → 400 'Vous ne pouvez pas être votre propre parrain'",
+    "invalid_code_404": "curl -X POST -H \"Authorization: Bearer $TOK\" -d '{\"code\":\"NOTHING99\"}' http://localhost:8001/api/ambassadors/attach  → 404",
+    "referrals_status_filter": "curl -H \"Authorization: Bearer $CLIENT_TOK\" 'http://localhost:8001/api/ambassadors/me/referrals?status=pending'  → list of pending refs only",
+    "public_invite_invalid": "curl http://localhost:8001/api/public/invite/INVALIDE9  → 200 {valid:false, code:'INVALIDE9'}"
+  }
+}

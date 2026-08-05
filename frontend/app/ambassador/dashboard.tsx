@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Share, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Share, Alert, ToastAndroid, Platform } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect, Stack } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { Card, Txt, Avatar, Btn, ErrorBox } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 import { useAmbassadorStatus } from "@/src/hooks/useAmbassadorStatus";
@@ -35,12 +36,17 @@ export default function AmbassadorDashboard() {
   }, [refresh]);
 
   const copy = async (text: string, label: string) => {
+    if (!text) return;
     try {
-      // Fallback simple sur Share dialog (expo-clipboard n'est pas installé).
-      // Sur mobile natif, l'utilisateur peut copier depuis le popup Share.
-      await Share.share({ message: text });
+      await Clipboard.setStringAsync(text);
+      if (Platform.OS === "android") {
+        ToastAndroid.show(`${label} copié dans le presse-papiers`, ToastAndroid.SHORT);
+      } else {
+        Alert.alert(label, `${text}\n\n(Copié dans le presse-papiers)`);
+      }
     } catch {
-      Alert.alert(label, text);
+      // Fallback : ouvre le Share dialog
+      try { await Share.share({ message: text }); } catch {}
     }
   };
 
@@ -69,18 +75,50 @@ export default function AmbassadorDashboard() {
   if (!isAmbassador || !data?.ambassador) {
     return (
       <SafeAreaView style={styles.safe}>
-        <Stack.Screen options={{ title: "Jokoo Partners" }} />
-        <View style={[styles.center, { padding: spacing.xl }]}>
-          <Ionicons name="handshake-outline" size={44} color={colors.textMuted} />
-          <Txt weight="700" size="md" style={{ marginTop: spacing.md, textAlign: "center" }}>
-            Programme sur invitation
+        <Stack.Screen options={{ title: "Jokoo Partners", headerBackTitle: "Retour" }} />
+        <ScrollView contentContainerStyle={{ padding: spacing.xl, alignItems: "center" }}>
+          <Ionicons name="handshake-outline" size={56} color={colors.turquoise} />
+          <Txt weight="700" size="lg" style={{ marginTop: spacing.md, textAlign: "center" }}>
+            Programme Jokoo Partners
           </Txt>
-          <Txt color={colors.textMuted} size="sm" style={{ marginTop: 6, textAlign: "center" }}>
-            Rejoignez Jokoo Partners pour parrainer clients et prestataires et générer des commissions. Contactez notre équipe pour être ambassadeur.
-          </Txt>          <Pressable onPress={() => router.push("/legal")} style={{ marginTop: spacing.lg }}>
-            <Txt weight="700" color={colors.turquoise}>En savoir plus →</Txt>
-          </Pressable>
-        </View>
+          <Txt color={colors.textMuted} size="sm" style={{ marginTop: 6, textAlign: "center", lineHeight: 20 }}>
+            Un programme sur invitation pour parrainer clients et prestataires, débloquer des tiers (Bronze → Elite) et générer des commissions récurrentes.
+          </Txt>
+
+          {/* Bénéfices */}
+          <View style={{ marginTop: spacing.xl, gap: spacing.sm, width: "100%" }}>
+            {[
+              { icon: "🏆", text: "6 tiers de progression avec commissions croissantes (2 % → 12 %)" },
+              { icon: "🎁", text: "Récompenses et badges à chaque niveau" },
+              { icon: "📊", text: "Tableau de bord temps réel de vos filleuls et gains" },
+            ].map((b, i) => (
+              <View key={i} style={styles.benefit}>
+                <Txt size="lg" style={{ marginRight: 10 }}>{b.icon}</Txt>
+                <Txt size="sm" style={{ flex: 1 }}>{b.text}</Txt>
+              </View>
+            ))}
+          </View>
+
+          {/* Actions */}
+          <View style={{ width: "100%", marginTop: spacing.xl, gap: spacing.sm }}>
+            <Btn
+              title="J'ai un code d'invitation"
+              icon="ticket-outline"
+              variant="secondary"
+              onPress={() => router.push("/invite/enter")}
+            />
+            <Btn
+              title="En savoir plus"
+              icon="information-circle-outline"
+              variant="ghost"
+              onPress={() => router.push("/legal/cgu")}
+            />
+          </View>
+
+          <Txt size="xxs" color={colors.textMuted} style={{ marginTop: spacing.xl, textAlign: "center" }}>
+            Devenez ambassadeur sur invitation de notre équipe Jokoo.
+          </Txt>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -297,6 +335,15 @@ const styles = StyleSheet.create({
   },
   linkRow: {
     marginTop: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.card,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  benefit: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.card,

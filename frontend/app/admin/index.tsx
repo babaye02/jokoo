@@ -19,6 +19,7 @@ const NAV_ITEMS: {
   { key: "ads",      title: "Publicités",              sub: "Créer, programmer, suivre",                  icon: "megaphone-outline",      route: "/admin/ads",                perm: "ads:read" },
   { key: "promos",   title: "Offres promo",            sub: "Landing pages /promo/{slug}",                icon: "pricetag-outline",       route: "/admin/promos",             perm: "ads:read" },
   { key: "partners", title: "Partenaires",             sub: "Annuaire des partenaires Jokoo",             icon: "business-outline",       route: "/admin/partners",           perm: "ads:read" },
+  { key: "ambassadors", title: "Jokoo Partners (Parrainage)", sub: "Ambassadeurs, tiers, commissions",     icon: "people-circle-outline", route: "/admin/ambassadors",        superOnly: true },
   { key: "sponsors", title: "Sponsorisations",         sub: "Valider les campagnes payantes",             icon: "rocket-outline",         route: "/admin/sponsorships",       superOnly: true },
   { key: "suggestions", title: "Suggestions de métiers", sub: "Valider les nouveaux métiers proposés",    icon: "bulb-outline",           route: "/admin/service-suggestions" },
   { key: "assist",   title: "Inscription assistée",    sub: "Créer un compte client/prestataire",         icon: "person-add-outline",     route: "/admin/assisted-register", perm: "operator:create_account" },

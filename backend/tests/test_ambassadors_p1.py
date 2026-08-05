@@ -140,8 +140,10 @@ class TestAdminList:
 
         r = requests.get(f"{API}/admin/ambassadors", headers=_auth(admin_token), timeout=10)
         assert r.status_code == 200, r.text
-        rows = r.json()
-        assert isinstance(rows, list)
+        data = r.json()
+        # New format: {total, items} (refactored per audit)
+        assert isinstance(data, dict) and "items" in data and "total" in data
+        rows = data["items"]
         assert len(rows) >= 1
         aida = next((a for a in rows if a.get("code") == EXPECTED_CODE), None)
         assert aida is not None, f"Aida ambassador not found in list: {[a.get('code') for a in rows]}"
@@ -398,17 +400,12 @@ class TestRegisterAndAttach:
         _verify_no_referral(new_uid)
 
     def test_self_referral_blocked_via_attach(self, client_token, admin_token):
-        # Aida trying to attach to her own code — must NOT create referral
-        # But she's already an ambassador and might already have a referral? Let's check.
-        # Since she is not filleul of anyone, a self attach must return ok=false / no attachment.
+        # Aida trying to attach to her own code — must return 400 (explicit error)
         r = requests.post(
             f"{API}/ambassadors/attach", json={"code": EXPECTED_CODE},
             headers=_auth(client_token), timeout=10,
         )
-        assert r.status_code == 200, r.text
-        d = r.json()
-        # Either: already_attached (if she was somehow already a filleul — should NOT be)
-        # or ok=False (no attachment because hook returned None due to self)
+        assert r.status_code == 400, r.text
         # Verify no referral for Aida exists in DB
         me = requests.get(f"{API}/auth/me", headers=_auth(client_token), timeout=10).json()
         aida_id = me["id"]
@@ -505,20 +502,20 @@ class TestRateLimit:
         sys.path.insert(0, "/app/backend")
         from ambassadors import hook_user_registered, MAX_ATTACH_PER_IP_PER_DAY
 
-        assert MAX_ATTACH_PER_IP_PER_DAY == 20, "Rate limit constant changed"
+        assert MAX_ATTACH_PER_IP_PER_DAY == 200, "Rate limit constant changed"
 
         async def _run():
             db = _get_db()
-            # Pre-fill 20 fake referrals from an IP that will fail the 21st
+            # Pre-fill MAX fake referrals from an IP that will fail the MAX+1
             fake_ip = f"203.0.113.{uuid.uuid4().int % 250}"
             # Ensure a fresh ambassador target: use Aida
             aida = await db.ambassadors.find_one({"code": EXPECTED_CODE})
             assert aida is not None
-            # Insert 20 fake referrals with same ip_hash
+            # Insert MAX fake referrals with same ip_hash
             from ambassadors import _hash_ip, _now_iso
             ip_hash = _hash_ip(fake_ip)
             fake_ids = []
-            for i in range(20):
+            for i in range(MAX_ATTACH_PER_IP_PER_DAY):
                 fid = f"TEST_ratelimit_{uuid.uuid4().hex[:8]}"
                 fake_ids.append(fid)
                 await db.ambassador_referrals.insert_one({
@@ -531,7 +528,7 @@ class TestRateLimit:
                     "ip_hash": ip_hash,
                 })
 
-            # 21st attach from same IP → must return None
+            # MAX+1 attach from same IP → must return None
             new_fake_uid = f"TEST_ratelimit_{uuid.uuid4().hex[:8]}"
             aid = await hook_user_registered(
                 db,
