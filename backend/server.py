@@ -7724,6 +7724,7 @@ _STORE_ASSETS_ROOT = Path("/app/store-assets")
 # Additional whitelisted documents that can be downloaded via /api/store-assets/docs/{name}
 _STORE_ASSETS_DOCS = {
     "geographic_availability_strategy.md": ("text/markdown; charset=utf-8", "geographic_availability_strategy.md"),
+    "geographic_availability_strategy.pdf": ("application/pdf", "Jokoo_couverture_geographique.pdf"),
     "geographic_availability.csv": ("text/csv; charset=utf-8", "geographic_availability.csv"),
     "geographic_availability_checklist.txt": ("text/plain; charset=utf-8", "geographic_availability_checklist.txt"),
 }
