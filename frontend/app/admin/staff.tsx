@@ -135,7 +135,7 @@ export default function AdminStaff() {
               <Input label="Nom complet" icon="person-outline" placeholder="Prénom Nom" value={editing.name || ""} onChangeText={(v) => setEditing({ ...editing, name: v })} testID="staff-name" />
               {editing._new ? (
                 <>
-                  <Input label="Email" icon="mail-outline" placeholder="employe@jokoo.sn" autoCapitalize="none" keyboardType="email-address" value={editing.email || ""} onChangeText={(v) => setEditing({ ...editing, email: v })} testID="staff-email" />
+                  <Input label="Email" icon="mail-outline" placeholder="employe@jokooservices.com" autoCapitalize="none" keyboardType="email-address" value={editing.email || ""} onChangeText={(v) => setEditing({ ...editing, email: v })} testID="staff-email" />
                   <Input label="Mot de passe temporaire" icon="lock-closed-outline" secureTextEntry placeholder="6 caractères min." value={editing.password || ""} onChangeText={(v) => setEditing({ ...editing, password: v })} testID="staff-password" />
                 </>
               ) : (

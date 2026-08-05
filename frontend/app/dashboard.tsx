@@ -120,9 +120,9 @@ export default function Dashboard() {
     if (Platform.OS !== "web") {
       Alert.alert(
         "Gérez votre abonnement sur le web",
-        "Pour des raisons de conformité avec les politiques Apple & Google, l'abonnement Jokoo Pro se gère depuis jokoo.sn/pro.",
+        "Pour des raisons de conformité avec les politiques Apple & Google, l'abonnement Jokoo Pro se gère depuis jokooservices.com/pro.",
         [
-          { text: "Ouvrir jokoo.sn/pro", onPress: () => Linking.openURL("https://jokoo.sn/pro").catch(() => {}) },
+          { text: "Ouvrir jokooservices.com/pro", onPress: () => Linking.openURL("https://jokooservices.com/pro").catch(() => {}) },
           { text: "Fermer", style: "cancel" },
         ]
       );
@@ -141,8 +141,8 @@ export default function Dashboard() {
   const chooseSubMethod = () => {
     // Web-only: show payment method options. Native mobile is blocked at subscribe().
     if (Platform.OS !== "web") {
-      Linking.openURL("https://jokoo.sn/pro").catch(() => {
-        Alert.alert("Impossible d'ouvrir", "Rendez-vous sur jokoo.sn/pro depuis votre navigateur.");
+      Linking.openURL("https://jokooservices.com/pro").catch(() => {
+        Alert.alert("Impossible d'ouvrir", "Rendez-vous sur jokooservices.com/pro depuis votre navigateur.");
       });
       return;
     }
@@ -252,7 +252,9 @@ export default function Dashboard() {
         </View>
 
         {/* ── JOKOO PRO BANNER (compact) ── */}
-        {!dash.subscription_active && showProBanner ? (
+        {/* App Store 3.1.1 compliance: hide subscription CTA & pricing on iOS.
+            Providers who purchased Jokoo Pro on the web still see the active badge below. */}
+        {Platform.OS !== "ios" && !dash.subscription_active && showProBanner ? (
           <View style={styles.proBanner}>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -274,12 +276,12 @@ export default function Dashboard() {
                 ) : (
                   <>
                     <Pressable
-                      onPress={() => Linking.openURL("https://jokoo.sn/pro").catch(() => {})}
+                      onPress={() => Linking.openURL("https://jokooservices.com/pro").catch(() => {})}
                       style={styles.proLink}
                       hitSlop={6}
                     >
                       <Ionicons name="open-outline" size={13} color="#7C3AED" />
-                      <Text style={styles.proLinkTxt}>Gérer sur jokoo.sn/pro</Text>
+                      <Text style={styles.proLinkTxt}>Gérer sur jokooservices.com/pro</Text>
                     </Pressable>
                     <Pressable onPress={() => setShowProBanner(false)} hitSlop={6}>
                       <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: "600" }}>Plus tard</Text>

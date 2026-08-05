@@ -5032,7 +5032,7 @@ async def assisted_register(body: AssistedRegisterIn, user=Depends(require_perm(
     temp_pwd = body.temp_password or _gen_otp()
     doc = {
         "id": uid,
-        "email": (body.email or f"{body.phone.replace('+', '')}@jokoo.sn").lower(),
+        "email": (body.email or f"{body.phone.replace('+', '')}@jokooservices.com").lower(),
         "password_hash": await hash_password_async(temp_pwd),
         "name": body.name,
         "role": body.role,
@@ -5601,6 +5601,7 @@ async def admin_reject_kyc(kyc_id: str, body: KycDecisionIn, user=Depends(requir
 
 
 
+@api.delete("/users/me")
 async def delete_my_account(user=Depends(current_user)):
     """Suppression de compte en 1 clic — exigence Apple 5.1.1(v) et Google Play.
     Supprime les données personnelles et anonymise les données historiques.
@@ -7632,7 +7633,7 @@ async def seed(request: Request, user=Depends(current_user)):
                 f"- Objet du document\n- Champ d'application\n- Vos droits et obligations\n"
                 f"- Nos engagements\n- Modifications & mises à jour\n- Contact\n\n"
                 f"---\n\n"
-                f"*Pour toute question, contactez-nous à support@jokoo.sn.*\n"
+                f"*Pour toute question, contactez-nous à support@jokooservices.com.*\n"
             )
         summary = f"Document juridique de Jokoo — {title}"
         now = now_iso()
@@ -7756,8 +7757,6 @@ elif _cors_env:
 else:
     # Défaut sécurisé : autoriser uniquement les surfaces Jokoo connues + preview.
     _cors_origins = [
-        "https://jokoo.sn",
-        "https://www.jokoo.sn",
         "https://jokooservices.com",
         "https://www.jokooservices.com",
         "http://localhost:3000",

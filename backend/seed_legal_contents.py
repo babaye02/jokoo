@@ -14,9 +14,9 @@ from datetime import datetime, timezone
 # --- Contexte commun ------------------------------------------------------
 COMPANY_NAME = "Jokoo Services"
 COMPANY_LEGAL_NAME = "Jokoo Services SAS"
-COMPANY_EMAIL = "support@jokoo.sn"
-DPO_EMAIL = "privacy@jokoo.sn"
-LEGAL_EMAIL = "legal@jokoo.sn"
+COMPANY_EMAIL = "support@jokooservices.com"
+DPO_EMAIL = "privacy@jokooservices.com"
+LEGAL_EMAIL = "legal@jokooservices.com"
 APP_URL = "https://jokooservices.com"
 COUNTRY = "Sénégal"
 

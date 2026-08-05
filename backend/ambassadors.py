@@ -1237,7 +1237,7 @@ def create_ambassadors_router(
 
     @router.get("/public/invite/{code}")
     async def public_invite_meta(code: str):
-        """Métadonnées pour la landing page web (jokoo.sn/i/CODE). Renvoie
+        """Métadonnées pour la landing page web (jokooservices.com/i/CODE). Renvoie
         aussi les Universal Link params."""
         token = code.strip().upper()
         amb = await db.ambassadors.find_one({"code": token, "active": True})
