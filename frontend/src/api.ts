@@ -61,12 +61,28 @@ async function request<T = any>(
   if (res.status === 401 && auth) {
     res = await doFetch(true);
   }
+  // Auto-retry sur 429 (rate limit) — jusqu'à 2 tentatives supplémentaires,
+  // avec backoff exponentiel court (150ms, 400ms). Après quoi on remonte
+  // l'erreur avec un message convivial en français.
+  if (res.status === 429) {
+    for (let i = 0; i < 2; i++) {
+      await new Promise((r) => setTimeout(r, i === 0 ? 150 : 400));
+      res = await doFetch(false);
+      if (res.status !== 429) break;
+    }
+  }
 
   const text = await res.text();
   const body = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
   if (!res.ok) {
-    const message =
+    let message =
       (body && (body.detail || body.message)) || `HTTP ${res.status}`;
+    // Message convivial pour 429 (au cas où le auto-retry ci-dessus n'a pas suffi)
+    if (res.status === 429) {
+      message = typeof message === "string" && message.startsWith("HTTP ")
+        ? "Trop d'activité, patientez quelques secondes."
+        : message;
+    }
     const err: ApiError = { status: res.status, message: String(message) };
     if (res.status === 401 && auth) {
       _memToken = null;
