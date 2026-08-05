@@ -13,7 +13,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.jokoo.app",
       "usesAppleSignIn": true,
-      "buildNumber": "3",
+      "buildNumber": "4",
       "requireFullScreen": false,
       "infoPlist": {
         "NSCameraUsageDescription": "Prenez une photo pour vos missions et profil.",
