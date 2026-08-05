@@ -25,6 +25,11 @@ from typing import Any, List, Optional, Literal
 
 import bcrypt
 import jwt
+from apple_siwa import (
+    exchange_authorization_code as _apple_exchange_code,
+    revoke_apple_refresh_token as _apple_revoke_token,
+    apple_configured as _apple_configured,
+)
 from emergentintegrations.payments.stripe.checkout import (
     StripeCheckout,
     CheckoutSessionRequest,
@@ -1501,6 +1506,11 @@ def _apple_audiences() -> list:
 
 class AppleSignInIn(BaseModel):
     identity_token: str
+    # authorization_code — required to obtain an Apple refresh_token that we can
+    # later revoke at account deletion (Apple 5.1.1(v) compliance).
+    # Optional for backward compatibility with older client builds that don't
+    # send it yet; those users will simply skip revocation at deletion.
+    authorization_code: Optional[str] = None
     # First sign-in only — Apple gives these once, we must save them immediately
     name: Optional[str] = None
     email: Optional[str] = None
@@ -1547,16 +1557,29 @@ async def sign_in_with_apple(body: AppleSignInIn):
         raise HTTPException(401, "Token Apple sans identifiant sujet")
     apple_email = (claims.get("email") or body.email or "").lower() or None
 
+    # Best-effort: exchange authorization_code for a refresh_token so we can
+    # later revoke it at account deletion (Apple 5.1.1(v) compliance).
+    # Silent failure — sign-in must still succeed even without server-side revoke setup.
+    apple_refresh_token: Optional[str] = None
+    if body.authorization_code:
+        try:
+            token_resp = await _apple_exchange_code(body.authorization_code)
+            if token_resp and token_resp.get("refresh_token"):
+                apple_refresh_token = token_resp["refresh_token"]
+        except Exception as _apple_err:
+            log.warning("Apple token exchange failed (non-blocking): %s", _apple_err)
+
     # Match order: apple_sub → email → new user
     user = await db.users.find_one({"apple_sub": apple_sub}, {"_id": 0})
     if not user and apple_email:
         user = await db.users.find_one({"email": apple_email}, {"_id": 0})
         if user:
             # link this Apple identity to existing account
-            await db.users.update_one({"id": user["id"]}, {"$set": {
-                "apple_sub": apple_sub,
-                "updated_at": now_iso(),
-            }})
+            _update: dict[str, Any] = {"apple_sub": apple_sub, "updated_at": now_iso()}
+            if apple_refresh_token:
+                _update["apple_refresh_token"] = apple_refresh_token
+                _update["apple_token_updated_at"] = now_iso()
+            await db.users.update_one({"id": user["id"]}, {"$set": _update})
             user["apple_sub"] = apple_sub
 
     if not user:
@@ -1579,8 +1602,11 @@ async def sign_in_with_apple(body: AppleSignInIn):
             "auth_provider": "apple",
             "created_at": now_iso(),
         }
+        if apple_refresh_token:
+            doc["apple_refresh_token"] = apple_refresh_token
+            doc["apple_token_updated_at"] = now_iso()
         await db.users.insert_one(doc)
-        user = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
+        user = {k: v for k, v in doc.items() if k not in ("password_hash", "_id", "apple_refresh_token")}
         # Jokoo Partners — rattachement à l'ambassadeur (best-effort)
         if body.referral_code:
             try:
@@ -1596,7 +1622,16 @@ async def sign_in_with_apple(body: AppleSignInIn):
             except Exception as _amb_err:
                 log.debug("apple signup ambassador attach failed: %s", _amb_err)
     else:
-        user = {k: v for k, v in user.items() if k not in ("password_hash", "_id")}
+        # Refresh the stored token on every sign-in if Apple returned a new one.
+        if apple_refresh_token:
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {
+                    "apple_refresh_token": apple_refresh_token,
+                    "apple_token_updated_at": now_iso(),
+                }},
+            )
+        user = {k: v for k, v in user.items() if k not in ("password_hash", "_id", "apple_refresh_token")}
 
     token = make_token(user["id"], token_version=int(user.get("token_version") or 0))
     return {"token": token, "user": user}
@@ -5605,9 +5640,22 @@ async def admin_reject_kyc(kyc_id: str, body: KycDecisionIn, user=Depends(requir
 async def delete_my_account(user=Depends(current_user)):
     """Suppression de compte en 1 clic — exigence Apple 5.1.1(v) et Google Play.
     Supprime les données personnelles et anonymise les données historiques.
+    Révoque également le refresh_token Apple si l'utilisateur s'est connecté via
+    Sign in with Apple (obligation Apple 5.1.1(v) sur la révocation de tokens).
     """
     uid = user["id"]
-    # Delete personal-only collections
+    # ── Étape 1 : Apple Sign-In token revocation (best-effort, avant suppression)
+    # Doit être appelé AVANT de supprimer le doc utilisateur pour lire le refresh_token.
+    # Si Apple est down ou credentials manquants, la suppression continue quand même.
+    try:
+        full_user = await db.users.find_one({"id": uid}, {"apple_refresh_token": 1, "apple_sub": 1})
+        apple_refresh_token = (full_user or {}).get("apple_refresh_token")
+        if apple_refresh_token:
+            await _apple_revoke_token(apple_refresh_token)
+    except Exception as _apple_err:
+        log.warning("Apple token revocation encountered an error (non-blocking): %s", _apple_err)
+
+    # ── Étape 2 : Delete personal-only collections
     await db.favorites.delete_many({"user_id": uid})
     await db.legal_acceptances.delete_many({"user_id": uid})
     await db.notifications.delete_many({"user_id": uid})

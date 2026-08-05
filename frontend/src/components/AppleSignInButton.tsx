@@ -55,7 +55,10 @@ export function AppleSignInButton({ mode = "signIn", onDone }: { mode?: "signIn"
       const fullName = credential.fullName;
       const nameStr = [fullName?.givenName, fullName?.familyName].filter(Boolean).join(" ").trim() || undefined;
       const emailStr = credential.email || undefined;
-      await signInWithApple(identityToken, nameStr, emailStr);
+      // authorization_code — required by the backend to obtain an Apple refresh_token
+      // (persisted for later revocation at account deletion, Apple 5.1.1(v) compliance).
+      const authorizationCode = credential.authorizationCode || undefined;
+      await signInWithApple(identityToken, nameStr, emailStr, authorizationCode);
       onDone?.();
       router.replace("/(tabs)");
     } catch (e: any) {

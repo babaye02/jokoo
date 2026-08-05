@@ -15,7 +15,7 @@ type AuthState = {
   signInWithOtp: (phone: string, code: string) => Promise<User>;
   requestOtp: (phone: string) => Promise<{ ok: boolean; otp_dev_only?: string }>;
   signUp: (payload: { email: string; password: string; name: string; role: "client" | "prestataire"; phone?: string; city?: string; referral_code?: string }) => Promise<User>;
-  signInWithApple: (identityToken: string, name?: string, email?: string) => Promise<User>;
+  signInWithApple: (identityToken: string, name?: string, email?: string, authorizationCode?: string) => Promise<User>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
   switchRole: () => Promise<User>;
@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return r.user;
   };
 
-  const signInWithApple = async (identityToken: string, name?: string, email?: string) => {
+  const signInWithApple = async (identityToken: string, name?: string, email?: string, authorizationCode?: string) => {
     // Récupère le code de parrainage en attente pour le passer à l'API
     let referral_code: string | undefined;
     try {
@@ -107,6 +107,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     const r = await api.post<{ token: string; user: User }>("/auth/apple", {
       identity_token: identityToken,
+      // authorization_code is required server-side to exchange for a
+      // refresh_token used later at account deletion (Apple 5.1.1(v)).
+      authorization_code: authorizationCode || null,
       name: name || null,
       email: email || null,
       referral_code,
