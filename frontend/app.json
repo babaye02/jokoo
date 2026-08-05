@@ -116,7 +116,8 @@
           "locationWhenInUsePermission": "Trouvez les trajets et prestataires près de vous."
         }
       ],
-      "./plugins/with-privacy-manifest.js"
+      "./plugins/with-privacy-manifest.js",
+      "./plugins/with-strip-associated-domains.js"
     ],
     "experiments": {
       "typedRoutes": true
