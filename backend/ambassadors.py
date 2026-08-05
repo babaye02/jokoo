@@ -778,26 +778,32 @@ def create_ambassadors_router(
             {"_id": 0, "user_id": 1, "code": 1, "slug": 1, "tier": 1, "verified_count": 1},
         ).sort("verified_count", -1).limit(limit)
         rows = await cur.to_list(length=limit)
+        if not rows:
+            return []
         uids = [r["user_id"] for r in rows]
         users = {u["id"]: u async for u in db.users.find({"id": {"$in": uids}}, {"_id": 0, "id": 1, "name": 1, "avatar": 1})}
+        # Split verified par rôle en UNE seule aggregation (au lieu de N×2 count_documents)
+        role_counts: dict[str, dict[str, int]] = {}
+        pipeline = [
+            {"$match": {"ambassador_id": {"$in": uids}, "status": "verified"}},
+            {"$group": {"_id": {"aid": "$ambassador_id", "role": "$referred_role"}, "n": {"$sum": 1}}},
+        ]
+        async for g in db.ambassador_referrals.aggregate(pipeline):
+            aid = g["_id"]["aid"]
+            role = g["_id"]["role"] or "client"
+            role_counts.setdefault(aid, {})[role] = g["n"]
         out = []
         for idx, r in enumerate(rows, start=1):
             u = users.get(r["user_id"], {})
-            # Split by role — approximé via un count clients vs prestataires
-            prest = await db.ambassador_referrals.count_documents({
-                "ambassador_id": r["user_id"], "status": "verified", "referred_role": "prestataire"
-            })
-            clients = await db.ambassador_referrals.count_documents({
-                "ambassador_id": r["user_id"], "status": "verified", "referred_role": "client"
-            })
+            rc = role_counts.get(r["user_id"], {})
             out.append({
                 "rank": idx,
                 "name": u.get("name") or r.get("slug"),
                 "avatar": u.get("avatar"),
                 "tier": r.get("tier", "starter"),
                 "badge": TIER_BADGES.get(r.get("tier", "starter"), "🤝"),
-                "prestataires": prest,
-                "clients": clients,
+                "prestataires": int(rc.get("prestataire", 0)),
+                "clients": int(rc.get("client", 0)),
             })
         return out
 
