@@ -1,0 +1,59 @@
+JOKOO — LISTE DES 27 PAYS À COCHER DANS APP STORE CONNECT
+==========================================================
+(À utiliser dans : Pricing and Availability > Availability > Edit Countries)
+
+TIER 1 — MARCHÉ PRINCIPAL (1)
+------------------------------
+[ ] Sénégal
+
+TIER 2 — AFRIQUE DE L'OUEST FRANCOPHONE (8)
+--------------------------------------------
+[ ] Côte d'Ivoire
+[ ] Mali
+[ ] Burkina Faso
+[ ] Bénin
+[ ] Togo
+[ ] Niger
+[ ] Guinée
+[ ] Mauritanie
+
+TIER 3 — AFRIQUE DE L'OUEST (voisins) (3)
+------------------------------------------
+[ ] Gambie
+[ ] Guinée-Bissau
+[ ] Cap-Vert
+
+TIER 4 — DIASPORA (15)
+----------------------
+Europe :
+[ ] France
+[ ] Italie
+[ ] Espagne
+[ ] Royaume-Uni
+[ ] Belgique
+[ ] Allemagne
+[ ] Pays-Bas
+[ ] Suisse
+[ ] Luxembourg
+[ ] Portugal
+
+Amérique du Nord :
+[ ] États-Unis
+[ ] Canada
+
+Maghreb (étudiants sénégalais) :
+[ ] Maroc
+[ ] Algérie
+[ ] Tunisie
+
+==========================================================
+TOTAL : 27 pays cochés
+==========================================================
+
+DÉCOCHEZ TOUS LES AUTRES PAYS de la liste Apple/Google.
+
+PAYS INTERDITS (ne PAS cocher) :
+- Chine (licence ICP requise)
+- Russie, Iran, Corée du Nord (sanctions internationales)
+- Yémen, Syrie, Soudan (zones de conflit)
+- Arabie Saoudite, EAU (conformité fiscale locale nécessaire)

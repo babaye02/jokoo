@@ -7714,12 +7714,19 @@ async def root():
     return {"service": "Jokoo API", "status": "ok"}
 
 
-# ---------- store assets download (App Store screenshots) ----------
-# TEMPORARY: exposes /api/store-assets/* for downloading the generated App Store
-# screenshots from the pod filesystem. Safe because it only serves files inside
-# /app/store-assets/screenshots/final (whitelisted, no path traversal possible).
+# ---------- store assets download (App Store screenshots + docs) ----------
+# TEMPORARY: exposes /api/store-assets/* for downloading generated files from
+# the pod filesystem. Safe because it only serves whitelisted files inside
+# /app/store-assets (no path traversal possible).
 _STORE_ASSETS_DIR = Path("/app/store-assets/screenshots/final")
 _STORE_ASSETS_ZIP = Path("/app/store-assets/jokoo_appstore_screenshots.zip")
+_STORE_ASSETS_ROOT = Path("/app/store-assets")
+# Additional whitelisted documents that can be downloaded via /api/store-assets/docs/{name}
+_STORE_ASSETS_DOCS = {
+    "geographic_availability_strategy.md": ("text/markdown; charset=utf-8", "geographic_availability_strategy.md"),
+    "geographic_availability.csv": ("text/csv; charset=utf-8", "geographic_availability.csv"),
+    "geographic_availability_checklist.txt": ("text/plain; charset=utf-8", "geographic_availability_checklist.txt"),
+}
 
 
 @api.get("/store-assets/zip")
@@ -7735,26 +7742,41 @@ async def download_store_assets_zip():
 
 @api.get("/store-assets/list")
 async def list_store_assets():
-    if not _STORE_ASSETS_DIR.exists():
-        return {"items": []}
-    items = sorted(
-        {"name": p.name, "size_kb": p.stat().st_size // 1024}
-        for p in _STORE_ASSETS_DIR.glob("*.png")
-    ) if False else [
-        {"name": p.name, "size_kb": p.stat().st_size // 1024}
-        for p in sorted(_STORE_ASSETS_DIR.glob("*.png"))
-    ]
+    items = []
+    if _STORE_ASSETS_DIR.exists():
+        items = [
+            {"name": p.name, "size_kb": p.stat().st_size // 1024, "type": "screenshot"}
+            for p in sorted(_STORE_ASSETS_DIR.glob("*.png"))
+        ]
+    docs = []
+    for name in _STORE_ASSETS_DOCS:
+        f = _STORE_ASSETS_ROOT / name
+        if f.exists():
+            docs.append({"name": name, "size_kb": max(1, f.stat().st_size // 1024), "type": "document"})
     zip_exists = _STORE_ASSETS_ZIP.exists()
     return {
-        "items": items,
+        "screenshots": items,
+        "documents": docs,
         "zip_available": zip_exists,
         "zip_size_kb": (_STORE_ASSETS_ZIP.stat().st_size // 1024) if zip_exists else None,
     }
 
 
+@api.get("/store-assets/docs/{filename}")
+async def download_store_asset_doc(filename: str):
+    """Serve whitelisted marketing/strategy documents (CSV, TXT, MD)."""
+    if filename not in _STORE_ASSETS_DOCS:
+        raise HTTPException(404, "Document not available")
+    media_type, download_name = _STORE_ASSETS_DOCS[filename]
+    target = _STORE_ASSETS_ROOT / filename
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "Document not found on disk")
+    return FileResponse(target, media_type=media_type, filename=download_name)
+
+
 @api.get("/store-assets/{filename}")
 async def download_store_asset(filename: str):
-    # Whitelist: only files inside the fixed directory, only PNGs.
+    # Whitelist: only PNG files inside the fixed screenshots directory.
     if "/" in filename or "\\" in filename or not filename.endswith(".png"):
         raise HTTPException(400, "Invalid filename")
     target = _STORE_ASSETS_DIR / filename

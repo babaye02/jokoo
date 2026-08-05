@@ -1,0 +1,28 @@
+iso_code,country_name_fr,country_name_en,tier,region,population_millions,rationale
+SN,Sénégal,Senegal,1,Afrique de l'Ouest,17.9,Marché principal
+CI,Côte d'Ivoire,Ivory Coast,2,UEMOA,28.0,2e marché francophone
+ML,Mali,Mali,2,UEMOA,22.0,XOF francophone
+BF,Burkina Faso,Burkina Faso,2,UEMOA,22.0,XOF francophone
+BJ,Bénin,Benin,2,UEMOA,13.0,XOF francophone
+TG,Togo,Togo,2,UEMOA,8.0,XOF francophone
+NE,Niger,Niger,2,UEMOA,26.0,XOF francophone
+GN,Guinée,Guinea,2,CEDEAO,14.0,Francophone GNF
+MR,Mauritanie,Mauritania,2,Frontalier,5.0,Frontière nord Sénégal
+GM,Gambie,Gambia,3,Enclave,3.0,Enclavé dans le Sénégal
+GW,Guinée-Bissau,Guinea-Bissau,3,CEDEAO,2.0,Lusophone XOF
+CV,Cap-Vert,Cape Verde,3,Atlantique,0.6,Diaspora liée
+FR,France,France,4,Diaspora Europe,150.0,Plus grande diaspora sénégalaise
+IT,Italie,Italy,4,Diaspora Europe,100.0,2e diaspora européenne
+ES,Espagne,Spain,4,Diaspora Europe,80.0,Andalousie et Canaries
+US,États-Unis,United States,4,Diaspora Amérique,50.0,NYC Ohio DC
+CA,Canada,Canada,4,Diaspora Amérique,15.0,Montréal Toronto
+GB,Royaume-Uni,United Kingdom,4,Diaspora Europe,15.0,Londres
+BE,Belgique,Belgium,4,Diaspora Europe,12.0,Bruxelles Anvers
+DE,Allemagne,Germany,4,Diaspora Europe,10.0,Communauté croissante
+NL,Pays-Bas,Netherlands,4,Diaspora Europe,7.0,Amsterdam
+CH,Suisse,Switzerland,4,Diaspora Europe,5.0,Genève Zurich
+LU,Luxembourg,Luxembourg,4,Diaspora Europe,2.0,Enclave francophone
+PT,Portugal,Portugal,4,Diaspora Europe,4.0,Historique lusophone
+MA,Maroc,Morocco,4,Étudiants,0.0,Grande communauté étudiante sénégalaise
+DZ,Algérie,Algeria,4,Étudiants,0.0,Communauté étudiante sénégalaise
+TN,Tunisie,Tunisia,4,Étudiants,0.0,Communauté étudiante sénégalaise
