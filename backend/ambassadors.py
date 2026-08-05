@@ -805,20 +805,38 @@ def create_ambassadors_router(
     async def user_attach(body: AttachReferralBody, request: Request, user=Depends(current_user)):
         """L'utilisateur (connecté) rentre un code après inscription pour se
         rattacher à un ambassadeur (idempotent : une seule fois)."""
+        token_raw = (body.code or body.slug or "").strip()
+        if not token_raw:
+            raise HTTPException(400, "Code d'invitation manquant.")
+
         existing = await db.ambassador_referrals.find_one({"referred_user_id": user["id"]})
         if existing:
             return {"ok": True, "already_attached": True, "ambassador_id": existing["ambassador_id"]}
+
+        # Résout l'ambassadeur pour donner des erreurs explicites (mieux UX)
+        amb_lookup = await db.ambassadors.find_one({
+            "$or": [{"code": token_raw.upper()}, {"slug": token_raw.lower()}],
+            "active": True,
+        })
+        if not amb_lookup:
+            raise HTTPException(404, "Code d'invitation invalide ou expiré.")
+        if amb_lookup["user_id"] == user["id"]:
+            raise HTTPException(400, "Vous ne pouvez pas être votre propre parrain.")
+
         ip = _get_ip(request)
         aid = await hook_user_registered(
             db,
             new_user_id=user["id"],
             new_user_role=user.get("role", "client"),
-            ambassador_code_or_slug=body.code or body.slug,
+            ambassador_code_or_slug=token_raw,
             new_user_email=user.get("email"),
             new_user_phone=user.get("phone"),
             ip=ip,
         )
-        return {"ok": bool(aid), "ambassador_id": aid}
+        if not aid:
+            # Seul cas restant : rate limit atteint
+            raise HTTPException(429, "Trop de tentatives récentes. Merci de réessayer plus tard.")
+        return {"ok": True, "ambassador_id": aid}
 
     @router.post("/ambassadors/resolve")
     async def public_resolve(body: ResolveInviteBody):
