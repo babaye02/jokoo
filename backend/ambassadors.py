@@ -960,7 +960,9 @@ def create_ambassadors_router(
         if not amb:
             raise HTTPException(403, "Not an ambassador")
         q: dict = {"ambassador_id": user["id"]}
-        if status and status in ("pending", "verified", "invalid"):
+        if status is not None:
+            if status not in ("pending", "verified", "invalid"):
+                raise HTTPException(400, "Statut invalide. Valeurs: pending|verified|invalid.")
             q["status"] = status
         rows = await db.ambassador_referrals.find(
             q, {"_id": 0, "ip_hash": 0, "referred_email_hash": 0, "referred_phone_hash": 0}

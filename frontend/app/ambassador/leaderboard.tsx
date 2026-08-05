@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Stack } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
-import { Card, Txt, Avatar, ErrorBox } from "@/src/components/ui";
+import { Card, Txt, Avatar, ErrorBox, ScreenHeader } from "@/src/components/ui";
 import { colors, shadow, spacing } from "@/src/theme";
 
 interface Row {
@@ -21,6 +21,7 @@ const RANK_COLORS: Record<number, string> = { 1: "#F5B301", 2: "#C0C0C0", 3: "#C
 
 export default function AmbassadorLeaderboard() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +45,7 @@ export default function AmbassadorLeaderboard() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <Stack.Screen options={{ title: "Classement Jokoo Partners", headerBackTitle: "Retour" }} />
+      <ScreenHeader title="Classement" onBack={() => router.back()} />
 
       {error ? (
         <View style={styles.center}><ErrorBox text={error} /></View>

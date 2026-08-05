@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert, TextInput, RefreshControl, Modal } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { isSuperAdmin } from "@/src/perms";
-import { Txt, Avatar, Badge, Btn, ErrorBox } from "@/src/components/ui";
+import { Txt, Avatar, Badge, Btn, ErrorBox, ScreenHeader } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 /**
@@ -138,8 +138,8 @@ export default function AdminAmbassadors() {
 
   if (!allowed) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <Stack.Screen options={{ title: "Jokoo Partners" }} />
+      <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+        <ScreenHeader title="Jokoo Partners" onBack={() => router.back()} />
         <View style={styles.center}>
           <Ionicons name="lock-closed-outline" size={48} color={colors.textMuted} />
           <Txt weight="700" style={{ marginTop: spacing.md }}>Accès super-admin requis</Txt>
@@ -150,7 +150,7 @@ export default function AdminAmbassadors() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <Stack.Screen options={{ title: "Jokoo Partners" }} />
+      <ScreenHeader title="Jokoo Partners" onBack={() => router.back()} />
 
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 32 + insets.bottom }}

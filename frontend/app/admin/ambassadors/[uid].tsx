@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert, RefreshControl, Share, Modal, TextInput } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
-import { Card, Txt, Avatar, Badge, Btn, ErrorBox } from "@/src/components/ui";
+import { Card, Txt, Avatar, Badge, Btn, ErrorBox, ScreenHeader } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 interface AmbDetail {
@@ -172,16 +172,16 @@ export default function AdminAmbassadorDetail() {
 
   if (loading && !amb) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <Stack.Screen options={{ title: "Ambassadeur" }} />
+      <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+        <ScreenHeader title="Ambassadeur" onBack={() => router.back()} />
         <View style={styles.center}><Txt color={colors.textMuted}>Chargement…</Txt></View>
       </SafeAreaView>
     );
   }
   if (error || !amb) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <Stack.Screen options={{ title: "Ambassadeur", headerBackTitle: "Retour" }} />
+      <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+        <ScreenHeader title="Ambassadeur" onBack={() => router.back()} />
         <View style={styles.center}>
           <ErrorBox text={error || "Ambassadeur introuvable"} />
           <Btn title="Retour" onPress={() => router.back()} style={{ marginTop: spacing.md }} />
@@ -197,7 +197,7 @@ export default function AdminAmbassadorDetail() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <Stack.Screen options={{ title: amb.name || "Ambassadeur", headerBackTitle: "Retour" }} />
+      <ScreenHeader title={amb.name || "Ambassadeur"} onBack={() => router.back()} />
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 32 + insets.bottom }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}

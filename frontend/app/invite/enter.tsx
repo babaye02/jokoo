@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { View, StyleSheet, TextInput, Alert, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Stack, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { Txt, Btn, ErrorBox } from "@/src/components/ui";
+import { Txt, Btn, ErrorBox, ScreenHeader } from "@/src/components/ui";
 import { colors, radius, spacing } from "@/src/theme";
 
 /**
@@ -55,7 +55,7 @@ export default function InviteEnterScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <Stack.Screen options={{ title: "Saisir un code", headerBackTitle: "Retour" }} />
+      <ScreenHeader title="Saisir un code" onBack={() => router.back()} />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}

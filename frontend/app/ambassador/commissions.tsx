@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Stack } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
-import { Card, Txt, Badge, ErrorBox } from "@/src/components/ui";
+import { Card, Txt, Badge, ErrorBox, ScreenHeader } from "@/src/components/ui";
 import { colors, spacing } from "@/src/theme";
 
 interface Commission {
@@ -28,6 +28,7 @@ function statusMeta(s: string) {
 
 export default function AmbassadorCommissions() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [rows, setRows] = useState<Commission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export default function AmbassadorCommissions() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <Stack.Screen options={{ title: "Mes commissions", headerBackTitle: "Retour" }} />
+      <ScreenHeader title="Mes commissions" onBack={() => router.back()} />
       {error ? (
         <View style={styles.center}><ErrorBox text={error} /></View>
       ) : loading ? (

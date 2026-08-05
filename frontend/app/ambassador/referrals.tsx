@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, StyleSheet, FlatList, RefreshControl, Pressable } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Stack } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
-import { Card, Txt, Avatar, Badge, ErrorBox } from "@/src/components/ui";
+import { Card, Txt, Avatar, Badge, ErrorBox, ScreenHeader } from "@/src/components/ui";
 import { colors, radius, spacing } from "@/src/theme";
 
 interface Referral {
@@ -44,6 +44,7 @@ function roleLabel(r?: string | null) {
 
 export default function AmbassadorReferrals() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [rows, setRows] = useState<Referral[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +69,7 @@ export default function AmbassadorReferrals() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <Stack.Screen options={{ title: "Mes filleuls", headerBackTitle: "Retour" }} />
+      <ScreenHeader title="Mes filleuls" onBack={() => router.back()} />
 
       {/* Filter tabs */}
       <View style={styles.tabs}>

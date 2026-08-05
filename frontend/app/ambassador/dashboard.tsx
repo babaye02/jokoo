@@ -1,10 +1,10 @@
 import { useCallback, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Share, Alert, ToastAndroid, Platform } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter, useFocusEffect, Stack } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
-import { Card, Txt, Avatar, Btn, ErrorBox } from "@/src/components/ui";
+import { Card, Txt, Avatar, Btn, ErrorBox, ScreenHeader } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 import { useAmbassadorStatus } from "@/src/hooks/useAmbassadorStatus";
 
@@ -64,18 +64,24 @@ export default function AmbassadorDashboard() {
 
   if (loading && !data) {
     return (
-      <SafeAreaView style={styles.safe}><View style={styles.center}><Txt color={colors.textMuted}>Chargement…</Txt></View></SafeAreaView>
+      <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+        <ScreenHeader title="Jokoo Partners" onBack={() => router.back()} />
+        <View style={styles.center}><Txt color={colors.textMuted}>Chargement…</Txt></View>
+      </SafeAreaView>
     );
   }
   if (error) {
     return (
-      <SafeAreaView style={styles.safe}><View style={styles.center}><ErrorBox text={error} /></View></SafeAreaView>
+      <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+        <ScreenHeader title="Jokoo Partners" onBack={() => router.back()} />
+        <View style={styles.center}><ErrorBox text={error} /></View>
+      </SafeAreaView>
     );
   }
   if (!isAmbassador || !data?.ambassador) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <Stack.Screen options={{ title: "Jokoo Partners", headerBackTitle: "Retour" }} />
+      <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+        <ScreenHeader title="Jokoo Partners" onBack={() => router.back()} />
         <ScrollView contentContainerStyle={{ padding: spacing.xl, alignItems: "center" }}>
           <Ionicons name="handshake-outline" size={56} color={colors.turquoise} />
           <Txt weight="700" size="lg" style={{ marginTop: spacing.md, textAlign: "center" }}>
@@ -131,7 +137,7 @@ export default function AmbassadorDashboard() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <Stack.Screen options={{ title: "Jokoo Partners" }} />
+      <ScreenHeader title="Jokoo Partners" onBack={() => router.back()} />
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 32 + insets.bottom }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}

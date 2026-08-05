@@ -292,6 +292,74 @@ function ExpoImage({ uri, size }: { uri: string; size: number }) {
   return <Image source={{ uri }} style={{ width: size, height: size }} contentFit="cover" transition={150} />;
 }
 
+// -------- Screen header (custom back button + title) --------
+// Utilisé pour les écrans qui ne peuvent pas se reposer sur le header natif
+// d'expo-router (le root layout a `headerShown: false`). Fournit un bouton
+// retour cohérent + titre centré + éventuelle action à droite.
+export function ScreenHeader({
+  title,
+  onBack,
+  right,
+  variant = "light",
+  testID,
+}: {
+  title?: string;
+  onBack?: () => void;
+  right?: React.ReactNode;
+  variant?: "light" | "dark";
+  testID?: string;
+}) {
+  const isDark = variant === "dark";
+  const iconColor = isDark ? colors.white : colors.text;
+  const textColor = isDark ? colors.white : colors.text;
+  return (
+    <View style={headerStyles.wrap} testID={testID}>
+      <Pressable
+        onPress={onBack}
+        hitSlop={12}
+        accessibilityRole="button"
+        accessibilityLabel="Retour"
+        style={({ pressed }) => [
+          headerStyles.iconBtn,
+          isDark && { backgroundColor: "rgba(255,255,255,0.15)" },
+          pressed && { opacity: 0.6 },
+        ]}
+      >
+        <Ionicons name="chevron-back" size={22} color={iconColor} />
+      </Pressable>
+      <View style={{ flex: 1, alignItems: "center", paddingHorizontal: spacing.sm }}>
+        {title ? (
+          <Text
+            numberOfLines={1}
+            style={{ fontSize: 16, fontWeight: "700", color: textColor }}
+          >
+            {title}
+          </Text>
+        ) : null}
+      </View>
+      <View style={{ minWidth: 40, alignItems: "flex-end" }}>{right}</View>
+    </View>
+  );
+}
+
+const headerStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    minHeight: 48,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
+
 // -------- Section header --------
 export function SectionHeader({ title, action, onAction, testID, overline }: { title: string; action?: string; onAction?: () => void; testID?: string; overline?: string }) {
   return (
