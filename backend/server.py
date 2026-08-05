@@ -264,20 +264,24 @@ BRUTE_LOCKOUT_SEC = 30 * 60  # 30 min
 async def brute_force_check(identifier: str, ip: str) -> None:
     """Bloque temporairement après trop d'échecs.
     Identifie par email et IP conjointement pour limiter les faux positifs partagés."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     keys = [f"login:email:{identifier.lower()}", f"login:ip:{ip}"]
     for k in keys:
         doc = await db.rate_limit.find_one({"_id": k})
         if not doc:
             continue
         locked_until = doc.get("locked_until")
-        if locked_until and now < locked_until:
-            remaining = int((locked_until - now).total_seconds())
-            raise HTTPException(429, f"Trop de tentatives. Réessayez dans {remaining // 60} min.")
+        if locked_until:
+            # Assurer que locked_until est timezone-aware (compat legacy naive)
+            if isinstance(locked_until, datetime) and locked_until.tzinfo is None:
+                locked_until = locked_until.replace(tzinfo=timezone.utc)
+            if now < locked_until:
+                remaining = int((locked_until - now).total_seconds())
+                raise HTTPException(429, f"Trop de tentatives. Réessayez dans {remaining // 60} min.")
 
 
 async def brute_force_record(identifier: str, ip: str, success: bool) -> None:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     keys = [f"login:email:{identifier.lower()}", f"login:ip:{ip}"]
     for k in keys:
         if success:
@@ -286,7 +290,13 @@ async def brute_force_record(identifier: str, ip: str, success: bool) -> None:
         # Sliding window : garde les échecs des BRUTE_WINDOW_SEC dernières s
         doc = await db.rate_limit.find_one({"_id": k}) or {"_id": k, "attempts": []}
         cutoff = now - timedelta(seconds=BRUTE_WINDOW_SEC)
-        attempts = [a for a in (doc.get("attempts") or []) if a > cutoff]
+        # Assurer que les attempts stockés sont timezone-aware (compat legacy)
+        attempts = []
+        for a in (doc.get("attempts") or []):
+            if isinstance(a, datetime) and a.tzinfo is None:
+                a = a.replace(tzinfo=timezone.utc)
+            if a > cutoff:
+                attempts.append(a)
         attempts.append(now)
         update = {"$set": {"attempts": attempts, "updated_at": now}}
         if len(attempts) >= BRUTE_MAX_ATTEMPTS:
@@ -322,11 +332,14 @@ async def verify_password_async(password: str, hashed: str) -> bool:
     return await asyncio.to_thread(verify_password, password, hashed)
 
 
-def make_token(user_id: str) -> str:
+def make_token(user_id: str, token_version: int = 0) -> str:
     payload = {
         "sub": user_id,
         "exp": datetime.now(timezone.utc) + timedelta(days=JWT_EXP_DAYS),
         "iat": datetime.now(timezone.utc),
+        # SEC : versionne le token. Incrémenté au reset password → invalide les
+        # anciennes sessions. Vérifié dans `current_user`.
+        "tv": int(token_version or 0),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
@@ -338,11 +351,16 @@ async def current_user(authorization: Optional[str] = Header(None)) -> dict:
     try:
         data = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
         uid = data.get("sub")
+        tv_claim = int(data.get("tv") or 0)
     except jwt.PyJWTError:
         raise HTTPException(401, "Invalid token")
     user = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(401, "User not found")
+    # SEC : rejette les tokens dont la version est antérieure à la version actuelle
+    # (ex: après reset password l'utilisateur est déconnecté sur tous ses appareils).
+    if int(user.get("token_version") or 0) > tv_claim:
+        raise HTTPException(401, "Session révoquée — reconnectez-vous.")
     return user
 
 
@@ -1309,7 +1327,7 @@ async def register(body: RegisterIn, request: Request):
     }
     await db.users.insert_one(doc)
     audit_log("auth.register", user_id=uid, email=body.email.lower(), role=body.role, ip=_client_ip(request))
-    token = make_token(uid)
+    token = make_token(uid, token_version=0)  # nouvel user → tv=0
     user = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
     # Jokoo Partners — rattachement à un ambassadeur si code fourni
     if body.referral_code:
@@ -1353,7 +1371,7 @@ async def login(body: LoginIn, request: Request):
         raise HTTPException(401, "Identifiants invalides")
     await brute_force_record(email_key, ip, success=True)
     audit_log("auth.login_success", user_id=user["id"], email=email_key, ip=ip)
-    token = make_token(user["id"])
+    token = make_token(user["id"], token_version=int(user.get("token_version") or 0))
     safe = {k: v for k, v in user.items() if k not in ("_id", "password_hash")}
     return {"token": token, "user": safe}
 
@@ -1580,7 +1598,7 @@ async def sign_in_with_apple(body: AppleSignInIn):
     else:
         user = {k: v for k, v in user.items() if k not in ("password_hash", "_id")}
 
-    token = make_token(user["id"])
+    token = make_token(user["id"], token_version=int(user.get("token_version") or 0))
     return {"token": token, "user": user}
 
 
@@ -2433,8 +2451,20 @@ async def reset_password(body: ResetPasswordIn):
     if datetime.now(timezone.utc) > expires_at:
         raise HTTPException(400, "Lien expiré. Recommencez la procédure.")
     new_hash = await hash_password_async(body.new_password)
-    await db.users.update_one({"id": rec["user_id"]}, {"$set": {"password_hash": new_hash, "updated_at": now_iso()}})
-    await db.password_resets.update_one({"token": body.token}, {"$set": {"used": True, "used_at": now_iso()}})
+    # SEC : invalider les sessions existantes en incrémentant token_version.
+    # Cf. `current_user` — vérifie que le token JWT contient la version courante.
+    now = now_iso()
+    await db.users.update_one(
+        {"id": rec["user_id"]},
+        {"$set": {"password_hash": new_hash, "password_changed_at": now, "updated_at": now},
+         "$inc": {"token_version": 1}},
+    )
+    await db.password_resets.update_one({"token": body.token}, {"$set": {"used": True, "used_at": now}})
+    # Purge des autres tokens de reset non utilisés pour ce user (safety)
+    await db.password_resets.update_many(
+        {"user_id": rec["user_id"], "used": False, "token": {"$ne": body.token}},
+        {"$set": {"used": True, "used_at": now, "revoked_reason": "password_reset"}},
+    )
     return {"ok": True}
 
 
@@ -3359,7 +3389,7 @@ async def dashboard_revenue_history(
     if user["role"] != "prestataire":
         raise HTTPException(403, "Prestataire uniquement")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     rng = range_ if range_ in ("week", "month", "year") else "week"
 
     # 1. Determine window & bucket size
@@ -5068,7 +5098,7 @@ async def otp_verify(body: OtpVerifyIn, request: Request):
     if not user:
         raise HTTPException(404, "Utilisateur introuvable")
     await db.otps.delete_one({"phone": body.phone})
-    token = make_token(user["id"])
+    token = make_token(user["id"], token_version=int(user.get("token_version") or 0))
     return {"token": token, "user": user}
 
 
@@ -5079,7 +5109,13 @@ async def reset_user_password(uid: str, body: PasswordResetIn, user=Depends(requ
     if not u:
         raise HTTPException(404, "Utilisateur introuvable")
     new_pwd = body.new_password or _gen_otp()
-    await db.users.update_one({"id": uid}, {"$set": {"password_hash": await hash_password_async(new_pwd)}})
+    # SEC : invalider toutes les sessions existantes du user en incrémentant token_version
+    await db.users.update_one(
+        {"id": uid},
+        {"$set": {"password_hash": await hash_password_async(new_pwd), "password_changed_at": now_iso(), "updated_at": now_iso()},
+         "$inc": {"token_version": 1}},
+    )
+    audit_log("auth.admin_reset_password", user_id=uid, target=uid, by=user["id"])
     return {"ok": True, "new_password": new_pwd}
 
 
@@ -6982,9 +7018,9 @@ async def seed(request: Request, user=Depends(current_user)):
 
     # ------ Sample Promo Codes (idempotent) ------
     _now = now_iso()
-    _year_ahead = (datetime.utcnow() + timedelta(days=365)).isoformat()
-    _month_ahead = (datetime.utcnow() + timedelta(days=30)).isoformat()
-    _past = (datetime.utcnow() - timedelta(days=10)).isoformat()
+    _year_ahead = (datetime.now(timezone.utc) + timedelta(days=365)).isoformat()
+    _month_ahead = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    _past = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
     seed_promos = [
         {"code": "JOKOO20",    "title": "20% de réduction",             "description": "Sur votre prochaine réservation.",
          "discount_type": "percent", "discount_value": 20, "min_amount_xof": 5000, "max_discount_xof": 5000,

@@ -22,11 +22,13 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Prenez une photo pour vos missions et profil.",
         "NSPhotoLibraryUsageDescription": "Choisissez des photos pour votre profil et missions.",
+        "NSPhotoLibraryAddUsageDescription": "Enregistrez vos justificatifs et reçus dans vos photos.",
         "NSLocationWhenInUseUsageDescription": "Trouvez les trajets et prestataires près de vous.",
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleDisplayName": "Jokoo",
         "LSApplicationQueriesSchemes": ["wave", "orangemoney", "comgooglemaps"],
         "UIRequiresFullScreen": false,
+        "UIBackgroundModes": ["remote-notification"],
         "CFBundleLocalizations": ["fr", "en"],
         "CFBundleDevelopmentRegion": "fr"
       }

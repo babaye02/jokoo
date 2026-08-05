@@ -1,0 +1,67 @@
+{
+  "summary": "Security hardening validation (P0 stores compliance + P1 security). Created /app/backend/tests/test_iter41_security_hardening.py — 20/20 PASS. All critical behaviors verified: (1) JWT includes `tv` claim (tv=0 for new user, incremented after reset), (2) forgot/reset password flow works and old sessions are properly revoked (401 'Session révoquée'), (3) reset token single-use enforced (2nd use → 400), (4) admin `POST /admin/users/{uid}/reset-password` revokes target user's sessions & increments tv to 1, (5) 5+ failed logins → 429 brute-force lock, (6) legacy naive `locked_until` in DB no longer crashes with TypeError (timezone-aware fix confirmed), (7) `/auth/me` returns 401 for missing/malformed/corrupted tokens, (8) CORS allows https://jokooservices.com and does NOT reflect malicious origins, (9) admin routes return 401 without token & 403 for non-admin. Regression note: 4 tests in pre-existing test_iter20 fail because they assumed `dev_token` is always returned; since RESEND_API_KEY is now configured in backend/.env, dev_token is (correctly) suppressed. This is NOT caused by the hardening PR — it's a test-side assumption. Recommend updating test_iter20 to fetch reset token from DB (like iter41 does).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/auth/forgot-password",
+        "issue": "test_iter20 tests assume `dev_token` is returned, but with RESEND_API_KEY configured, the endpoint (correctly) does not expose the token in the HTTP response. Not a bug in the hardening PR; pre-existing test fragility. Fix by fetching the token from db.password_resets in the test itself."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter41_security_hardening.py (NEW — 20 tests, all PASS)",
+    "/app/test_reports/pytest/iter41_security.xml"
+  ],
+  "action_items": [
+    "OK — Security hardening changes are all working as designed. No blocker.",
+    "OPTIONAL: Update /app/backend/tests/test_iter20_completion_reviews_password.py::TestForgotResetPassword to fetch reset token from Mongo (like iter41) instead of relying on dev_token — since RESEND_API_KEY is now set, dev_token is no longer surfaced (which is the correct, secure behavior).",
+    "OPTIONAL: Confirm that in production (APP_ENV=production), the guard `if _mode() == 'dev' and os.environ.get('APP_ENV','development') != 'production'` really prevents dev_token leakage. Verified logic in code (server.py line 2437) — no issue found.",
+    "OPTIONAL: Consider adding a claim `iat` verification / clock-skew tolerance on JWT — currently only exp/signature/tv checked. Non-blocking."
+  ],
+  "critical_code_review_comments": [
+    "server.py:335 make_token — `tv` claim correctly added, defaulting to 0 for legacy users. Encoded as int via `int(token_version or 0)` — safe.",
+    "server.py:347 current_user — reads `tv_claim = int(data.get('tv') or 0)` and rejects with 401 if `user.token_version > tv_claim`. Edge cases handled: JWT without `tv` → treated as tv=0; user without `token_version` field → treated as 0 (compat with legacy users). VERIFIED behavior.",
+    "server.py:2457-2461 reset_password — atomically sets new hash + password_changed_at + $inc token_version. Correct order.",
+    "server.py:2464-2467 reset_password — purges other unused reset tokens for same user (safety). Good defense-in-depth.",
+    "server.py:5106-5119 admin reset — also increments token_version to revoke sessions. Consistent.",
+    "server.py:264-305 brute_force — datetime.now(timezone.utc) used everywhere. Legacy naive `locked_until` and `attempts[*]` are coerced to timezone.utc before comparison. VERIFIED does not TypeError anymore.",
+    "server.py:2437 dev_token gating — combines `_current_mode()=='dev'` AND `APP_ENV!='production'`. Belt & suspenders — safe.",
+    "server.py file is now 7947 lines — WELL BEYOND 700-line soft limit. Strongly recommend refactor into modules (auth, admin, bookings, ambassadors, etc). This is a pre-existing tech-debt issue, not new.",
+    "app.json — NSPhotoLibraryAddUsageDescription + UIBackgroundModes: remote-notification are correctly added for iOS store compliance."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter41_security_hardening.py (NEW — 20 test cases covering JWT tv claim, brute force, password reset session revocation, admin reset, timezone-aware brute force, CORS, admin guards)"
+  ],
+  "success_rate": {
+    "backend": "100% (20/20 tests pass on new hardening suite)",
+    "frontend": "not tested (per request)"
+  },
+  "seed_data_creation": "Each test creates its own TEST_iter41_*@example.com user via /api/auth/register and cleans up in the fixture teardown (deletes user from db.users, resets from db.password_resets, brute-force records from db.rate_limit). Additionally, the autouse fixture purges any login:ip:* rate-limit entries before/after each test to avoid IP-scoped lockouts leaking across tests.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run new suite: `cd /app && python -m pytest backend/tests/test_iter41_security_hardening.py -v -n 0`. MUST use `-n 0` because pytest.ini forces xdist=2 workers, and brute-force tests share IP-scoped counters that break under parallel execution. The autouse fixture `_clean_ip_lock_between_tests` purges `login:ip:*` between tests. If RESEND_API_KEY is unset in backend/.env, dev_token WILL be returned in /auth/forgot-password response; otherwise the helper `_get_reset_token()` falls back to reading db.password_resets directly. Test data prefix: TEST_iter41_. Reset token fetched from Mongo when dev_token is not exposed.",
+  "curl_reproductions": {
+    "register_with_tv0": "curl -X POST http://localhost:8001/api/auth/register -H 'Content-Type: application/json' -d '{\"email\":\"TEST_x@ex.com\",\"password\":\"Pass1234!\",\"name\":\"X\",\"role\":\"client\"}'  → token.tv=0",
+    "login_admin": "curl -X POST http://localhost:8001/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"admin@jokoo.sn\",\"password\":\"Admin1234!\"}'",
+    "me_valid": "curl -H 'Authorization: Bearer $TOK' http://localhost:8001/api/auth/me  → 200",
+    "me_missing": "curl -w '%{http_code}' http://localhost:8001/api/auth/me  → 401",
+    "me_corrupted": "curl -H 'Authorization: Bearer garbage' -w '%{http_code}' http://localhost:8001/api/auth/me  → 401",
+    "forgot_password": "curl -X POST http://localhost:8001/api/auth/forgot-password -H 'Content-Type: application/json' -d '{\"email\":\"client@jokoo.sn\"}'  → 200 {ok:true} (+ dev_token only if no email provider configured)",
+    "reset_password": "curl -X POST http://localhost:8001/api/auth/reset-password -H 'Content-Type: application/json' -d '{\"token\":\"<from db.password_resets>\",\"new_password\":\"NewPwd123!\"}'  → 200",
+    "old_token_after_reset": "curl -H 'Authorization: Bearer $OLD_TOK' http://localhost:8001/api/auth/me  → 401 {\"detail\":\"Session révoquée — reconnectez-vous.\"}",
+    "reset_token_reuse": "curl -X POST http://localhost:8001/api/auth/reset-password -d '{\"token\":\"<used>\",\"new_password\":\"P!\"}'  → 400 {\"detail\":\"Lien invalide ou déjà utilisé\"}",
+    "admin_reset_pwd": "curl -X POST http://localhost:8001/api/admin/users/<uid>/reset-password -H 'Authorization: Bearer $ADMIN_TOK' -H 'Content-Type: application/json' -d '{}'  → 200 {ok:true,new_password:\"...\"} + user's old token now 401",
+    "brute_force_lock": "6× curl -X POST http://localhost:8001/api/auth/login -d '{\"email\":\"x@ex.com\",\"password\":\"wrong\"}'  → 5×401 then 429",
+    "cors_allowed": "curl -X OPTIONS http://localhost:8001/api/auth/login -H 'Origin: https://jokooservices.com' -H 'Access-Control-Request-Method: POST' -i  → 200/204 + Access-Control-Allow-Origin",
+    "admin_no_auth": "curl -w '%{http_code}' http://localhost:8001/api/admin/stats/marketplace  → 401",
+    "admin_client_token": "curl -H 'Authorization: Bearer $CLIENT_TOK' -w '%{http_code}' http://localhost:8001/api/admin/stats/marketplace  → 403"
+  },
+  "rca_of_issue": "No issue in the security hardening PR — all 20 targeted tests pass. The 4 failures observed in pre-existing test_iter20 are due to RESEND_API_KEY being configured in backend/.env (which is the desired production posture) — this suppresses the `dev_token` field in /auth/forgot-password responses (server.py line 2437), which was the correct security-positive change and NOT caused by this PR. Fix on test-side: fetch token from Mongo db.password_resets collection directly."
+}
