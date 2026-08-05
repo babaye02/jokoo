@@ -231,10 +231,19 @@ try:
     from slowapi.errors import RateLimitExceeded
 
     def _rl_key(request: Request) -> str:
-        # Priorité au user_id si authentifié (via header), sinon IP
+        # Priorité au user_id si authentifié (via header), sinon IP.
+        # ⚠️ On utilise la SIGNATURE JWT (dernière partie après le 2e point)
+        #    car les 25 premiers caractères sont l'en-tête base64 standard
+        #    (`eyJhbGciOiJIUzI1NiJ9...`) — identique pour TOUS les users.
+        #    Utiliser [7:32] créait une collision globale → un seul user à
+        #    forte activité bloquait toute la base.
         auth = request.headers.get("authorization", "")
         if auth.startswith("Bearer "):
-            return f"tok:{auth[7:32]}"  # préfixe stable du JWT
+            tok = auth[7:]
+            # JWT format = HEADER.PAYLOAD.SIGNATURE — la signature est unique
+            parts = tok.rsplit(".", 1)
+            sig = parts[-1] if len(parts) > 1 else tok
+            return f"tok:{sig[:32]}"
         return get_remote_address(request)
 
     limiter = Limiter(key_func=_rl_key, default_limits=["600/minute"])
