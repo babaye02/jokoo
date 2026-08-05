@@ -26,7 +26,9 @@ from typing import Optional
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 # ---- Design constants -------------------------------------------------------
-CANVAS_W, CANVAS_H = 1290, 2796  # iPhone 6.9" App Store
+# App Store Connect accepts these iPhone 6.5" sizes (2778x1284 or 1284x2778).
+# We generate at 1284x2778 (portrait), the current standard for iPhone 12/13/14 Pro Max.
+CANVAS_W, CANVAS_H = 1284, 2778  # iPhone 6.5" App Store required
 BG_TOP = (24, 198, 163)          # #18C6A3 Jokoo turquoise
 BG_MID = (13, 148, 136)          # #0D9488 deep teal
 BG_BOTTOM = (26, 24, 76)         # #1A184C indigo night
