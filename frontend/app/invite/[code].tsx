@@ -12,7 +12,7 @@ import { colors, radius, shadow, spacing } from "@/src/theme";
 /**
  * Route in-app pour les liens de parrainage :
  *   - jokoo://invite/CODE     (custom scheme, in-app share)
- *   - https://jokoo.com/i/CODE (Universal Links iOS + App Links Android)
+ *   - https://jokooservices.com/i/CODE (Universal Links iOS + App Links Android)
  *
  * Comportement :
  *   1. Résout le code via l'API publique (`/ambassadors/resolve`).

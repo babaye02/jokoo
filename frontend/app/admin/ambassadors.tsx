@@ -432,7 +432,7 @@ function ActivateModal({ visible, onClose, onDone }: { visible: boolean; onClose
                   style={styles.input}
                 />
                 <Txt size="xxs" color={colors.textMuted}>
-                  Sera utilisé pour https://jokoo.com/{customSlug || "slug"}
+                  Sera utilisé pour https://jokooservices.com/{customSlug || "slug"}
                 </Txt>
 
                 <Txt weight="600" size="sm" style={styles.label}>Bio (facultatif)</Txt>

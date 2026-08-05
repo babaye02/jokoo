@@ -456,7 +456,7 @@ function EditAmbassadorModal({
               style={styles.input}
             />
             <Txt size="xxs" color={colors.textMuted}>
-              https://jokoo.com/{slug || "slug"}
+              https://jokooservices.com/{slug || "slug"}
             </Txt>
 
             <Txt weight="600" size="sm" style={styles.label}>Bio (facultatif)</Txt>

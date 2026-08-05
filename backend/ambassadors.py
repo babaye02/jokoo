@@ -116,7 +116,7 @@ DEFAULT_MONTHLY_GOAL_PRESTATAIRES = 500
 
 # App scheme + universal link base (utilisé pour construire le lien de partage)
 DEFAULT_APP_SCHEME = "jokoo"
-DEFAULT_INVITE_HOST = "https://jokoo.com"
+DEFAULT_INVITE_HOST = "https://jokooservices.com"
 
 MAX_ATTACH_PER_IP_PER_DAY = 200
 
