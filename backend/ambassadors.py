@@ -498,15 +498,33 @@ async def hook_booking_completed(
     booking_amount_xof: int,
     notify: Optional[Callable] = None,
 ) -> None:
-    """Appelé quand une réservation passe en 'completed'. Peut faire 2 choses :
+    """Appelé quand une réservation passe en 'completed' (ou état terminal
+    équivalent : `delivered` pour parcels). Peut faire 2 choses :
       1. Finaliser le referral (passer pending → verified si prestataire KYC OK
          ou si c'est le 1er booking d'un client).
       2. Créer une commission pour l'ambassadeur du prestataire (côté
          prestataire) et/ou du client (côté client), sur la base du tier.
+
+    Supporte plusieurs schémas de booking :
+      * Services classiques   : client_id + provider_id
+      * Babysitting/tutorat   : parent_id + babysitter_user_id
+      * Parcels (livraison)   : sender_id + driver_id
+      * Rides (covoiturage)   : passenger_id + driver_id
     """
-    # 1) referral côté client (le client vient d'utiliser Jokoo pour la 1ère fois)
-    client_id = booking.get("client_id") or booking.get("customer_id")
-    provider_id = booking.get("provider_id") or booking.get("prestataire_id")
+    # Normalisation des champs client/provider selon le type de mission
+    client_id = (
+        booking.get("client_id")
+        or booking.get("customer_id")
+        or booking.get("parent_id")
+        or booking.get("sender_id")
+        or booking.get("passenger_id")
+    )
+    provider_id = (
+        booking.get("provider_id")
+        or booking.get("prestataire_id")
+        or booking.get("babysitter_user_id")
+        or booking.get("driver_id")
+    )
 
     for uid, role in [(client_id, "client"), (provider_id, "prestataire")]:
         if not uid:

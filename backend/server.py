@@ -6046,10 +6046,26 @@ async def update_parcel(pid: str, body: ParcelUpdate, user=Depends(current_user)
         notif_msg = labels.get(new_status, f"Statut : {new_status}")
         if new_status == "delivered" and p.get("payment_mode") == "cash":
             updates["paid"] = True
+        if new_status == "delivered":
+            updates["delivered_at"] = now_iso()
     if body.paid is not None:
         updates["paid"] = bool(body.paid)
 
     await db.parcels.update_one({"id": pid}, {"$set": updates})
+    # Jokoo Partners — hook si livraison confirmée (sender=client, driver=provider)
+    if new_status == "delivered":
+        try:
+            p_full = {**p, **updates}
+            amount = int(
+                p_full.get("total_xof")
+                or p_full.get("price_xof")
+                or p_full.get("amount_xof")
+                or p_full.get("price")
+                or 0
+            )
+            await _amb_hook_booking_completed(db, p_full, amount, notify=send_push)
+        except Exception as _amb_err:
+            log.debug("ambassador parcel hook failed: %s", _amb_err)
     if notif_target and notif_msg:
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
@@ -6382,11 +6398,27 @@ async def update_family_booking(bid: str, body: BabysittingBookingUpdate, user=D
         notif_body = f"{b.get('date')} · {b.get('time_start')}–{b.get('time_end')}"
         if body.status == "completed":
             updates["paid"] = True
+            updates["completed_at"] = now_iso()
     if body.checkin_photo is not None:
         if not is_sitter:
             raise HTTPException(403, "Seul l'étudiant peut envoyer le check-in")
         updates["checkin_photo"] = body.checkin_photo
     await db.babysitting_bookings.update_one({"id": bid}, {"$set": updates})
+    # Jokoo Partners — hook si passage en completed
+    if body.status == "completed":
+        try:
+            b_full = {**b, **updates}
+            amount = int(
+                b_full.get("total_xof")
+                or b_full.get("total_amount")
+                or b_full.get("price_xof")
+                or b_full.get("amount_xof")
+                or b_full.get("price")
+                or 0
+            )
+            await _amb_hook_booking_completed(db, b_full, amount, notify=send_push)
+        except Exception as _amb_err:
+            log.debug("ambassador family booking hook failed: %s", _amb_err)
     if notif_target:
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
@@ -6450,7 +6482,25 @@ async def submit_session_report(bid: str, body: SessionReportIn, user=Depends(cu
         "created_at": now_iso(),
     }
     await db.babysitting_reports.insert_one(doc)
-    await db.babysitting_bookings.update_one({"id": bid}, {"$set": {"report_id": rid, "status": "completed", "paid": True, "updated_at": now_iso()}})
+    completion_ts = now_iso()
+    await db.babysitting_bookings.update_one(
+        {"id": bid},
+        {"$set": {"report_id": rid, "status": "completed", "paid": True, "completed_at": completion_ts, "updated_at": completion_ts}},
+    )
+    # Jokoo Partners — hook post-completion (idempotent)
+    try:
+        b_updated = {**b, "status": "completed", "completed_at": completion_ts, "report_id": rid}
+        amount = int(
+            b_updated.get("total_xof")
+            or b_updated.get("total_amount")
+            or b_updated.get("price_xof")
+            or b_updated.get("amount_xof")
+            or b_updated.get("price")
+            or 0
+        )
+        await _amb_hook_booking_completed(db, b_updated, amount, notify=send_push)
+    except Exception as _amb_err:
+        log.debug("ambassador family report hook failed: %s", _amb_err)
     await db.notifications.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": b["parent_id"],
