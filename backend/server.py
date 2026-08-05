@@ -246,7 +246,7 @@ try:
             return f"tok:{sig[:32]}"
         return get_remote_address(request)
 
-    limiter = Limiter(key_func=_rl_key, default_limits=["600/minute"])
+    limiter = Limiter(key_func=_rl_key, default_limits=["6000/minute"])
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     RATE_LIMIT_ENABLED = True
@@ -1286,8 +1286,9 @@ def _client_ip(request: Request) -> str:
 
 @api.post("/auth/register", response_model=AuthOut)
 async def register(body: RegisterIn, request: Request):
-    # 20/h/IP → NAT partagés (café, université, opérateurs mobiles) supportent plusieurs inscriptions.
-    _rate_check(f"register:{_client_ip(request)}", max_hits=20, window_sec=3600)
+    # 200/h/IP → NAT partagés (café, université, opérateurs mobiles, réseaux
+    # d'entreprise) supportent plusieurs dizaines d'inscriptions simultanées.
+    _rate_check(f"register:{_client_ip(request)}", max_hits=200, window_sec=3600)
     existing = await db.users.find_one({"email": body.email.lower()})
     if existing:
         raise HTTPException(400, "Email déjà utilisé")
