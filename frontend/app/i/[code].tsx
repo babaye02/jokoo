@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-/** Alias court pour /invite/[code] — utilisé par les Universal Links jokoo.sn/i/XXX */
+/** Alias court pour /invite/[code] — utilisé par les Universal Links jokoo.com/i/XXX */
 export default function InviteShort() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const router = useRouter();

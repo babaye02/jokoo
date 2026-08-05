@@ -16,8 +16,8 @@
       "buildNumber": "3",
       "requireFullScreen": false,
       "associatedDomains": [
-        "applinks:jokoo.sn",
-        "applinks:www.jokoo.sn"
+        "applinks:jokoo.com",
+        "applinks:www.jokoo.com"
       ],
       "infoPlist": {
         "NSCameraUsageDescription": "Prenez une photo pour vos missions et profil.",
@@ -70,10 +70,10 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            { "scheme": "https", "host": "jokoo.sn", "pathPrefix": "/i" },
-            { "scheme": "https", "host": "jokoo.sn", "pathPrefix": "/invite" },
-            { "scheme": "https", "host": "www.jokoo.sn", "pathPrefix": "/i" },
-            { "scheme": "https", "host": "www.jokoo.sn", "pathPrefix": "/invite" }
+            { "scheme": "https", "host": "jokoo.com", "pathPrefix": "/i" },
+            { "scheme": "https", "host": "jokoo.com", "pathPrefix": "/invite" },
+            { "scheme": "https", "host": "www.jokoo.com", "pathPrefix": "/i" },
+            { "scheme": "https", "host": "www.jokoo.com", "pathPrefix": "/invite" }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
         }

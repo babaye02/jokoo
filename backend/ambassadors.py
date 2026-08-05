@@ -116,9 +116,9 @@ DEFAULT_MONTHLY_GOAL_PRESTATAIRES = 500
 
 # App scheme + universal link base (utilisé pour construire le lien de partage)
 DEFAULT_APP_SCHEME = "jokoo"
-DEFAULT_INVITE_HOST = "https://jokoo.sn"
+DEFAULT_INVITE_HOST = "https://jokoo.com"
 
-MAX_ATTACH_PER_IP_PER_DAY = 20
+MAX_ATTACH_PER_IP_PER_DAY = 200
 
 
 # ---------------------------------------------------------------------------
@@ -359,11 +359,16 @@ async def hook_user_registered(
     new_user_email: Optional[str] = None,
     new_user_phone: Optional[str] = None,
     ip: Optional[str] = None,
+    skip_ip_check: bool = False,
 ) -> Optional[str]:
     """Rattache un nouvel utilisateur à un ambassadeur si un code/slug est fourni.
 
     Retourne l'ambassador_id (= user_id de l'ambassadeur) si rattachement OK,
     sinon None.
+
+    :param skip_ip_check: True pour bypass le rate-limit IP (usage : appel
+        depuis /ambassadors/attach où le user est déjà authentifié, on a
+        donc une identité plus forte que l'IP).
     """
     if not ambassador_code_or_slug:
         return None
@@ -383,9 +388,9 @@ async def hook_user_registered(
     if amb["user_id"] == new_user_id:
         return None
 
-    # Anti-fraude : rate limit par IP
+    # Anti-fraude : rate limit par IP (seulement pour le signup anonyme)
     ip_hash = _hash_ip(ip)
-    if ip_hash:
+    if ip_hash and not skip_ip_check:
         since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         recent = await db.ambassador_referrals.count_documents({
             "ip_hash": ip_hash,
@@ -838,6 +843,7 @@ def create_ambassadors_router(
             new_user_email=user.get("email"),
             new_user_phone=user.get("phone"),
             ip=ip,
+            skip_ip_check=True,  # user déjà authentifié → skip anti-fraude IP
         )
         if not aid:
             # Seul cas restant : rate limit atteint
