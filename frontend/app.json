@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "assetBundlePatterns": ["**/*"],
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.jokoo.app",
       "usesAppleSignIn": true,
       "buildNumber": "4",
