@@ -7669,7 +7669,7 @@ async def seed(request: Request, user=Depends(current_user)):
     # whenever we ship material content changes (translations, domain change,
     # regulatory update). Docs edited manually via the admin UI persist as long
     # as their DB `content_version` matches or exceeds this value.
-    SEED_CONTENT_VERSION = 3  # 2026-08-06 — jokoo.sn → jokooservices.com + full docs
+    SEED_CONTENT_VERSION = 4  # 2026-08-06 — enriched cookies/mentions/terms/refund policy contents
 
     for slug, title, category, requires_acc, order in LEGAL_DOCS:
         existing = await db.legal_documents.find_one({"slug": slug, "language": "fr", "country": "SN"})
@@ -7716,7 +7716,7 @@ async def seed(request: Request, user=Depends(current_user)):
                     "published": True,
                     "effective_date": now[:10],
                     "updated_at": now,
-                    "updated_by": "seed_content_v3",
+                    "updated_by": "seed_content_v4",
                 }},
             )
             await db.legal_versions.insert_one({
@@ -7724,7 +7724,7 @@ async def seed(request: Request, user=Depends(current_user)):
                 **{k: v for k, v in existing.items() if k != "_id"},
                 "content": content, "summary": summary, "title": title,
                 "version": new_version, "content_version": SEED_CONTENT_VERSION,
-                "effective_date": now[:10], "updated_at": now, "updated_by": "seed_content_v3",
+                "effective_date": now[:10], "updated_at": now, "updated_by": "seed_content_v4",
                 "author_id": "system",
             })
             continue
