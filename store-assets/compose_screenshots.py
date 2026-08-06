@@ -48,12 +48,16 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 # ---- Marketing content ------------------------------------------------------
 # Each tuple: (source_file, title_line1, title_line2, tagline)
 SCREENS = [
-    ("01_home.jpeg",     "Trouvez le pro",         "qu'il vous faut.",       "Des milliers de prestataires vérifiés à portée de main."),
-    ("02_search.jpeg",   "12 univers,",            "un seul geste.",         "Explorez toutes les catégories : beauté, santé, mobilité, famille…"),
-    ("05_provider.jpeg", "Prestataires notés",     "& vérifiés.",            "Avis authentiques, badge Vérifié, réservation en un clic."),
-    ("03_mobility.jpeg", "Voyagez et livrez",      "malin.",                 "Covoiturage et livraison longue distance à travers le Sénégal."),
-    ("04_family.jpeg",   "Baby-sitters",           "de confiance.",          "Étudiants et professeurs vérifiés — pour toute la famille."),
-    ("06_profile.jpeg",  "Réservez, suivez,",      "gagnez.",                "Vos réservations, favoris et programme partenaire en un tap."),
+    ("01_home.jpeg",       "Trouvez le pro",         "qu'il vous faut.",       "Des milliers de prestataires vérifiés à portée de main."),
+    ("02_search.jpeg",     "12 univers,",            "un seul geste.",         "Explorez toutes les catégories : beauté, santé, mobilité, famille…"),
+    ("05_provider.jpeg",   "Prestataires notés",     "& vérifiés.",            "Avis authentiques, badge Vérifié, réservation en un clic."),
+    ("03_mobility.jpeg",   "Voyagez et livrez",      "malin.",                 "Covoiturage et livraison longue distance à travers le Sénégal."),
+    ("04_family.jpeg",     "Baby-sitters",           "de confiance.",          "Étudiants et professeurs vérifiés — pour toute la famille."),
+    ("06_profile.jpeg",    "Réservez, suivez,",      "gagnez.",                "Vos réservations, favoris et programme partenaire en un tap."),
+    ("07_onboarding.jpeg", "Bienvenue",              "chez Jokoo.",            "Vos services locaux, votre mobilité, votre famille — tout en un."),
+    ("08_chat_1.jpeg",     "Chat sécurisé",          "en temps réel.",         "Négociez, confirmez, planifiez directement avec chaque prestataire."),
+    ("09_booking.jpeg",    "Réservez en",            "4 étapes.",              "Date, heure, adresse, confirmation — un flow épuré et transparent."),
+    ("10_ambassador.jpeg", "Parrainez,",             "gagnez chaque mois.",    "Programme Jokoo Partners : commissions en XOF pour chaque filleul actif."),
 ]
 
 
@@ -228,7 +232,7 @@ def compose(idx: int, src_name: str, t1: str, t2: str, tagline: str) -> Path:
     # ── Save (PNG, RGB, no alpha)
     if canvas.mode != "RGB":
         canvas = canvas.convert("RGB")
-    out_path = OUT_DIR / f"jokoo_appstore_0{idx}.png"
+    out_path = OUT_DIR / f"jokoo_appstore_{idx:02d}.png"
     canvas.save(out_path, "PNG", optimize=True)
     return out_path
 

@@ -7719,7 +7719,9 @@ async def root():
 # the pod filesystem. Safe because it only serves whitelisted files inside
 # /app/store-assets (no path traversal possible).
 _STORE_ASSETS_DIR = Path("/app/store-assets/screenshots/final")
+_STORE_ASSETS_IPAD_DIR = Path("/app/store-assets/screenshots/ipad")
 _STORE_ASSETS_ZIP = Path("/app/store-assets/jokoo_appstore_screenshots.zip")
+_STORE_ASSETS_IPAD_ZIP = Path("/app/store-assets/jokoo_ipad_screenshots.zip")
 _STORE_ASSETS_ROOT = Path("/app/store-assets")
 # Additional whitelisted documents that can be downloaded via /api/store-assets/docs/{name}
 _STORE_ASSETS_DOCS = {
@@ -7739,6 +7741,27 @@ async def download_store_assets_zip():
         media_type="application/zip",
         filename="jokoo_appstore_screenshots.zip",
     )
+
+
+@api.get("/store-assets/ipad-zip")
+async def download_ipad_assets_zip():
+    if not _STORE_ASSETS_IPAD_ZIP.exists():
+        raise HTTPException(404, "iPad screenshots archive not generated yet")
+    return FileResponse(
+        _STORE_ASSETS_IPAD_ZIP,
+        media_type="application/zip",
+        filename="jokoo_ipad_screenshots.zip",
+    )
+
+
+@api.get("/store-assets/ipad/{filename}")
+async def download_ipad_asset(filename: str):
+    if "/" in filename or "\\" in filename or not filename.endswith(".png"):
+        raise HTTPException(400, "Invalid filename")
+    target = _STORE_ASSETS_IPAD_DIR / filename
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "iPad screenshot not found")
+    return FileResponse(target, media_type="image/png", filename=filename)
 
 
 @api.get("/store-assets/list")
