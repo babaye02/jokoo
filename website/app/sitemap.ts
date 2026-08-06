@@ -1,12 +1,10 @@
 import type { MetadataRoute } from "next";
 import { POSTS } from "./lib/blog";
-import { api } from "./lib/api-server";
+import { LEGAL_DOCS_BUNDLE } from "./legal/content";
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://jokooservices.com";
 
-type LegalDocMeta = { slug: string; updated_at: string };
-
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date().toISOString();
 
   const staticRoutes: MetadataRoute.Sitemap = [
@@ -25,16 +23,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.7,
   }));
 
-  let legalRoutes: MetadataRoute.Sitemap = [];
-  try {
-    const docs = await api<LegalDocMeta[]>("/legal/documents");
-    legalRoutes = docs.map((d) => ({
-      url: `${SITE}/legal/${d.slug}`,
-      lastModified: d.updated_at,
-      changeFrequency: "monthly" as const,
-      priority: 0.6,
-    }));
-  } catch {}
+  const legalRoutes: MetadataRoute.Sitemap = LEGAL_DOCS_BUNDLE.filter((d) => d.published).map((d) => ({
+    url: `${SITE}/legal/${d.slug}`,
+    lastModified: d.updated_at || now,
+    changeFrequency: "monthly" as const,
+    priority: 0.6,
+  }));
 
   return [...staticRoutes, ...blogRoutes, ...legalRoutes];
 }

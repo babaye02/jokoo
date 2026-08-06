@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 type LegalDoc = {
@@ -25,62 +25,9 @@ function normalize(s: string) {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-// Client-side fallback: try multiple endpoints so that even if SSR returned
-// an empty array (Vercel Data Cache glitch, self-fetch loop, cold start…),
-// the user still sees content within milliseconds after hydration.
-async function fetchLegalDocsFromBrowser(): Promise<LegalDoc[]> {
-  const candidates = [
-    "/api/legal/documents?language=fr&country=SN",
-    "/api/public/legal?language=fr&country=SN",
-  ];
-  for (const url of candidates) {
-    try {
-      const r = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
-      if (!r.ok) continue;
-      const data: unknown = await r.json();
-      if (Array.isArray(data) && data.length > 0) return data as LegalDoc[];
-      if (
-        data &&
-        typeof data === "object" &&
-        "documents" in data &&
-        Array.isArray((data as { documents: unknown }).documents)
-      ) {
-        const docs = (data as { documents: LegalDoc[] }).documents;
-        if (docs.length > 0) return docs;
-      }
-    } catch {
-      // try next candidate
-    }
-  }
-  return [];
-}
-
 export function LegalCenterClient({ initialDocs }: { initialDocs: LegalDoc[] }) {
   const [q, setQ] = useState("");
-  const [docs, setDocs] = useState<LegalDoc[]>(initialDocs || []);
-  const [hydrating, setHydrating] = useState(false);
-
-  // If SSR returned no documents (backend hiccup, cache miss, self-fetch loop),
-  // refetch from the browser using the same-origin Vercel rewrite. This is the
-  // resilience net that guarantees the page NEVER stays empty when the backend
-  // is reachable from the client.
-  useEffect(() => {
-    if (docs.length > 0) return;
-    let cancelled = false;
-    setHydrating(true);
-    fetchLegalDocsFromBrowser()
-      .then((fresh) => {
-        if (!cancelled && fresh.length > 0) setDocs(fresh);
-      })
-      .finally(() => {
-        if (!cancelled) setHydrating(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // Intentionally only run once on mount when we start empty.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const docs = initialDocs || [];
 
   const filtered = useMemo(() => {
     const query = normalize(q.trim());
@@ -137,39 +84,6 @@ export function LegalCenterClient({ initialDocs }: { initialDocs: LegalDoc[] }) 
         )}
       </div>
 
-      {/* Empty state (only shows if BOTH SSR and client fetch failed) */}
-      {docs.length === 0 && !hydrating && (
-        <div className="text-center text-gray-500 py-10">
-          <div className="text-5xl mb-3">📄</div>
-          <div className="font-medium text-gray-700">
-            Nos documents juridiques sont momentanément indisponibles.
-          </div>
-          <div className="text-sm mt-2 text-gray-500">
-            Merci de réessayer dans quelques instants —{" "}
-            <button
-              onClick={() => {
-                setHydrating(true);
-                fetchLegalDocsFromBrowser()
-                  .then((d) => setDocs(d))
-                  .finally(() => setHydrating(false));
-              }}
-              className="text-turquoise font-bold underline"
-            >
-              recharger la liste
-            </button>
-            .
-          </div>
-        </div>
-      )}
-
-      {/* Loading state during client fallback */}
-      {docs.length === 0 && hydrating && (
-        <div className="text-center py-16">
-          <div className="inline-block w-8 h-8 border-4 border-turquoise/20 border-t-turquoise rounded-full animate-spin mb-4" />
-          <div className="text-gray-500">Chargement des documents juridiques…</div>
-        </div>
-      )}
-
       {filtered.length === 0 && docs.length > 0 && (
         <div className="text-center py-10">
           <div className="text-5xl mb-3">🔍</div>
@@ -219,8 +133,7 @@ export function LegalCenterClient({ initialDocs }: { initialDocs: LegalDoc[] }) 
         );
       })}
 
-      {/* Fallback list rendering for docs whose category is not in CATEGORY_LABELS.
-          Ensures NO published document is ever hidden. */}
+      {/* Any doc whose category is unknown still gets displayed. */}
       {(() => {
         const knownCats = new Set(Object.keys(CATEGORY_LABELS));
         const orphans = filtered.filter((d) => !knownCats.has(d.category));

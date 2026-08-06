@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { apiSafe } from "../lib/api-server";
 import { LegalCenterClient } from "./LegalCenterClient";
+import { LEGAL_DOCS_BUNDLE } from "./content";
 
 export const metadata: Metadata = {
   title: "Centre juridique — CGU, Confidentialité, Cookies · Jokoo",
@@ -8,25 +8,22 @@ export const metadata: Metadata = {
     "Retrouvez tous les documents juridiques de Jokoo : conditions générales, politique de confidentialité, cookies, remboursement, sécurité et charte communautaire. Recherche instantanée.",
 };
 
-type LegalDoc = {
-  slug: string;
-  title: string;
-  summary?: string;
-  category: string;
-  version: number;
-  effective_date: string;
-  requires_acceptance: boolean;
-};
+// The legal content is bundled statically so Vercel serves it instantly and
+// independently of the backend. This guarantees the public website ALWAYS
+// shows the latest published policies as reviewed by the legal team.
+export const dynamic = "force-static";
+export const revalidate = false;
 
-// Legal content evolves without redeploys. Never cache the SSR result.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-export default async function LegalIndex() {
-  // apiSafe returns [] on any error → the client component's fallback
-  // hydrator will then refetch from the browser using the Vercel rewrite
-  // (`/api/*`) that reliably reaches the backend from the user's session.
-  const docs = await apiSafe<LegalDoc[]>("/legal/documents", []);
+export default function LegalIndex() {
+  const docs = LEGAL_DOCS_BUNDLE.filter((d) => d.published).map((d) => ({
+    slug: d.slug,
+    title: d.title,
+    summary: d.summary,
+    category: d.category,
+    version: d.version,
+    effective_date: d.effective_date,
+    requires_acceptance: d.requires_acceptance,
+  }));
 
   return (
     <>

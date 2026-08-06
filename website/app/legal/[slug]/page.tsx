@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, apiSafe } from "../../lib/api-server";
-import { LegalDocClientFallback } from "./LegalDocClientFallback";
+import { LEGAL_DOCS_BUNDLE } from "../content";
 
 type LegalDoc = {
   slug: string;
@@ -17,23 +17,29 @@ type LegalDoc = {
   requires_acceptance: boolean;
 };
 
-type LegalDocMeta = Omit<LegalDoc, "content">;
+// Content is bundled statically — the page is fully cacheable on Vercel Edge
+// and never re-fetches the (possibly outdated) production backend.
+export const dynamic = "force-static";
+export const revalidate = false;
 
-// Legal content evolves without redeploys. Never cache the SSR result.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-async function getDoc(slug: string): Promise<LegalDoc | null> {
-  try {
-    return await api<LegalDoc>(`/legal/documents/${slug}`);
-  } catch {
-    return null;
-  }
+function findDoc(slug: string): LegalDoc | null {
+  const d = LEGAL_DOCS_BUNDLE.find((x) => x.slug === slug && x.published);
+  if (!d) return null;
+  return {
+    slug: d.slug,
+    title: d.title,
+    summary: d.summary,
+    content: d.content,
+    category: d.category,
+    version: d.version,
+    effective_date: d.effective_date,
+    updated_at: d.updated_at,
+    requires_acceptance: d.requires_acceptance,
+  };
 }
 
-export async function generateStaticParams() {
-  // Empty at build time — pages are dynamic. Slug is validated at request time.
-  return [] as { slug: string }[];
+export function generateStaticParams() {
+  return LEGAL_DOCS_BUNDLE.filter((d) => d.published).map((d) => ({ slug: d.slug }));
 }
 
 export async function generateMetadata({
@@ -42,7 +48,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const doc = await getDoc(slug);
+  const doc = findDoc(slug);
   if (!doc) return { title: `Document juridique · Jokoo` };
   return {
     title: `${doc.title} · Jokoo`,
@@ -52,12 +58,8 @@ export async function generateMetadata({
 
 export default async function LegalDocPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  // Try the authenticated endpoint first (returns everything including content).
-  // If it fails on Vercel SSR, we still render the shell and let the client
-  // component refetch from the browser via the Vercel rewrite.
-  const doc = await apiSafe<LegalDoc | null>(`/legal/documents/${slug}`, null);
-
-  const title = doc?.title || "Document juridique";
+  const doc = findDoc(slug);
+  if (!doc) notFound();
 
   return (
     <article className="bg-white">
@@ -69,30 +71,23 @@ export default async function LegalDocPage({ params }: { params: Promise<{ slug:
           >
             ← Retour au centre juridique
           </Link>
-          <h1 className="text-3xl md:text-5xl font-black leading-tight">{title}</h1>
-          {doc && (
-            <div className="mt-4 flex flex-wrap gap-3 text-sm text-white/70">
-              <span>Version {doc.version}</span>
-              <span>·</span>
-              <span>Effectif le {new Date(doc.effective_date).toLocaleDateString("fr-FR")}</span>
-              {doc.requires_acceptance && (
-                <>
-                  <span>·</span>
-                  <span className="text-turquoise font-bold">Acceptation requise à l'inscription</span>
-                </>
-              )}
-            </div>
-          )}
+          <h1 className="text-3xl md:text-5xl font-black leading-tight">{doc.title}</h1>
+          <div className="mt-4 flex flex-wrap gap-3 text-sm text-white/70">
+            <span>Version {doc.version}</span>
+            <span>·</span>
+            <span>Effectif le {new Date(doc.effective_date).toLocaleDateString("fr-FR")}</span>
+            {doc.requires_acceptance && (
+              <>
+                <span>·</span>
+                <span className="text-turquoise font-bold">Acceptation requise à l'inscription</span>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="max-w-3xl mx-auto px-6 py-14 prose prose-lg">
-        {doc && doc.content ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
-        ) : (
-          // Client-side hydrator: refetch and render Markdown if SSR came back empty.
-          <LegalDocClientFallback slug={slug} />
-        )}
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
       </div>
 
       <div className="max-w-3xl mx-auto px-6 pb-24">
