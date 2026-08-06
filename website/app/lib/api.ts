@@ -100,7 +100,9 @@ export async function api<T = unknown>(path: string): Promise<T> {
     : (process.env.NEXT_PUBLIC_API_URL || "/api");
   try {
     const r = await fetch(`${base}${path}`, {
-      next: { revalidate: 60 },
+      // Always bypass Vercel Data Cache — legal content changes without redeploys
+      // and we don't want a bad cached response (empty array) to persist.
+      cache: "no-store",
       headers: { "Accept": "application/json" },
     });
     if (!r.ok) {
@@ -114,5 +116,15 @@ export async function api<T = unknown>(path: string): Promise<T> {
   } catch (e) {
     if (isServer) console.warn(`[api SSR] ${base}${path} failed:`, e);
     throw e;
+  }
+}
+
+// Convenience: same as api() but ALWAYS resolves (returns fallback on error).
+// Use for non-critical SSR data (e.g., legal center) to avoid page-blank states.
+export async function apiSafe<T>(path: string, fallback: T): Promise<T> {
+  try {
+    return await api<T>(path);
+  } catch {
+    return fallback;
   }
 }

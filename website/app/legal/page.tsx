@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { api } from "../lib/api";
+import { apiSafe } from "../lib/api-server";
 import { LegalCenterClient } from "./LegalCenterClient";
 
 export const metadata: Metadata = {
@@ -18,15 +18,15 @@ type LegalDoc = {
   requires_acceptance: boolean;
 };
 
-export const revalidate = 300;
+// Legal content evolves without redeploys. Never cache the SSR result.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function LegalIndex() {
-  let docs: LegalDoc[] = [];
-  try {
-    docs = await api<LegalDoc[]>("/legal/documents");
-  } catch (e) {
-    docs = [];
-  }
+  // apiSafe returns [] on any error → the client component's fallback
+  // hydrator will then refetch from the browser using the Vercel rewrite
+  // (`/api/*`) that reliably reaches the backend from the user's session.
+  const docs = await apiSafe<LegalDoc[]>("/legal/documents", []);
 
   return (
     <>
@@ -46,7 +46,7 @@ export default async function LegalIndex() {
 
       <section className="py-16 bg-white">
         <div className="max-w-5xl mx-auto px-6">
-          <LegalCenterClient docs={docs} />
+          <LegalCenterClient initialDocs={docs} />
         </div>
       </section>
     </>

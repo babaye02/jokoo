@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { POSTS } from "./lib/blog";
-import { api } from "./lib/api";
+import { api } from "./lib/api-server";
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://jokooservices.com";
 
