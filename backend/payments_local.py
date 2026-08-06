@@ -29,9 +29,11 @@ WAVE_BASE_URL = os.environ.get("WAVE_BASE_URL", "https://api.wave.com/v1")
 
 def _require_wave() -> None:
     if not WAVE_API_KEY:
+        # User-facing message — must NOT leak backend/env var names (App Store 2.3.10).
         raise HTTPException(
             503,
-            "Wave n'est pas encore configuré. Ajoutez WAVE_API_KEY dans le fichier .env du backend.",
+            "Le paiement par Wave sera disponible prochainement. "
+            "Merci d'utiliser le paiement à la prestation en attendant.",
         )
 
 
@@ -121,10 +123,11 @@ OM_TOKEN_URL = os.environ.get("OM_TOKEN_URL", "https://api.orange.com/oauth/v3/t
 
 def _require_om() -> None:
     if not (OM_CLIENT_ID and OM_CLIENT_SECRET and OM_MERCHANT_KEY):
+        # User-facing message — must NOT leak backend/env var names (App Store 2.3.10).
         raise HTTPException(
             503,
-            "Orange Money n'est pas encore configuré. Ajoutez OM_CLIENT_ID, "
-            "OM_CLIENT_SECRET et OM_MERCHANT_KEY dans le fichier .env du backend.",
+            "Le paiement par Orange Money sera disponible prochainement. "
+            "Merci d'utiliser le paiement à la prestation en attendant.",
         )
 
 
