@@ -7665,11 +7665,14 @@ async def seed(request: Request, user=Depends(current_user)):
 
     # Contenu production-ready pour les documents review-critical.
     LEGAL_CONTENTS = _build_seed_legal_contents()
+    # Bumping this constant forces the seed to overwrite existing docs. Increment
+    # whenever we ship material content changes (translations, domain change,
+    # regulatory update). Docs edited manually via the admin UI persist as long
+    # as their DB `content_version` matches or exceeds this value.
+    SEED_CONTENT_VERSION = 3  # 2026-08-06 — jokoo.sn → jokooservices.com + full docs
 
     for slug, title, category, requires_acc, order in LEGAL_DOCS:
         existing = await db.legal_documents.find_one({"slug": slug, "language": "fr", "country": "SN"})
-        if existing:
-            continue
         content = LEGAL_CONTENTS.get(slug)
         if not content:
             content = (
@@ -7687,6 +7690,45 @@ async def seed(request: Request, user=Depends(current_user)):
             )
         summary = f"Document juridique de Jokoo — {title}"
         now = now_iso()
+
+        if existing:
+            # Preserve admin edits by only upserting when our seed content version
+            # is newer OR the DB was seeded with a shorter/placeholder version.
+            db_ver = int(existing.get("content_version", 0))
+            db_len = len(existing.get("content", "") or "")
+            seed_len = len(content)
+            # Trigger update if seed version bumped OR DB has clearly-stale (much shorter) content.
+            needs_update = (db_ver < SEED_CONTENT_VERSION) or (db_len < seed_len * 0.6)
+            if not needs_update:
+                continue
+            new_version = int(existing.get("version", 1)) + 1
+            await db.legal_documents.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {
+                    "content": content,
+                    "summary": summary,
+                    "title": title,
+                    "category": category,
+                    "requires_acceptance": requires_acc,
+                    "order": order,
+                    "version": new_version,
+                    "content_version": SEED_CONTENT_VERSION,
+                    "published": True,
+                    "effective_date": now[:10],
+                    "updated_at": now,
+                    "updated_by": "seed_content_v3",
+                }},
+            )
+            await db.legal_versions.insert_one({
+                "id": str(uuid.uuid4()),
+                **{k: v for k, v in existing.items() if k != "_id"},
+                "content": content, "summary": summary, "title": title,
+                "version": new_version, "content_version": SEED_CONTENT_VERSION,
+                "effective_date": now[:10], "updated_at": now, "updated_by": "seed_content_v3",
+                "author_id": "system",
+            })
+            continue
+
         doc = {
             "slug": slug,
             "title": title,
@@ -7696,6 +7738,7 @@ async def seed(request: Request, user=Depends(current_user)):
             "language": "fr",
             "country": "SN",
             "version": 1,
+            "content_version": SEED_CONTENT_VERSION,
             "order": order,
             "requires_acceptance": requires_acc,
             "published": True,
