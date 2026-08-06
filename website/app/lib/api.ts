@@ -87,9 +87,32 @@ export type WebUser = {
 };
 
 // Version SSR-compatible pour les fetch depuis les Server Components (SEO).
+// IMPORTANT : côté serveur (Vercel), on utilise l'URL directe du backend
+// pour éviter le self-fetch `https://jokooservices.com/api/*` qui reboucle
+// dans Vercel et échoue silencieusement (résultat : page vide).
+// Côté client, on garde `NEXT_PUBLIC_API_URL` qui est bien géré par les rewrites.
 export async function api<T = unknown>(path: string): Promise<T> {
-  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001/api";
-  const r = await fetch(`${base}${path}`, { next: { revalidate: 60 } });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
+  const isServer = typeof window === "undefined";
+  const base = isServer
+    ? (process.env.BACKEND_URL ||
+       process.env.NEXT_PUBLIC_BACKEND_URL ||
+       "https://jokoo-mobile-dev.emergent.host") + "/api"
+    : (process.env.NEXT_PUBLIC_API_URL || "/api");
+  try {
+    const r = await fetch(`${base}${path}`, {
+      next: { revalidate: 60 },
+      headers: { "Accept": "application/json" },
+    });
+    if (!r.ok) {
+      // Log server-side to help debug on Vercel logs. Never crash the page.
+      if (isServer) {
+        console.warn(`[api SSR] ${base}${path} → HTTP ${r.status}`);
+      }
+      throw new Error(await r.text());
+    }
+    return r.json();
+  } catch (e) {
+    if (isServer) console.warn(`[api SSR] ${base}${path} failed:`, e);
+    throw e;
+  }
 }
