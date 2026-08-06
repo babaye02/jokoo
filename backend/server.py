@@ -3604,23 +3604,25 @@ def _authoritative_booking_price(b: dict) -> int:
 @api.get("/payments/config")
 async def payments_config():
     """Retourne dynamiquement les moyens de paiement affichés dans l'app.
-    - `card`   : Stripe (**désactivé par défaut** en version Sénégal ; réactivable via STRIPE_API_KEY).
-    - `wave`   : Toujours affiché en version SN (Wave Business).
-    - `orange` : Toujours affiché en version SN (Orange Money Business).
-    - `cash`   : Toujours disponible (paiement à la fin de la prestation).
+    Nous masquons proactivement les fournisseurs non configurés (Wave/OM sans
+    clés API) pour éviter d'afficher des boutons qui renverraient 503 —
+    exigence Apple : pas d'erreurs backend visibles pour l'utilisateur final.
 
-    Les indicateurs `*_ready` indiquent si le fournisseur est effectivement
-    configuré côté serveur ; si `false`, l'appel de checkout renverra 503
-    avec un message clair pour l'utilisateur, sans casser l'UI.
+    - `card`   : Stripe (désactivé par défaut en version Sénégal).
+    - `wave`   : Affiché SEULEMENT si WAVE_API_KEY est configurée.
+    - `orange` : Affiché SEULEMENT si les credentials OM sont configurés.
+    - `cash`   : Toujours disponible (paiement à la fin de la prestation).
     """
+    wave_ready = _wave_enabled()
+    orange_ready = _orange_enabled()
     return {
         "card":   STRIPE_ENABLED,
-        "wave":   True,
-        "orange": True,
+        "wave":   wave_ready,
+        "orange": orange_ready,
         "cash":   True,
         "card_ready":   STRIPE_ENABLED,
-        "wave_ready":   _wave_enabled(),
-        "orange_ready": _orange_enabled(),
+        "wave_ready":   wave_ready,
+        "orange_ready": orange_ready,
         "currency": "XOF",
         "country":  "SN",
     }

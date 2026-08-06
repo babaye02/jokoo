@@ -16,15 +16,18 @@ export default function BookingSuccess() {
   const { bookingId, amount, priceType, applyCode } = useLocalSearchParams<{ bookingId: string; amount: string; priceType?: string; applyCode?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [method, setMethod] = useState<Method>("wave");
+  const [method, setMethod] = useState<Method>("cash");
   const [loading, setLoading] = useState(false);
   const [paid, setPaid] = useState(false);
   const [promoInput, setPromoInput] = useState("");
   const [promo, setPromo] = useState<PromoState>(null);
   const [promoErr, setPromoErr] = useState<string | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
+  // Optimistic defaults: only show 'cash' until real config loads. This avoids
+  // flashing Wave/Orange buttons if the server later confirms they're disabled
+  // (App Store compliance — no buttons that would return 503 in production).
   const [config, setConfig] = useState<{ card: boolean; wave: boolean; orange: boolean; cash: boolean }>({
-    card: false, wave: true, orange: true, cash: true,
+    card: false, wave: false, orange: false, cash: true,
   });
   const autoAppliedRef = useRef<string | null>(null);
 
@@ -34,13 +37,13 @@ export default function BookingSuccess() {
       if (c && typeof c === "object") {
         setConfig({
           card:   !!c.card,
-          wave:   c.wave !== false,   // Wave affiché par défaut (503 gracieux si non configuré)
-          orange: c.orange !== false, // idem
+          wave:   c.wave === true,   // Only show Wave if explicitly enabled
+          orange: c.orange === true, // idem
           cash:   c.cash !== false,
         });
         // Si la méthode courante n'est pas activée, en choisir une valide
         setMethod((prev) => {
-          const enabled: Record<Method, boolean> = { card: !!c.card, wave: c.wave !== false, orange: c.orange !== false, cash: c.cash !== false };
+          const enabled: Record<Method, boolean> = { card: !!c.card, wave: c.wave === true, orange: c.orange === true, cash: c.cash !== false };
           if (enabled[prev]) return prev;
           if (enabled.wave) return "wave";
           if (enabled.orange) return "orange";
