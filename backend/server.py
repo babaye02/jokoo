@@ -2950,23 +2950,145 @@ async def _get_wallet(uid: str) -> dict:
     return doc
 
 
-@api.get("/wallet/me")
-async def wallet_me(user=Depends(current_user)):
+@api.get("/wallet/me-legacy-shim")
+async def wallet_me_legacy_shim(user=Depends(current_user)):
+    """[DEPRECATED] Ancien schéma wallet — conservé uniquement pour anciens builds
+    mobiles. Le nouveau moteur v2 est servi par `/api/wallet/me`.
+    """
     w = await _get_wallet(user["id"])
     return {k: v for k, v in w.items() if k != "_id"}
 
 
-@api.get("/wallet/history")
-async def wallet_history(user=Depends(current_user), limit: int = 50):
-    cur = db.wallet_transactions.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(limit)
-    return await cur.to_list(limit)
+# [REMOVED] Legacy `/wallet/me`, `/wallet/history`, `/wallet/pay-commission-due`
+# — replaced by production-grade Wallet Engine v2 in `wallet/` package.
+# See `/api/wallet/me`, `/api/wallet/history`, `/api/wallet/recharge`, etc.
 
 
 @api.post("/bookings/{bid}/cash-payment")
 async def record_cash_payment(bid: str, body: dict, user=Depends(current_user)):
     """Le prestataire déclare avoir reçu un paiement en espèces.
-    Jokoo calcule la commission due et l'ajoute au wallet en dette.
+
+    Utilise le moteur Wallet v2 : la commission Jokoo est automatiquement
+    débitée du wallet du prestataire (allow_negative jusqu'au plafond admin).
     """
+    from wallet import commission as _wcom
+    from wallet import service as _wsvc
+
+    b = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Réservation introuvable")
+    if b.get("provider_id") != user["id"]:
+        raise HTTPException(403, "Seul le prestataire peut enregistrer un paiement espèces")
+    if b.get("paid_at"):
+        raise HTTPException(400, "Réservation déjà payée")
+
+    amount = int(body.get("amount") or b.get("amount") or b.get("estimated_price") or 0)
+    if amount <= 0:
+        raise HTTPException(400, "Montant invalide")
+
+    # Persist the payment declaration on the booking
+    await db.bookings.update_one(
+        {"id": bid},
+        {"$set": {
+            "paid": True,
+            "paid_at": now_iso(),
+            "paid_method": "cash",
+            "amount_paid": amount,
+            "estimated_price": amount,  # ensure commission engine sees this
+        }},
+    )
+
+    # Re-read for latest state
+    b_updated = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    b_updated["provider_user_id"] = user["id"]
+
+    # Wallet v2: debit commission from provider, credit platform.
+    try:
+        result = await _wcom.charge_cash_commission(
+            db,
+            booking=b_updated,
+            actor_id=user["id"],
+            ip=None,
+        )
+    except _wsvc.InsufficientFunds as e:
+        # The wallet went past the admin-defined negative floor.
+        # The booking is still marked paid, but the commission is flagged as unrecoverable.
+        raise HTTPException(status_code=402, detail={
+            "code": "insufficient_funds",
+            "message": str(e),
+        })
+
+    commission_xof = int(result.get("commission_xof", 0))
+    balance_after = int(result.get("provider_balance_after_xof", 0))
+
+    # Get the actual gate value from the wallet snapshot (respects min_balance + max_negative admin config)
+    pro_wallet = await _wallet_service.get_wallet(db, user["id"])
+    snap = await _wallet_service.public_snapshot(db, pro_wallet)
+    is_blocked = not snap.get("can_receive_bookings", True)
+
+    # Notify provider
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "type": "commission_due",
+        "title": "Commission Jokoo débitée",
+        "body": (
+            f"{commission_xof:,} F CFA débités automatiquement de votre wallet "
+            f"(commission {result.get('rate_percent')}% sur {amount:,} F cash reçus)."
+        ).replace(",", " "),
+        "booking_id": bid,
+        "read": False,
+        "created_at": now_iso(),
+    })
+    if b.get("client_id"):
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": b["client_id"],
+            "type": "payment_received",
+            "title": "Paiement enregistré",
+            "body": f"Le prestataire a confirmé la réception de {amount:,} F CFA en espèces.".replace(",", " "),
+            "booking_id": bid,
+            "read": False,
+            "created_at": now_iso(),
+        })
+        try:
+            await send_push(
+                recipients=[b["client_id"]],
+                data={
+                    "title": "Paiement enregistré ✅",
+                    "message": f"Le prestataire a confirmé la réception de {amount:,} F CFA.".replace(",", " "),
+                    "action_url": f"/booking/{bid}",
+                },
+            )
+        except Exception as _e:
+            log.warning(f"Push failed (non-blocking): {_e}")
+
+    if is_blocked:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "type": "account_blocked",
+            "title": "Wallet en négatif",
+            "body": "Rechargez votre wallet pour continuer à recevoir des réservations.",
+            "read": False,
+            "created_at": now_iso(),
+        })
+
+    return {
+        "ok": True,
+        "booking_id": bid,
+        "amount_paid_xof": amount,
+        "commission_xof": commission_xof,
+        "commission_rate_percent": result.get("rate_percent"),
+        "wallet_balance_after_xof": balance_after,
+        "wallet_can_receive_bookings": not is_blocked,
+        "transaction_id": result.get("transaction_id"),
+    }
+
+
+# --- Legacy cash-payment implementation (kept as reference, unused) ---
+async def _legacy_record_cash_payment_deprecated(bid: str, body: dict, user):
+    """[DEPRECATED — replaced by v2 above] Do not call directly."""
     b = await db.bookings.find_one({"id": bid}, {"_id": 0})
     if not b:
         raise HTTPException(404, "Réservation introuvable")
@@ -3059,9 +3181,12 @@ async def record_cash_payment(bid: str, body: dict, user=Depends(current_user)):
     return {"ok": True, "commission": commission, "commission_due_total": new_debt, "blocked": is_blocked}
 
 
-@api.post("/wallet/pay-commission-due")
-async def pay_commission_due(body: dict, user=Depends(current_user)):
-    """Le prestataire règle sa commission due (via Stripe/Wave/OM à l'avenir — pour l'instant on marque payé)."""
+@api.post("/wallet/pay-commission-due-legacy")
+async def pay_commission_due_legacy(body: dict, user=Depends(current_user)):
+    """[DEPRECATED] Reste actif pour anciens builds mobiles.
+    Ne PAS utiliser dans les nouvelles intégrations — la commission est
+    automatiquement débitée par le moteur v2 dès `POST /bookings/{id}/cash-payment`.
+    """
     w = await _get_wallet(user["id"])
     to_pay = float(body.get("amount") or w["commission_due"])
     if to_pay <= 0:
@@ -7890,6 +8015,43 @@ _ambassadors_router = create_ambassadors_router(
     send_push=send_push,
 )
 app.include_router(_ambassadors_router, prefix="/api")
+
+
+# 💰 Wallet & Payments v2 — production-grade financial engine
+from wallet.router import build_router as _build_wallet_router  # noqa: E402
+from wallet.setup import create_indexes as _wallet_create_indexes  # noqa: E402
+from wallet import service as _wallet_service  # noqa: E402
+from wallet import commission as _wallet_commission  # noqa: E402
+from wallet import jokoo_pro as _wallet_jokoo_pro  # noqa: E402
+
+
+def _require_admin_dep(user=Depends(current_user)) -> dict:
+    """FastAPI dependency wrapper around `require_admin`."""
+    require_admin(user)
+    return user
+
+
+_wallet_user_router, _wallet_admin_router = _build_wallet_router(
+    db,
+    current_user=current_user,
+    require_admin=_require_admin_dep,
+)
+app.include_router(_wallet_user_router, prefix="/api")
+app.include_router(_wallet_admin_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def _wallet_startup():
+    """Initialize wallet indexes & platform master wallet."""
+    try:
+        await _wallet_create_indexes(db)
+        await _wallet_service.ensure_platform_wallet(db)
+        log.info("[wallet] engine v2 ready")
+    except Exception as _e:
+        try:
+            log.warning(f"[wallet] startup skip: {_e}")
+        except Exception:
+            pass
 
 
 @app.on_event("startup")

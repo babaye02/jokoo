@@ -1,0 +1,57 @@
+{
+  "summary": "Comprehensive backend test suite for Wallet + Paiements v2 engine. 38 pytest cases covering all 8 priority areas (snapshot, history, recharge with idempotency, withdrawal lifecycle with lock/unlock, cash commission, Jokoo Pro subscription, admin ops, refund with commission reversal, security/RBAC). Uncovered 1 critical bug (ObjectId leaking on new commission rule INSERT -> 500) — FIXED in wallet/commission.py. 38/38 tests pass, stable across repeat runs.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/admin/wallet/commissions/rules (INSERT path)",
+        "issue": "500 Internal Server Error when creating a NEW commission rule. Motor's insert_one() mutates the passed dict by injecting `_id: ObjectId(...)`, which then leaks into the response and breaks FastAPI JSON encoding. Only the INSERT path was affected — UPDATE returned 200. Root cause: /app/backend/wallet/commission.py:upsert_rule returned the mutated `doc`. FIXED by popping `_id` before returning.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/admin/wallet/settings",
+        "issue": "Response contains Mongo internal field `_id` (as key name equal to the setting key, not an ObjectId, so it doesn't crash — but it's a Mongo-specific leak). Consider projecting/removing it."
+      },
+      {
+        "endpoint": "Platform master wallet floor",
+        "issue": "Platform master wallet (JOKOO_MASTER) is subject to the same WALLET_MAX_NEGATIVE_XOF floor (-50 000 F) as user wallets. In a bootstrap / low-activity phase, this quickly blocks new recharges with `insufficient_funds` on the platform side (recharge = debit platform / credit user). Tests worked around this by raising the setting to -10 000 000 F and setting the JOKOO_MASTER min_balance to -10 000 000 F. Recommend the platform wallet be exempt from the global cap or seeded with a very large negative floor."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_wallet_v2.py",
+    "/app/test_reports/pytest/wallet_v2.xml"
+  ],
+  "action_items": [
+    "Review the fix in /app/backend/wallet/commission.py (added doc.pop('_id', None) after insert_one). All other wallet modules already handle this — only commission.py was missing.",
+    "Consider exempting the platform master wallet from WALLET_MAX_NEGATIVE_XOF (or seed it with min_balance = a very large negative) so that stripe/wave recharges never fail due to platform-side insufficient_funds.",
+    "Cosmetic: strip `_id` from POST /admin/wallet/settings response payload."
+  ],
+  "critical_code_review_comments": [
+    "Router /app/backend/wallet/router.py is 711 lines — approaching the 700-line split threshold. Could be split by concern (user routes / admin routes / webhook).",
+    "`upsert_rule` in commission.py did not defensively pop `_id` after insert_one. Best-practice reminder: after any `insert_one(doc)` where `doc` is later returned, always `doc.pop('_id', None)`.",
+    "Withdrawal validation order: pydantic absolute cap (100 M) fires before the platform max (2 M), so a request of 999 999 999 returns 422 not 402. Not a bug, but callers must know.",
+    "Recharge intent confirm requires platform wallet to have headroom — this exposed the platform-floor issue. In production, commissions accrue positive balance, but early on -50k is fragile."
+  ],
+  "updated_files": [
+    "/app/backend/wallet/commission.py — added `doc.pop('_id', None)` in upsert_rule to prevent ObjectId leak on INSERT path.",
+    "/app/backend/tests/test_wallet_v2.py — new comprehensive pytest suite (38 tests, ~500 lines).",
+    "Platform settings mutated via admin API during test bootstrap: `wallet_max_negative_xof` = -10 000 000 and JOKOO_MASTER min_balance = -10 000 000 (persistent)."
+  ],
+  "success_rate": {
+    "backend": "100% (38/38)",
+    "frontend": "n/a"
+  },
+  "seed_data_creation": "Test bookings inserted directly into Mongo with `TEST_book_*` / `TEST_refund_*` prefixes. Payment intents, ledger entries, withdrawals, subscriptions all created via the wallet API with TEST_* labels/refs. No cleanup — the ledger is designed to be append-only immutable.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Test file /app/backend/tests/test_wallet_v2.py runs cleanly with `MONGO_URL` and `DB_NAME` exported. Requires `-n 0` (disable xdist) because tests are ordered around a shared funded_pro fixture and sequential cash-commission/refund flows. The platform master wallet floor was widened to -10 M during this iteration — if reset, recharge/refund tests will start failing with `insufficient_funds` on the platform side.",
+  "rca_of_issue": "RCA for the ObjectId-leak 500 on POST /api/admin/wallet/commissions/rules: Motor's insert_one(doc) mutates the caller dict in-place by injecting `_id: ObjectId(...)`. `wallet/commission.py::upsert_rule` returned that same dict on the INSERT path, so FastAPI's jsonable_encoder crashed on the ObjectId. UPDATE path was unaffected (it just calls update_one and returns the locally-built doc). Reproduction: two successive POSTs with the same `category_key` — first (INSERT) returned 500, second (UPDATE) returned 200. Fix: `doc.pop('_id', None)` before `return doc`. Verified across two consecutive full test runs (38/38 passing)."
+}
