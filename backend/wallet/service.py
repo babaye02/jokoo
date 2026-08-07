@@ -170,7 +170,33 @@ async def ensure_wallet(
 
 
 async def ensure_platform_wallet(db: AsyncIOMotorDatabase) -> dict:
-    return await ensure_wallet(db, JOKOO_MASTER_OWNER_ID, kind=WalletKind.PLATFORM)
+    """Return the Jokoo master wallet, initializing it with an unlimited
+    negative floor if needed.
+
+    The platform wallet acts as the escrow float / counterparty for every
+    recharge (credit user, debit platform). It MUST never be blocked by the
+    per-user negative-balance cap. We give it a floor of −1 trillion XOF
+    (effectively infinite for our scale).
+    """
+    PLATFORM_FLOOR = -1_000_000_000_000  # −10^12 XOF, effectively infinite
+    existing = await db.wallets_v2.find_one({"owner_id": JOKOO_MASTER_OWNER_ID}, {"_id": 0})
+    if existing:
+        # Backfill the floor for older platform wallets created before this rule
+        if int(existing.get("min_balance", 0)) > PLATFORM_FLOOR:
+            await db.wallets_v2.update_one(
+                {"owner_id": JOKOO_MASTER_OWNER_ID},
+                {"$set": {"min_balance": PLATFORM_FLOOR, "updated_at": _now_iso()}, "$inc": {"version": 1}},
+            )
+            existing["min_balance"] = PLATFORM_FLOOR
+        return existing
+    w = await ensure_wallet(db, JOKOO_MASTER_OWNER_ID, kind=WalletKind.PLATFORM)
+    # Enforce the unlimited floor on freshly created master wallet
+    await db.wallets_v2.update_one(
+        {"owner_id": JOKOO_MASTER_OWNER_ID},
+        {"$set": {"min_balance": PLATFORM_FLOOR, "updated_at": _now_iso()}, "$inc": {"version": 1}},
+    )
+    w["min_balance"] = PLATFORM_FLOOR
+    return w
 
 
 async def get_wallet(db: AsyncIOMotorDatabase, owner_id: str) -> Optional[dict]:

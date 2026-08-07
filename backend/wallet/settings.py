@@ -87,7 +87,13 @@ async def set_value(db: AsyncIOMotorDatabase, key: str, value: Any, updated_by: 
     }
     await db.platform_settings.update_one({"_id": key}, {"$set": doc}, upsert=True)
     _CACHE.pop(key, None)
-    return doc
+    # Return a client-facing shape (no Mongo internals)
+    return {
+        "key": key,
+        "value": value,
+        "updated_at": now_iso,
+        "updated_by": updated_by,
+    }
 
 
 def invalidate(key: str | None = None) -> None:
