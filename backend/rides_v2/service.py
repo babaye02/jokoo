@@ -277,7 +277,24 @@ async def decide_offer(
     passenger_id: str,
     action: str,
     message: Optional[str] = None,
+    passenger_info: Optional[dict] = None,
 ) -> dict:
+    """
+    Décision du passager sur une offre.
+
+    Si `action == "accept"` :
+    - marque l'offre acceptée
+    - refuse automatiquement toutes les autres offres pending (statut `withdrawn`)
+    - crée une réservation dans `db.ride_bookings` liée à cette offre
+    - passe la demande en `booked` avec `accepted_offer_id` + `booking_id`
+
+    Retourne un dict :
+        {
+          "offer":  offre mise à jour,
+          "booking": booking créé (si accept),
+          "losing_offer_ids": [str],   # offres auto-fermées suite à l'accept
+        }
+    """
     offer = await db.ride_offers.find_one({"id": offer_id, "passenger_id": passenger_id}, {"_id": 0})
     if not offer:
         raise ValueError("Offer not found")
@@ -291,26 +308,124 @@ async def decide_offer(
     await db.ride_offers.update_one({"id": offer_id}, {"$set": updates})
     offer.update(updates)
 
-    # Si accepté, marquer la demande comme booked (rien d'autre côté rides pour l'instant)
+    booking: Optional[dict] = None
+    losing_ids: list[str] = []
+
     if new_status == OFFER_STATUS_ACCEPTED:
-        await db.ride_requests.update_one(
-            {"id": offer["request_id"]},
-            {"$set": {
-                "status": REQUEST_STATUS_BOOKED,
-                "accepted_offer_id": offer_id,
-                "updated_at": _now(),
-            }},
-        )
-        # Refuser toutes les autres offres pending pour cette demande
-        await db.ride_offers.update_many(
+        request = await db.ride_requests.find_one({"id": offer["request_id"]}, {"_id": 0})
+        if not request:
+            raise ValueError("Request not found")
+
+        # 1) Fermer automatiquement les autres offres pending pour cette demande
+        losing_cursor = db.ride_offers.find(
             {
                 "request_id": offer["request_id"],
                 "status": OFFER_STATUS_PENDING,
                 "id": {"$ne": offer_id},
             },
-            {"$set": {"status": OFFER_STATUS_WITHDRAWN, "updated_at": _now()}},
+            {"_id": 0, "id": 1},
         )
-    return _clean(offer)
+        losing_ids = [d["id"] async for d in losing_cursor]
+        if losing_ids:
+            await db.ride_offers.update_many(
+                {"id": {"$in": losing_ids}},
+                {"$set": {"status": OFFER_STATUS_WITHDRAWN, "updated_at": _now()}},
+            )
+
+        # 2) Créer la réservation
+        booking = await _create_booking_from_offer(db, request, offer, passenger_info or {})
+
+        # 3) Mettre à jour la demande
+        await db.ride_requests.update_one(
+            {"id": offer["request_id"]},
+            {"$set": {
+                "status": REQUEST_STATUS_BOOKED,
+                "accepted_offer_id": offer_id,
+                "booking_id": booking["id"],
+                "updated_at": _now(),
+            }},
+        )
+
+    return {"offer": _clean(offer), "booking": booking, "losing_offer_ids": losing_ids}
+
+
+async def _create_booking_from_offer(
+    db: Any,
+    request: dict,
+    offer: dict,
+    passenger_info: dict,
+) -> dict:
+    """
+    Crée un `ride_bookings` compatible avec l'existant :
+    - Si l'offre référence un `ride_id` existant : décrémente `seats_available`
+      et crée un booking normal.
+    - Sinon (offre inline) : crée un ride "virtuel" puis le booking dessus.
+    """
+    from datetime import datetime, timezone
+
+    seats = int(request.get("seats", 1) or 1)
+    price = int(offer.get("price_xof") or 0) * seats
+
+    ride_id = offer.get("ride_id")
+    if ride_id:
+        ride = await db.rides.find_one({"id": ride_id}, {"_id": 0})
+    else:
+        ride = None
+
+    if not ride:
+        # Créer un ride virtuel à partir des données inline de l'offre
+        import uuid as _uuid
+        summary = offer.get("ride_summary") or {}
+        ride_id = str(_uuid.uuid4())
+        ride = {
+            "id": ride_id,
+            "driver_id": offer["driver_id"],
+            "driver_name": offer.get("driver_name") or "",
+            "from_city": summary.get("from_city") or request.get("from_city"),
+            "to_city": summary.get("to_city") or request.get("to_city"),
+            "from_city_norm": request.get("from_city_norm"),
+            "to_city_norm": request.get("to_city_norm"),
+            "date": summary.get("date") or request.get("date"),
+            "time": summary.get("time") or request.get("time_from"),
+            "seats_total": int(summary.get("seats_available") or seats),
+            "seats_available": max(0, int(summary.get("seats_available") or seats) - seats),
+            "price_xof": int(offer.get("price_xof") or 0),
+            "vehicle_model": summary.get("vehicle_model") or "",
+            "status": "active",
+            "verified": bool(summary.get("verified")),
+            "created_via": "rides_v2_offer",
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+        await db.rides.insert_one(ride)
+    else:
+        # Décrémenter places du ride existant
+        await db.rides.update_one({"id": ride_id}, {"$inc": {"seats_available": -seats}})
+
+    # Créer le ride booking
+    import uuid as _uuid
+    bid = str(_uuid.uuid4())
+    booking = {
+        "id": bid,
+        "ride_id": ride_id,
+        "passenger_id": request["passenger_id"],
+        "passenger_name": passenger_info.get("name") or request.get("passenger_name") or "Passager",
+        "passenger_phone": passenger_info.get("phone"),
+        "seats": seats,
+        "price_xof": price,
+        "status": "confirmed",
+        "paid": False,
+        "note": (request.get("notes") or "")[:400],
+        # Métadonnées marketplace v2 pour traçabilité
+        "source": "rides_v2_marketplace",
+        "request_id": request["id"],
+        "offer_id": offer["id"],
+        "driver_id": offer["driver_id"],
+        "created_at": _now(),
+    }
+    await db.ride_bookings.insert_one(booking)
+    booking.pop("_id", None)
+    return booking
 
 
 async def withdraw_offer(db: Any, offer_id: str, driver_id: str) -> dict:

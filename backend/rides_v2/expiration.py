@@ -31,8 +31,9 @@ def _now() -> datetime:
 
 async def sweep_expired(db: Any) -> dict:
     """
-    Passe les demandes expirées en `expired` et envoie les rappels J-6h.
-    Retourne un dict {expired, reminded} pour observabilité.
+    Passe les demandes expirées en `expired`, envoie les rappels J-6h
+    et les rappels de départ (~2h avant le trajet).
+    Retourne un dict {expired, reminded, departure_reminders} pour observabilité.
     """
     now = _now()
     now_iso = now.isoformat()
@@ -53,7 +54,10 @@ async def sweep_expired(db: Any) -> dict:
         except Exception as e:
             log.warning("reminder failed for %s: %s", req.get("id"), e)
 
-    # 2) Expiration effective
+    # 2) Rappels de départ : demandes bookées dont le départ est dans les 2 prochaines heures
+    departure_reminders = await _sweep_departure_reminders(db, now)
+
+    # 3) Expiration effective
     to_expire = await db.ride_requests.find({
         "status": {"$in": [REQUEST_STATUS_OPEN, REQUEST_STATUS_MATCHED]},
         "expires_at": {"$lt": now_iso},
@@ -67,7 +71,49 @@ async def sweep_expired(db: Any) -> dict:
         except Exception as e:
             log.warning("expire failed for %s: %s", req.get("id"), e)
 
-    return {"expired": expired, "reminded": reminded}
+    return {"expired": expired, "reminded": reminded, "departure_reminders": departure_reminders}
+
+
+async def _sweep_departure_reminders(db: Any, now: datetime) -> int:
+    """
+    Envoie des rappels de départ pour les demandes bookées dont le départ est
+    prévu dans les 2 prochaines heures et qui n'ont pas encore été rappelées.
+    Combine `date` + `time_from` de la demande pour calculer le datetime cible.
+    """
+    horizon = now + timedelta(hours=2)
+    # On charge les demandes bookées non encore rappelées
+    cursor = db.ride_requests.find({
+        "status": "booked",
+        "departure_reminded": {"$ne": True},
+    }, {"_id": 0})
+    count = 0
+    async for req in cursor:
+        try:
+            date_str = (req.get("date") or "")[:10]
+            time_str = req.get("time_from") or "08:00"
+            hh, mm = 8, 0
+            try:
+                parts = time_str.split(":")
+                hh = int(parts[0]); mm = int(parts[1])
+            except Exception:
+                pass
+            y, mo, d = [int(x) for x in date_str.split("-")]
+            depart_dt = datetime(y, mo, d, hh, mm, tzinfo=timezone.utc)
+            if now <= depart_dt <= horizon:
+                # Charger offre acceptée + booking pour enrichir la notif
+                offer = None
+                booking = None
+                if req.get("accepted_offer_id"):
+                    offer = await db.ride_offers.find_one({"id": req["accepted_offer_id"]}, {"_id": 0})
+                if req.get("booking_id"):
+                    booking = await db.ride_bookings.find_one({"id": req["booking_id"]}, {"_id": 0})
+                await notify.notify_departure_reminder(db, req, offer, booking)
+                await db.ride_requests.update_one({"id": req["id"]}, {"$set": {"departure_reminded": True}})
+                count += 1
+        except Exception as e:
+            log.warning("departure reminder failed for %s: %s", req.get("id"), e)
+            continue
+    return count
 
 
 async def start_expiration_loop(db: Any, interval_seconds: int = 300) -> None:

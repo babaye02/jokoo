@@ -207,13 +207,37 @@ def build_mobility_router(
 
     @router.post("/offers/{oid}/decision")
     async def decide_offer(oid: str, body: RideOfferDecisionIn, user=Depends(current_user)):
+        passenger_info = await _passenger_info(user)
         try:
-            offer = await service.decide_offer(db, oid, user["id"], body.action, body.message)
+            result = await service.decide_offer(db, oid, user["id"], body.action, body.message, passenger_info=passenger_info)
+            offer = result["offer"]
+            booking = result.get("booking")
+            losing_ids = result.get("losing_offer_ids") or []
+
+            # Notif au conducteur (acceptation/refus)
             try:
                 await notify.notify_driver_offer_decision(db, offer, accepted=(body.action == "accept"))
             except Exception as e:
                 log.warning("notify_driver_offer_decision failed: %s", e)
-            return offer
+
+            # Si acceptation : notifs additionnelles
+            if body.action == "accept":
+                request = await service.get_request(db, offer["request_id"])
+                # Losing drivers
+                if losing_ids:
+                    try:
+                        await notify.notify_losing_drivers(db, request or {}, losing_ids)
+                    except Exception as e:
+                        log.warning("notify_losing_drivers failed: %s", e)
+                # Passager (booking créé)
+                if booking:
+                    try:
+                        await notify.notify_booking_created(db, request or {}, booking)
+                    except Exception as e:
+                        log.warning("notify_booking_created failed: %s", e)
+
+            # Response enrichie
+            return {"offer": offer, "booking": booking, "losing_offers_count": len(losing_ids)}
         except ValueError as e:
             raise HTTPException(400, str(e))
 

@@ -1,18 +1,44 @@
-// Détail d'une demande de trajet
-// - Vue passager : ses offres reçues avec accept/refuse
-// - Vue conducteur : bouton "Proposer ce trajet" → modal (choisir trajet ou inline)
+// Détail d'une demande de trajet — Marketplace Covoiturage v2
+// - Passager (owner) : vue COMPARAISON PREMIUM avec sort + badges (meilleur prix / meilleure note / vérifié).
+//   Actions : Accepter / Refuser / Poser une question (→ chat).
+//   Après acceptation → booking auto-créé, redirection vers écran de paiement.
+// - Conducteur : bouton "Proposer ce trajet" → modal (inline ou trajet publié).
 
-import React, { useCallback, useEffect, useState } from "react";
-import { View, ScrollView, StyleSheet, Pressable, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, Image } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  View,
+  ScrollView,
+  StyleSheet,
+  Pressable,
+  RefreshControl,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  TextInput,
+  Image,
+} from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Btn, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
-import { rideRequestsApi, RideRequest, RideOffer, formatDateShort, formatDateTime, offerStatusColor, offerStatusLabel, relativeTime, requestStatusColor, requestStatusLabel } from "@/src/mobility/rideRequests";
+import {
+  rideRequestsApi,
+  RideRequest,
+  RideOffer,
+  formatDateShort,
+  formatDateTime,
+  offerStatusColor,
+  offerStatusLabel,
+  relativeTime,
+  requestStatusColor,
+  requestStatusLabel,
+} from "@/src/mobility/rideRequests";
 import { useAuth } from "@/src/auth";
 import { api } from "@/src/api";
+
+type SortMode = "recent" | "price" | "rating" | "trips";
 
 export default function RequestDetail() {
   const router = useRouter();
@@ -23,6 +49,8 @@ export default function RequestDetail() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showOfferModal, setShowOfferModal] = useState(false);
+  const [sort, setSort] = useState<SortMode>("recent");
+  const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -40,28 +68,96 @@ export default function RequestDetail() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const isOwner = !!(user && req && user.id === req.passenger_id);
-  const canOffer = !!(user && req && user.id !== req.passenger_id && (req.status === "open" || req.status === "matched"));
+  const canOffer = !!(
+    user && req && user.id !== req.passenger_id && (req.status === "open" || req.status === "matched")
+  );
 
+  // ─── Best-offer computation ──────────────────────────────
+  const { sortedOffers, bestPriceId, bestRatingId, bestTripsId } = useMemo(() => {
+    const offers = req?.offers || [];
+    if (offers.length === 0) return { sortedOffers: [], bestPriceId: null, bestRatingId: null, bestTripsId: null };
+    const pending = offers.filter(o => o.status === "pending");
+    const others = offers.filter(o => o.status !== "pending");
+    const source = pending.length > 0 ? pending : offers;
+    // Determine best-per-criterion across pending offers only
+    let bp = source[0], br: RideOffer | null = null, bt: RideOffer | null = null;
+    for (const o of source) {
+      if (o.price_xof < bp.price_xof) bp = o;
+      if (o.driver_rating != null && (br === null || (o.driver_rating || 0) > (br.driver_rating || 0))) br = o;
+      const t = o.driver_completed_rides || 0;
+      if (bt === null || t > (bt.driver_completed_rides || 0)) bt = t > 0 ? o : bt;
+    }
+    // Sort based on user selection
+    const sortFn: Record<SortMode, (a: RideOffer, b: RideOffer) => number> = {
+      recent: (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      price: (a, b) => a.price_xof - b.price_xof,
+      rating: (a, b) => (b.driver_rating || 0) - (a.driver_rating || 0),
+      trips: (a, b) => (b.driver_completed_rides || 0) - (a.driver_completed_rides || 0),
+    };
+    const sortedPending = [...pending].sort(sortFn[sort]);
+    const combined = [...sortedPending, ...others];
+    return {
+      sortedOffers: combined,
+      bestPriceId: bp?.id || null,
+      bestRatingId: br?.id || null,
+      bestTripsId: bt?.id || null,
+    };
+  }, [req?.offers, sort]);
+
+  const pendingCount = sortedOffers.filter(o => o.status === "pending").length;
+
+  // ─── Decision handler ───────────────────────────────────
   const decide = (offerId: string, action: "accept" | "refuse") => {
     Alert.alert(
       action === "accept" ? "Accepter cette offre ?" : "Refuser cette offre ?",
-      action === "accept" ? "Le conducteur sera notifié et les autres offres seront automatiquement retirées." : "",
+      action === "accept"
+        ? "Une réservation sera créée automatiquement. Les autres conducteurs seront informés que la demande a trouvé preneur."
+        : "Le conducteur sera informé.",
       [
         { text: "Retour", style: "cancel" },
         {
           text: action === "accept" ? "Accepter" : "Refuser",
           style: action === "accept" ? "default" : "destructive",
           onPress: async () => {
+            setBusyOfferId(offerId);
             try {
-              await rideRequestsApi.decideOffer(offerId, action);
-              load();
+              const res = await rideRequestsApi.decideOffer(offerId, action);
+              if (action === "accept" && res.booking?.id) {
+                // Recharge la vue pour afficher l'état "booked" puis propose le paiement
+                await load();
+                Alert.alert(
+                  "Réservation confirmée 🎉",
+                  "Votre trajet est réservé. Souhaitez-vous procéder au paiement maintenant ?",
+                  [
+                    { text: "Plus tard", style: "cancel" },
+                    {
+                      text: "Payer maintenant",
+                      onPress: () => {
+                        router.push({
+                          pathname: "/booking/detail/[id]",
+                          params: { id: res.booking.id },
+                        });
+                      },
+                    },
+                  ]
+                );
+              } else {
+                load();
+              }
             } catch (e: any) {
               Alert.alert("Erreur", e?.message || "Action refusée.");
+            } finally {
+              setBusyOfferId(null);
             }
           },
         },
       ]
     );
+  };
+
+  const askQuestion = (driverId: string) => {
+    // Ouvre la conversation avec le conducteur (route existante /chat/[id])
+    router.push({ pathname: "/chat/[id]", params: { id: driverId } });
   };
 
   if (!id) return null;
@@ -80,14 +176,18 @@ export default function RequestDetail() {
         <Pressable onPress={() => router.back()} style={styles.back}>
           <Ionicons name="chevron-back" size={22} color={colors.text} />
         </Pressable>
-        <Txt size="lg" weight="700" style={{ flex: 1, marginLeft: 8 }}>Demande de trajet</Txt>
+        <Txt size="lg" weight="700" style={{ flex: 1, marginLeft: 8 }}>
+          {isOwner ? "Ma demande" : "Demande de trajet"}
+        </Txt>
       </SafeAreaView>
 
       <ScrollView
         contentContainerStyle={{ padding: spacing.xl, paddingBottom: 140 + insets.bottom, gap: spacing.md }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.turquoise} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.turquoise} />
+        }
       >
-        {/* Passager */}
+        {/* Passenger */}
         <View style={styles.passenger}>
           {req.passenger_avatar ? (
             <Image source={{ uri: req.passenger_avatar }} style={styles.avatarLg} />
@@ -138,18 +238,72 @@ export default function RequestDetail() {
           </View>
         ) : null}
 
-        {/* Offres */}
-        {req.offers && req.offers.length > 0 ? (
-          <>
-            <View style={styles.sectionHeader}>
-              <Txt size="lg" weight="800">Offres reçues ({req.offers.length})</Txt>
+        {/* Republier si expirée / annulée */}
+        {isOwner && (req.status === "expired" || req.status === "cancelled") ? (
+          <View style={styles.republishCard}>
+            <View style={{ flex: 1 }}>
+              <Txt size="sm" weight="800" color={colors.midnight}>
+                {req.status === "expired" ? "Cette demande a expiré" : "Demande annulée"}
+              </Txt>
+              <Txt size="xxs" color={colors.textSecondary} style={{ marginTop: 2 }}>
+                Vous pouvez la republier en un clic. Les conducteurs seront à nouveau notifiés.
+              </Txt>
             </View>
-            {req.offers.map((o) => (
-              <OfferCard
+            <Pressable
+              onPress={async () => {
+                try {
+                  await rideRequestsApi.republish(req.id);
+                  load();
+                } catch (e: any) {
+                  Alert.alert("Erreur", e?.message || "Impossible de republier.");
+                }
+              }}
+              style={styles.republishBtn}
+              testID="republish-inline"
+            >
+              <Ionicons name="refresh" size={16} color={colors.white} />
+              <Txt weight="700" color={colors.white} style={{ marginLeft: 6 }}>Republier</Txt>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* ─── VUE COMPARAISON PREMIUM (owner + offres présentes) ─── */}
+        {isOwner && sortedOffers.length > 0 ? (
+          <>
+            <View style={styles.compareHeader}>
+              <View>
+                <Txt size="xl" weight="800">Comparez les offres</Txt>
+                <Txt size="xxs" color={colors.textMuted} style={{ marginTop: 2 }}>
+                  {pendingCount} offre{pendingCount !== 1 ? "s" : ""} en attente · {sortedOffers.length} au total
+                </Txt>
+              </View>
+              {req.status === "booked" ? (
+                <View style={[styles.badge, { backgroundColor: "#E9F9EF" }]}>
+                  <Ionicons name="checkmark-circle" size={12} color="#1F7A3F" />
+                  <Txt size="xxs" weight="700" color="#1F7A3F" style={{ marginLeft: 4 }}>Réservation confirmée</Txt>
+                </View>
+              ) : null}
+            </View>
+
+            {/* Sort chips */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+              <SortChip label="Récentes" active={sort === "recent"} icon="time" onPress={() => setSort("recent")} />
+              <SortChip label="Meilleur prix" active={sort === "price"} icon="cash" onPress={() => setSort("price")} />
+              <SortChip label="Meilleure note" active={sort === "rating"} icon="star" onPress={() => setSort("rating")} />
+              <SortChip label="Plus expérimentés" active={sort === "trips"} icon="ribbon" onPress={() => setSort("trips")} />
+            </ScrollView>
+
+            {sortedOffers.map((o) => (
+              <PremiumOfferCard
                 key={o.id}
                 offer={o}
-                canDecide={isOwner && o.status === "pending"}
-                onDecide={(action) => decide(o.id, action)}
+                canDecide={isOwner && o.status === "pending" && req.status !== "booked"}
+                isBestPrice={o.id === bestPriceId && o.status === "pending"}
+                isBestRating={o.id === bestRatingId && o.status === "pending"}
+                isBestTrips={o.id === bestTripsId && o.status === "pending"}
+                busy={busyOfferId === o.id}
+                onDecide={(a) => decide(o.id, a)}
+                onAsk={() => askQuestion(o.driver_id)}
               />
             ))}
           </>
@@ -159,6 +313,15 @@ export default function RequestDetail() {
             <Txt weight="700" style={{ marginTop: 10 }}>En attente d&apos;offres</Txt>
             <Txt size="xs" color={colors.textMuted} style={{ marginTop: 6, textAlign: "center" }}>
               Nous notifions les conducteurs sur cet axe. Vous recevrez une notification dès qu&apos;une offre arrive.
+            </Txt>
+          </View>
+        ) : null}
+
+        {/* Vue conducteur (non-owner): résumé simplifié des autres offres */}
+        {!isOwner && (req.offers || []).length > 0 ? (
+          <View style={styles.card}>
+            <Txt size="xs" weight="700" color={colors.textMuted}>
+              {req.offers!.length} propositions déjà envoyées · à partir de {Math.min(...req.offers!.map(o => o.price_xof)).toLocaleString("fr-FR")} F CFA
             </Txt>
           </View>
         ) : null}
@@ -190,46 +353,96 @@ export default function RequestDetail() {
 
 // ─── Subcomponents ─────────────────────────────────────────────
 
-function OfferCard({ offer, canDecide, onDecide }: { offer: RideOffer; canDecide: boolean; onDecide: (action: "accept" | "refuse") => void }) {
-  const c = offerStatusColor(offer.status);
+function SortChip({ label, active, icon, onPress }: { label: string; active: boolean; icon: any; onPress: () => void }) {
   return (
-    <View style={styles.offerCard}>
+    <Pressable onPress={onPress} style={[styles.sortChip, active && styles.sortChipActive]}>
+      <Ionicons name={icon} size={12} color={active ? colors.white : colors.textMuted} />
+      <Txt size="xxs" weight="700" color={active ? colors.white : colors.midnight} style={{ marginLeft: 5 }}>{label}</Txt>
+    </Pressable>
+  );
+}
+
+function PremiumOfferCard({
+  offer,
+  canDecide,
+  isBestPrice,
+  isBestRating,
+  isBestTrips,
+  busy,
+  onDecide,
+  onAsk,
+}: {
+  offer: RideOffer;
+  canDecide: boolean;
+  isBestPrice: boolean;
+  isBestRating: boolean;
+  isBestTrips: boolean;
+  busy: boolean;
+  onDecide: (a: "accept" | "refuse") => void;
+  onAsk: () => void;
+}) {
+  const c = offerStatusColor(offer.status);
+  const highlighted = isBestPrice || isBestRating || isBestTrips;
+  return (
+    <View style={[styles.offerCard, highlighted && styles.offerCardHighlight]}>
+      {/* Best-of badges row */}
+      {(isBestPrice || isBestRating || isBestTrips || offer.driver_verified) ? (
+        <View style={styles.bestBadges}>
+          {isBestPrice ? <BestBadge icon="pricetag" label="Meilleur prix" tint="#059669" /> : null}
+          {isBestRating ? <BestBadge icon="star" label="Meilleure note" tint="#F59E0B" /> : null}
+          {isBestTrips ? <BestBadge icon="ribbon" label="Expérimenté" tint="#7C3AED" /> : null}
+          {offer.driver_verified ? <BestBadge icon="shield-checkmark" label="Vérifié Jokoo" tint="#0EA5E9" /> : null}
+        </View>
+      ) : null}
+
+      {/* Driver + price header */}
       <View style={{ flexDirection: "row", alignItems: "center" }}>
         {offer.driver_avatar ? (
           <Image source={{ uri: offer.driver_avatar }} style={styles.avatar} />
         ) : (
-          <View style={styles.avatar}><Ionicons name="person" size={16} color={colors.turquoise} /></View>
+          <View style={styles.avatar}><Ionicons name="person" size={18} color={colors.turquoise} /></View>
         )}
         <View style={{ flex: 1, marginLeft: 10 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Txt size="sm" weight="800">{offer.driver_name || "Conducteur"}</Txt>
             {offer.driver_verified ? <Ionicons name="checkmark-circle" size={12} color={colors.turquoise} /> : null}
           </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3 }}>
             {offer.driver_rating != null ? (
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <Ionicons name="star" size={11} color="#F59E0B" />
-                <Txt size="xxs" style={{ marginLeft: 2 }}>{offer.driver_rating.toFixed(1)}</Txt>
+                <Txt size="xxs" weight="700" style={{ marginLeft: 3 }}>{offer.driver_rating.toFixed(1)}</Txt>
               </View>
             ) : null}
-            <Txt size="xxs" color={colors.textMuted}>{offer.driver_completed_rides ?? 0} trajet{(offer.driver_completed_rides ?? 0) > 1 ? "s" : ""}</Txt>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons name="car-sport" size={11} color={colors.textMuted} />
+              <Txt size="xxs" color={colors.textMuted} style={{ marginLeft: 3 }}>
+                {offer.driver_completed_rides ?? 0} trajet{(offer.driver_completed_rides ?? 0) > 1 ? "s" : ""}
+              </Txt>
+            </View>
+            <Txt size="xxs" color={colors.textSubtle}>· {relativeTime(offer.created_at)}</Txt>
           </View>
         </View>
         <View style={{ alignItems: "flex-end" }}>
-          <Txt size="md" weight="800" style={{ fontVariant: ["tabular-nums"] as any }}>{offer.price_xof.toLocaleString("fr-FR")} F</Txt>
+          <Txt size="lg" weight="800" style={{ fontVariant: ["tabular-nums"] as any }}>{offer.price_xof.toLocaleString("fr-FR")} F</Txt>
           <View style={[styles.badge, { backgroundColor: c.bg, marginTop: 4 }]}>
             <Txt size="xxs" weight="700" color={c.fg}>{offerStatusLabel(offer.status)}</Txt>
           </View>
         </View>
       </View>
 
+      {/* Ride summary */}
       {offer.ride_summary ? (
         <View style={styles.rideSummary}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {offer.ride_summary.vehicle_model ? <Chip icon="car" label={offer.ride_summary.vehicle_model} /> : null}
             {offer.ride_summary.time ? <Chip icon="time" label={offer.ride_summary.time} /> : null}
-            {offer.ride_summary.seats_available ? <Chip icon="people" label={`${offer.ride_summary.seats_available} place${offer.ride_summary.seats_available > 1 ? "s" : ""}`} /> : null}
-            {offer.ride_summary.verified ? <Chip icon="shield-checkmark" label="Vérifié Jokoo" tint="#7C3AED" /> : null}
+            {offer.ride_summary.seats_available ? (
+              <Chip
+                icon="people"
+                label={`${offer.ride_summary.seats_available} place${offer.ride_summary.seats_available > 1 ? "s" : ""}`}
+              />
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -240,18 +453,48 @@ function OfferCard({ offer, canDecide, onDecide }: { offer: RideOffer; canDecide
         </View>
       ) : null}
 
+      {/* Actions */}
       {canDecide ? (
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-          <Pressable onPress={() => onDecide("refuse")} style={[styles.decideBtn, { backgroundColor: "#FEE2E2", flex: 1 }]} testID={`offer-refuse-${offer.id.slice(0, 8)}`}>
+        <View style={{ flexDirection: "row", gap: 6, marginTop: 6 }}>
+          <Pressable onPress={onAsk} style={[styles.decideBtn, { backgroundColor: colors.surface2 }]} testID={`offer-ask-${offer.id.slice(0, 8)}`}>
+            <Ionicons name="chatbubble-ellipses" size={14} color={colors.midnight} />
+            <Txt size="xs" weight="700" style={{ marginLeft: 4 }}>Question</Txt>
+          </Pressable>
+          <Pressable
+            onPress={() => onDecide("refuse")}
+            style={[styles.decideBtn, { backgroundColor: "#FEE2E2", flex: 1 }]}
+            testID={`offer-refuse-${offer.id.slice(0, 8)}`}
+            disabled={busy}
+          >
             <Ionicons name="close-circle" size={14} color="#DC2626" />
             <Txt size="xs" weight="700" color="#DC2626" style={{ marginLeft: 6 }}>Refuser</Txt>
           </Pressable>
-          <Pressable onPress={() => onDecide("accept")} style={[styles.decideBtn, { backgroundColor: colors.turquoise, flex: 1 }]} testID={`offer-accept-${offer.id.slice(0, 8)}`}>
-            <Ionicons name="checkmark-circle" size={14} color={colors.white} />
-            <Txt size="xs" weight="700" color={colors.white} style={{ marginLeft: 6 }}>Accepter</Txt>
+          <Pressable
+            onPress={() => onDecide("accept")}
+            style={[styles.decideBtn, { backgroundColor: colors.turquoise, flex: 1.2 }]}
+            testID={`offer-accept-${offer.id.slice(0, 8)}`}
+            disabled={busy}
+          >
+            {busy ? (
+              <ActivityIndicator size="small" color={colors.white} />
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle" size={14} color={colors.white} />
+                <Txt size="xs" weight="700" color={colors.white} style={{ marginLeft: 6 }}>Accepter</Txt>
+              </>
+            )}
           </Pressable>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function BestBadge({ icon, label, tint }: { icon: any; label: string; tint: string }) {
+  return (
+    <View style={[styles.bestBadge, { backgroundColor: `${tint}18`, borderColor: `${tint}55` }]}>
+      <Ionicons name={icon} size={11} color={tint} />
+      <Txt size="xxs" weight="800" color={tint} style={{ marginLeft: 3, letterSpacing: 0.2 }}>{label}</Txt>
     </View>
   );
 }
@@ -277,13 +520,22 @@ function InfoRow({ icon, label, value, last }: { icon: any; label: string; value
 
 // ─── Offer modal (driver side) ───────────────────────────────────
 
-function OfferModal({ visible, request, onClose, onSuccess }: { visible: boolean; request: RideRequest; onClose: () => void; onSuccess: () => void }) {
+function OfferModal({
+  visible,
+  request,
+  onClose,
+  onSuccess,
+}: {
+  visible: boolean;
+  request: RideRequest;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
   const [tab, setTab] = useState<"existing" | "inline">("inline");
   const [rides, setRides] = useState<any[]>([]);
   const [selectedRideId, setSelectedRideId] = useState<string | null>(null);
   const [price, setPrice] = useState(request.budget_xof ? String(request.budget_xof) : "");
   const [message, setMessage] = useState("");
-  // Inline fields
   const [time, setTime] = useState(request.time_from);
   const [seats, setSeats] = useState(String(request.seats));
   const [vehicle, setVehicle] = useState("");
@@ -291,7 +543,6 @@ function OfferModal({ visible, request, onClose, onSuccess }: { visible: boolean
 
   useEffect(() => {
     if (!visible) return;
-    // Load current user's rides for existing-mode selector
     api.get<any[]>("/rides/mine").then((r) => setRides(r || [])).catch(() => setRides([]));
   }, [visible]);
 
@@ -339,7 +590,6 @@ function OfferModal({ visible, request, onClose, onSuccess }: { visible: boolean
             {request.from_city} → {request.to_city} · {formatDateShort(request.date)} · {request.seats} pass.
           </Txt>
 
-          {/* Tabs */}
           <View style={styles.modalTabs}>
             <Pressable onPress={() => setTab("inline")} style={[styles.modalTab, tab === "inline" && styles.modalTabActive]} testID="offer-tab-inline">
               <Txt size="xs" weight="700" color={tab === "inline" ? colors.midnight : colors.textMuted}>Proposer directement</Txt>
@@ -440,21 +690,28 @@ const styles = StyleSheet.create({
   back: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center" },
   passenger: { flexDirection: "row", alignItems: "center", padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, ...shadow.soft },
   avatarLg: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
-  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
+  badge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, ...shadow.soft },
   routeRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   routeDot: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.turquoise, alignItems: "center", justifyContent: "center" },
   routeDotInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.white },
   divider: { height: 1, backgroundColor: colors.hairline, marginVertical: 8, marginLeft: 34 },
   infoRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.hairline },
-  sectionHeader: { marginTop: spacing.md, marginBottom: 6 },
+  compareHeader: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", marginTop: spacing.md },
+  sortChip: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  sortChipActive: { backgroundColor: colors.midnight, borderColor: colors.midnight },
   offerCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, ...shadow.soft, gap: 8 },
-  rideSummary: { paddingVertical: 6 },
+  offerCardHighlight: { borderWidth: 2, borderColor: colors.turquoise },
+  bestBadges: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  bestBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
+  rideSummary: { paddingVertical: 2 },
   chip: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: colors.surface2 },
   msgBox: { padding: 8, borderRadius: radius.md, backgroundColor: colors.surface2 },
-  decideBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 12, height: 40, borderRadius: 999 },
+  decideBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 10, height: 40, borderRadius: 999 },
   emptyOffers: { padding: spacing.xl, alignItems: "center", backgroundColor: colors.surface, borderRadius: radius.lg, ...shadow.soft },
+  republishCard: { flexDirection: "row", alignItems: "center", gap: 10, padding: spacing.md, borderRadius: radius.lg, backgroundColor: "#FEF3C7" },
+  republishBtn: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, height: 40, borderRadius: 999, backgroundColor: colors.turquoise },
   stickyBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.xl, paddingTop: 12, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   modalSheet: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: "88%" },

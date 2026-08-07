@@ -163,7 +163,10 @@ export const rideRequestsApi = {
   listOffers: (requestId: string) => api.get<RideOffer[]>(`/mobility/requests/${requestId}/offers`),
 
   decideOffer: (offerId: string, action: "accept" | "refuse", message?: string) =>
-    api.post<RideOffer>(`/mobility/offers/${offerId}/decision`, { action, message }),
+    api.post<{ offer: RideOffer; booking?: any; losing_offers_count?: number }>(
+      `/mobility/offers/${offerId}/decision`,
+      { action, message }
+    ),
 
   withdrawOffer: (offerId: string) =>
     api.post<RideOffer>(`/mobility/offers/${offerId}/withdraw`, {}),

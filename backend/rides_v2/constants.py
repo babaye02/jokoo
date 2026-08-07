@@ -58,6 +58,9 @@ NOTIF_KIND_NEW_RIDE_MATCH = "ride_new_ride_match"                 # → passager
 NOTIF_KIND_NEW_OFFER = "ride_new_offer"                           # → passager
 NOTIF_KIND_OFFER_ACCEPTED = "ride_offer_accepted"                 # → conducteur
 NOTIF_KIND_OFFER_REFUSED = "ride_offer_refused"                   # → conducteur
+NOTIF_KIND_OFFER_CLOSED = "ride_offer_closed"                     # → autres conducteurs (demande déjà pourvue)
+NOTIF_KIND_BOOKING_CREATED = "ride_booking_created"               # → passager
+NOTIF_KIND_DEPARTURE_REMINDER = "ride_departure_reminder"         # → passager + conducteur
 NOTIF_KIND_REQUEST_EXPIRING = "ride_request_expiring"             # → passager
 NOTIF_KIND_REQUEST_EXPIRED = "ride_request_expired"               # → passager
 

@@ -14,10 +14,13 @@ from typing import Any, Callable, Optional
 
 from .constants import (
     NOTIF_CHANNEL_MOBILITY,
+    NOTIF_KIND_BOOKING_CREATED,
+    NOTIF_KIND_DEPARTURE_REMINDER,
     NOTIF_KIND_NEW_REQUEST_MATCH,
     NOTIF_KIND_NEW_RIDE_MATCH,
     NOTIF_KIND_NEW_OFFER,
     NOTIF_KIND_OFFER_ACCEPTED,
+    NOTIF_KIND_OFFER_CLOSED,
     NOTIF_KIND_OFFER_REFUSED,
     NOTIF_KIND_REQUEST_EXPIRING,
     NOTIF_KIND_REQUEST_EXPIRED,
@@ -236,3 +239,89 @@ async def notify_request_expired(db: Any, request: dict) -> None:
         {"request_id": request["id"]},
     )
     # Pas de push obligatoire pour l'expiration effective (le rappel suffit).
+
+
+async def notify_losing_drivers(db: Any, request: dict, losing_offer_ids: list[str]) -> int:
+    """
+    Prévient les conducteurs dont l'offre a été fermée automatiquement suite
+    à l'acceptation d'une autre offre. Message : "Cette demande a déjà trouvé un conducteur."
+    """
+    if not losing_offer_ids:
+        return 0
+    route = _route_display(request.get("from_city"), request.get("to_city"))
+    count = 0
+    async for offer in db.ride_offers.find({"id": {"$in": losing_offer_ids}}, {"_id": 0, "driver_id": 1, "id": 1}):
+        did = offer.get("driver_id")
+        if not did:
+            continue
+        title = "Cette demande a trouvé un conducteur"
+        message = f"{route} · Merci pour votre proposition."
+        await _inapp(
+            db, did,
+            NOTIF_KIND_OFFER_CLOSED,
+            title, message,
+            {"request_id": request["id"], "offer_id": offer["id"]},
+        )
+        await _push(
+            [did],
+            {
+                "title": title,
+                "message": message,
+                "action_url": f"/mobility/offers/sent",
+                "channel_id": NOTIF_CHANNEL_MOBILITY,
+            },
+            idempotency_key=f"offer_closed:{offer['id']}",
+        )
+        count += 1
+    return count
+
+
+async def notify_booking_created(db: Any, request: dict, booking: dict) -> None:
+    """Notif au passager après création automatique de sa réservation."""
+    passenger_id = request.get("passenger_id")
+    if not passenger_id:
+        return
+    route = _route_display(request.get("from_city"), request.get("to_city"))
+    title = "Réservation confirmée"
+    message = f"{route} · {booking.get('seats', 1)} place(s) · {booking.get('price_xof', 0):,} F CFA".replace(",", " ")
+    await _inapp(
+        db, passenger_id,
+        NOTIF_KIND_BOOKING_CREATED,
+        title, message,
+        {"request_id": request["id"], "booking_id": booking["id"]},
+    )
+    await _push(
+        [passenger_id],
+        {
+            "title": title,
+            "message": message,
+            "action_url": f"/booking/{booking['id']}",
+            "channel_id": NOTIF_CHANNEL_MOBILITY,
+        },
+        idempotency_key=f"booking_created:{booking['id']}",
+    )
+
+
+async def notify_departure_reminder(db: Any, request: dict, offer: Optional[dict], booking: Optional[dict]) -> None:
+    """
+    Rappel avant départ : prévient le passager (et le conducteur si offre présente).
+    Envoyé ~2h avant l'heure de départ.
+    """
+    route = _route_display(request.get("from_city"), request.get("to_city"))
+    time_hint = request.get("time_from") or ""
+    title = "Départ dans environ 2 heures"
+    message = f"{route} · {time_hint}"
+    # Passager
+    pid = request.get("passenger_id")
+    if pid:
+        await _inapp(db, pid, NOTIF_KIND_DEPARTURE_REMINDER, title, message,
+                     {"request_id": request["id"], "booking_id": (booking or {}).get("id")})
+        await _push([pid], {"title": title, "message": message, "action_url": f"/mobility/requests/{request['id']}", "channel_id": NOTIF_CHANNEL_MOBILITY},
+                    idempotency_key=f"depart:{request['id']}:p")
+    # Conducteur (si offre acceptée connue)
+    if offer and offer.get("driver_id"):
+        did = offer["driver_id"]
+        await _inapp(db, did, NOTIF_KIND_DEPARTURE_REMINDER, title, message,
+                     {"request_id": request["id"], "offer_id": offer.get("id")})
+        await _push([did], {"title": title, "message": message, "action_url": f"/mobility/offers/sent", "channel_id": NOTIF_CHANNEL_MOBILITY},
+                    idempotency_key=f"depart:{request['id']}:d")

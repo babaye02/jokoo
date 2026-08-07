@@ -945,6 +945,73 @@ agent_communication:
           - `/mobility/offers/received.tsx` : offres reçues (passenger).
           - Client API : `/app/frontend/src/mobility/rideRequests.ts` (all endpoints + helpers).
 
+
+  - task: "Marketplace Covoiturage v2 — Phase 2 EXT (Comparison + Auto-booking + Notifs losing drivers)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/rides_v2/service.py + notify.py + expiration.py + /app/frontend/app/mobility/requests/[id].tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        message: |
+          Extension de la marketplace covoiturage v2 avec les 5 points manquants :
+          #6 Comparaison premium, #7 Auto-booking sur accept, #8 Paiement (redirect), #9 Notifs élargies, #10 Republier UI.
+
+          BACKEND CHANGES :
+          - `notify.py` : 3 nouveaux triggers :
+            * `notify_losing_drivers(db, request, [offer_ids])` → "Cette demande a trouvé un conducteur"
+            * `notify_booking_created(db, request, booking)` → passager
+            * `notify_departure_reminder(db, request, offer, booking)` → passager + conducteur ~2h avant
+          - `constants.py` : ajout `NOTIF_KIND_OFFER_CLOSED`, `NOTIF_KIND_BOOKING_CREATED`, `NOTIF_KIND_DEPARTURE_REMINDER`.
+          - `service.decide_offer` totalement réécrit — sur accept :
+            1. Marque offre acceptée
+            2. Auto-ferme les autres offres pending (statut `withdrawn`)
+            3. Crée un ride booking dans `db.ride_bookings` (avec ride existant ou synthétique via helper `_create_booking_from_offer`)
+            4. Marque la demande `booked` + stocke `accepted_offer_id` + `booking_id`
+            Retourne `{"offer", "booking", "losing_offer_ids"}`.
+          - `router.decide_offer` : notif chain complète (driver decision + losing drivers + booking created). Response : `{offer, booking, losing_offers_count}`.
+          - `expiration.sweep_expired` étend avec `_sweep_departure_reminders` : notif ~2h avant départ pour les demandes bookées non encore rappelées.
+
+          FRONTEND CHANGES :
+          - `/app/frontend/app/mobility/requests/[id].tsx` réécrit avec VUE COMPARAISON PREMIUM :
+            * Sort chips (Récentes / Meilleur prix / Meilleure note / Plus expérimentés)
+            * Best-of badges par offre (Meilleur prix vert, Meilleure note orange, Expérimenté violet, Vérifié Jokoo bleu)
+            * Highlighted card (bordure turquoise) pour la meilleure offre
+            * 3 boutons d'action par offre : "Question" (chat), "Refuser", "Accepter"
+            * Après accept : Alert "Réservation confirmée 🎉" → CTA "Payer maintenant" → redirect `/booking/detail/[id]`
+            * Bouton "Question" navigue vers `/chat/[id]` avec le driver_id (route existante)
+            * Encart Republier visible quand status=expired ou cancelled (avec CTA orange direct)
+          - `/app/frontend/src/mobility/rideRequests.ts` : `decideOffer` typé en `{offer, booking?, losing_offers_count?}`.
+
+          CE QUI A ÉTÉ VALIDÉ MANUELLEMENT (curl) :
+          - Créé une request Plateau→Mbour avec 3 offres à 4500/5000/5800 F, 3 driver différents.
+          - Accept de la meilleure (4500 F) → offer.status=accepted ✅, booking créé avec price 4500 (seats=1) ✅, losing_offers_count=2 ✅
+          - Base : 2 notifs `ride_offer_closed` insérées pour les 2 losing drivers ✅, 1 notif `ride_booking_created` pour le passager ✅
+          - Les 2 offres perdantes passent bien en `withdrawn`.
+          - Backend expiration loop tourne toutes les 5 min avec ajout des departure_reminders.
+
+          TESTS À FAIRE (frontend + backend flow complet)
+          1. Login client@jokoo.sn / Passw0rd! → publier demande "Plateau → Mbour" 2026-12-XX 09:00 seats 1 budget 6000
+          2. Login pro@jokoo.sn / Passw0rd! → aller /mobility/requests → cliquer la demande → "Proposer ce trajet" → prix 4500 → envoyer
+          3. Répéter avec un autre driver (admin@jokoo.sn / Admin1234!) → prix 5800 (le prix est différent pour tester la comparaison)
+          4. Re-login client@jokoo.sn → aller sur la demande → vérifier :
+             a. Header "Ma demande" (owner)
+             b. Section "Comparez les offres" avec badge "N offres en attente"
+             c. Sort chips visibles (Récentes / Meilleur prix / Meilleure note / Plus expérimentés)
+             d. La carte de 4500 F a la bordure turquoise + badge vert "Meilleur prix"
+             e. 3 boutons par carte : Question / Refuser / Accepter
+          5. Cliquer "Accepter" sur la meilleure → Alert "Réservation confirmée 🎉" → cliquer "Payer maintenant" → doit rediriger vers /booking/detail/{booking_id}
+          6. Retour /mobility/requests/{id} → status "Réservation confirmée" (vert), les autres offres apparaissent en "Retirée"
+          7. Cliquer "Question" sur une offre → doit ouvrir /chat/{driver_id}
+
+          AUTH : client@jokoo.sn / Passw0rd!, pro@jokoo.sn / Passw0rd!, admin@jokoo.sn / Admin1234!.
+          Base URL locale : http://localhost:3000.
+
+          Rapport : /app/test_reports/iteration_47.json.
+
           FLOW À TESTER (E2E) :
           1. Passager (client@jokoo.sn / Passw0rd!) : /mobility → cliquer "Publier une demande" → formulaire → publier "Plateau → Saint-Louis" 2026-08-25 09:00, seats 2, budget 5000 → doit rediriger vers le détail.
           2. Passager : /mobility/requests/mine → sa demande est visible avec badge "Ouverte" et actions.
