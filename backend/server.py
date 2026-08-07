@@ -2942,12 +2942,25 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
     }
     if is_location:
         landmark_clean = None
-        if (body.landmark or "").strip():
-            landmark_clean, lm_flags = _sanitize_message(body.landmark.strip())
+        raw_landmark = (body.landmark or "").strip()
+        if raw_landmark:
+            # Le point de repère est du texte libre utilisateur : il DOIT passer par le
+            # même filtre que les messages, sinon c'est un canal ouvert pour glisser un
+            # numéro (« maison jaune, appelle moi au 77 ... ») et contourner la plateforme.
+            landmark_clean, lm_flags = _sanitize_message(raw_landmark)
             if lm_flags:
                 flags = sorted({*flags, *lm_flags})
                 doc["flagged"] = True
                 doc["flags"] = flags
+                await db.contact_flags.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "user_id": user["id"],
+                    "peer_id": peer_id,
+                    "flags": lm_flags,
+                    "source": "landmark",
+                    "text_hash": hashlib.sha256(raw_landmark.encode()).hexdigest()[:16],
+                    "created_at": now_iso(),
+                })
         if not doc["text"]:
             doc["text"] = "📍 Position partagée"
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=body.expires_in_minutes)
