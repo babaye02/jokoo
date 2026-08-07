@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, Pressable, Alert } from "react-native";
+import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, Pressable, Alert, ScrollView } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,16 @@ import { api, Message } from "@/src/api";
 import { Avatar, Txt } from "@/src/components/ui";
 import { ActionSheet, ConfirmDialog } from "@/src/components/ActionSheet";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
+
+const QUICK_REPLIES: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
+  { icon: "checkmark-circle-outline", label: "Je suis arrivé" },
+  { icon: "navigate-outline", label: "J'arrive" },
+  { icon: "alert-circle-outline", label: "Je suis bloqué" },
+  { icon: "help-circle-outline", label: "Je ne trouve pas le lieu" },
+  { icon: "hourglass-outline", label: "Attends-moi" },
+  { icon: "heart-outline", label: "Merci" },
+  { icon: "close-circle-outline", label: "Annuler" },
+];
 
 export default function Chat() {
   const { id, name: nameParam } = useLocalSearchParams<{ id: string; name?: string }>();
@@ -64,8 +74,8 @@ export default function Chat() {
     return () => clearTimeout(t);
   }, [blockedToast]);
 
-  const send = async () => {
-    const t = text.trim();
+  const send = async (overrideText?: string) => {
+    const t = (overrideText ?? text).trim();
     if (!t || !id || sending) return;
     setSending(true);
     setErr(null);
@@ -83,7 +93,7 @@ export default function Chat() {
       created_at: new Date().toISOString(),
     } as any;
     setItems((x) => [...x, optimistic]);
-    setText("");
+    if (overrideText === undefined) setText("");
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 30);
     try {
       const m = await api.post<Message>(`/chat/${id}/messages`, { text: t, kind: "text" });
@@ -92,7 +102,7 @@ export default function Chat() {
     } catch (e: any) {
       // Retire l'optimiste et affiche l'erreur — remet le texte pour permettre de réessayer
       setItems((x) => x.filter((msg) => msg.id !== tempId));
-      setText(t);
+      if (overrideText === undefined) setText(t);
       const status = e?.status;
       let msg = "Impossible d'envoyer le message. Réessayez.";
       if (status === 401) msg = "Session expirée. Reconnectez-vous.";
@@ -103,6 +113,11 @@ export default function Chat() {
     } finally {
       setSending(false);
     }
+  };
+
+  const sendQuickReply = (label: string) => {
+    if (sending) return;
+    send(label);
   };
 
   const displayName = peerName || "Conversation";
@@ -214,6 +229,29 @@ export default function Chat() {
           </View>
         ) : null}
 
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickRepliesRow}
+          keyboardShouldPersistTaps="handled"
+          testID="chat-quick-replies"
+        >
+          {QUICK_REPLIES.map((qr) => (
+            <Pressable
+              key={qr.label}
+              onPress={() => sendQuickReply(qr.label)}
+              disabled={sending}
+              style={[styles.quickReplyChip, sending && { opacity: 0.5 }]}
+              testID={`chat-quick-reply-${qr.label}`}
+            >
+              <Ionicons name={qr.icon} size={14} color={colors.turquoise} />
+              <Txt size="xs" weight="600" color={colors.midnight} style={{ marginLeft: 6 }}>
+                {qr.label}
+              </Txt>
+            </Pressable>
+          ))}
+        </ScrollView>
+
         <View style={[styles.inputBar, { paddingBottom: 8 + insets.bottom }]}>
           <View style={styles.inputWrap}>
             <TextInput
@@ -315,6 +353,17 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: "78%", padding: 12, borderRadius: 18 },
   bubbleMine: { backgroundColor: colors.turquoise, borderBottomRightRadius: 4 },
   bubbleTheirs: { backgroundColor: colors.surface, borderBottomLeftRadius: 4, ...shadow.soft },
+  quickRepliesRow: { paddingHorizontal: spacing.lg, paddingVertical: 8, gap: 8, backgroundColor: colors.surface },
+  quickReplyChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.divider,
+  },
   inputBar: { flexDirection: "row", alignItems: "flex-end", padding: 10, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.divider },
   inputWrap: { flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, backgroundColor: colors.surface2, paddingHorizontal: 16, justifyContent: "center" },
   input: { fontSize: fs.md, color: colors.text, paddingVertical: 10 },
