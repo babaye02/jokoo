@@ -1,0 +1,43 @@
+{
+  "summary": "Frontend-only smoke test of Admin Wallet v2 (6 screens). Login as admin@jokoo.sn OK. Dashboard (/admin/wallet), wallets list, drill-down, withdrawals queue, ledger, and settings all render correctly. Credit adjustment (+500 F) executed successfully (persisted to backend — ledger entry 'Ajustement admin (+500 F)' present, balance rose 81 500 → 82 000). Search filter, kind/status pills, tabs (Retraits/Remboursements, Paramètres/Commissions), setting edit modal, and 'Nouvelle règle de commission' modal all working. Nav entry 'Finances & Wallets' visible on /admin. Deprecated packages check: none of expo-av/expo-barcode-scanner/expo-background-fetch used by wallet screens. However, ONE critical UI bug found on the drill-down Journal: every ledger row shows 'Invalid Date' and '+NaN F' due to a field-name mismatch between the admin ledger endpoint (amount / balance_after / created_at) and the frontend LedgerEntry type (amount_xof / balance_after_xof / at). Additional minor RN warnings observed (deprecated shadow* style, pointerEvents prop) — not blocking.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/admin/wallet/wallet/{ownerId}/ledger", "issue": "Returns fields `amount`, `balance_after`, `created_at` while the user-facing /api/wallet/ledger returns `amount_xof`, `balance_after_xof`, `at`. Same logical entity, two shapes — pick one (recommend the *_xof/at shape for consistency) OR normalize in admin.ts client. Backend was said validated in iteration_42 so preferred fix location is frontend adapter."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/admin/wallet/[ownerId].tsx (Journal list)", "issue": "All ledger rows show 'Invalid Date' and '+NaN F' / '= NaN F' because rendering uses e.amount_xof, e.balance_after_xof, e.at while the admin endpoint responds with amount, balance_after, created_at. Visible after any credit/debit/bonus action and on initial load for wallets with history. Reproduce: /admin/wallet/wallets → tap 'Aïda Client' → scroll to 'Journal (N)'. Reference: /app/frontend/app/admin/wallet/[ownerId].tsx:267-294 & /app/frontend/src/wallet/admin.ts:134-137 (getLedger typed as LedgerEntry from src/wallet/api.ts:37).", "testID": "n/a", "priority": "HIGH"},
+      {"component": "app/admin/wallet/[ownerId].tsx (ActionBtn testID)", "issue": "testID is built from the French label lower-cased incl. accents: `admin-action-créditer`, `admin-action-débiter`, `admin-action-plancher`. This is non-ASCII and fragile — recommend explicit ASCII testIDs (`admin-action-credit`, `admin-action-debit`, `admin-action-bonus`, `admin-action-min`). Reference: /app/frontend/app/admin/wallet/[ownerId].tsx:398.", "testID": "admin-action-créditer", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Wallet detail — Créditer / Débiter → Journal refresh", "issue": "Backend accepts the adjustment and returns the new entry in the ledger response, but the UI renders 'Invalid Date' + 'NaN F' due to the field-name mismatch above. Success Alert.alert('Succès') may or may not appear on web (Playwright didn't detect its text) but operation itself is applied. Balance in Hero card DOES update correctly (uses different field).", "affected_testIDs": ["admin-action-confirm"]}
+    ],
+    "design_issues": [
+      {"screen": "Wallet drill-down", "issues": ["Journal rows visually broken because of NaN/Invalid Date. Once field mapping is fixed, verify locale date format displays like 'Aujourd hui, 01:54' consistent with user-facing wallet."]}
+    ],
+    "react_native_issues": [
+      {"component": "Global (shadow* style)", "issue": "Console warns 'shadow* style props are deprecated. Use boxShadow' — coming from theme.ts `shadow.soft/card`. Not deprecated packages but deprecated style props; migrate to `boxShadow` for RN 0.76+ web compat. Reference: /app/frontend/src/theme.ts shadow.soft."},
+      {"component": "Pressable (props.pointerEvents)", "issue": "Console warns 'props.pointerEvents is deprecated. Use style.pointerEvents'. Likely from a third-party component or a wrapper — search for pointerEvents={...} and move into style. Reference: warning emitted on /login and /admin routes."}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_43.json"],
+  "action_items": [
+    "FIX (HIGH): In /app/frontend/src/wallet/admin.ts:getLedger, map the admin response to the LedgerEntry shape (amount → amount_xof, balance_after → balance_after_xof, created_at → at) OR change /app/frontend/app/admin/wallet/[ownerId].tsx:267-294 to consume the admin field names directly. Otherwise, align the backend admin ledger response to use *_xof/at like /api/wallet/ledger.",
+    "IMPROVE (LOW): Replace accented testIDs `admin-action-{créditer|débiter|plancher}` in [ownerId].tsx:398 with ASCII slugs to avoid selector fragility.",
+    "OPTIONAL: Migrate `shadow.*` style objects to `boxShadow` and move `pointerEvents` into style prop to silence RN 0.76+ deprecation warnings."
+  ],
+  "critical_code_review_comments": [
+    "admin.ts:getLedger is typed as `{ items: LedgerEntry[] }` but the backend does not return LedgerEntry-shaped items — the type lies, and TS didn't catch it because both are structurally different but not enforced at runtime.",
+    "[ownerId].tsx guards balance_after with `!== null` only; add `!= null` (also excludes undefined) so a fully missing field doesn't render `= NaN F`.",
+    "wallets.tsx hydrates first 30 rows one-by-one via getWallet — potential N+1 (5 calls on this seed, will scale poorly). Consider a batch endpoint or include user info in listWallets response."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not tested this iteration)", "frontend": "~95% — all screens & modals render, all navigation & CRUD flows work; only the drill-down Journal rendering is broken"},
+  "seed_data_creation": "Left a +500 F 'Ajustement admin' entry on wallet owner_id=9a455f27-5b4b-43ee-9cfc-46bdb5847500 (Aïda Client). Balance changed from 81 500 → 82 000 F. As stated by main agent, this is negligible.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes the admin ledger field mapping, re-run drill-down test: /admin/wallet → tap first client wallet → confirm Journal rows show real dates + real amounts (no NaN, no 'Invalid Date'). Also re-verify Débiter, Geler/Réactiver, Bonus, Plancher actions and their ledger entries once display is fixed. Withdrawals queue is empty in dev (0 pending) — can't test approve/reject/mark_paid flows without seeded withdrawals. To create one: log in as pro@jokoo.sn and submit a withdrawal via /wallet screen.",
+  "rca_of_issue": "Field-name contract mismatch between admin ledger endpoint and user ledger endpoint. Reproduced via `curl /api/admin/wallet/wallet/{id}/ledger` — server returns keys {amount, balance_after, created_at, transaction_type}. Frontend UI in [ownerId].tsx reads {amount_xof, balance_after_xof, at} → JS Number(undefined)=NaN and new Date(undefined) = 'Invalid Date'. Mitigation: adapter in admin.ts getLedger normalizes the payload OR backend renames its admin ledger keys to match the *_xof/at convention already in use for the user-facing ledger. Recommend frontend adapter to avoid touching backend."
+}

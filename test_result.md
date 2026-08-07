@@ -813,3 +813,63 @@ agent_communication:
           Rapport dans /app/test_reports/iteration_35.json.
 
           **Skip frontend testing** — le frontend sera testé manuellement par l'utilisateur (choix modal Stripe/Wave/Orange et éditeur de tarifs admin déjà branchés).
+
+
+  - task: "Admin Dashboard Mobile Wallet v2 — 6 écrans + intégration API"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/admin/wallet/*"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        message: |
+          Nouveau bloc UI mobile pour l'administration financière (Wallet v2).
+          Le backend `/api/admin/wallet/*` est déjà validé (iteration_42.json — 38/38 tests). À TESTER : **frontend only** via l'app Expo (localhost:3000).
+
+          FICHIERS CRÉÉS :
+          - `/app/frontend/app/admin/wallet/_layout.tsx` (Stack)
+          - `/app/frontend/app/admin/wallet/index.tsx` — Dashboard KPIs (GET /admin/wallet/dashboard).
+              * Hero solde plateforme, 4 KPI cards (Wallets / Retraits pending / Remboursements / Jokoo Pro actifs)
+              * Breakdown Revenus/Sorties par type
+              * Activité récente (20 dernières transactions v2)
+              * Nav vers les 4 sous-écrans
+          - `/app/frontend/app/admin/wallet/wallets.tsx` — Liste (GET /admin/wallet/list?kind=&status=).
+              * Recherche client (nom/email/owner_id), filtres kind+status
+              * Ouvre le drill-down `/admin/wallet/[ownerId]`
+          - `/app/frontend/app/admin/wallet/[ownerId].tsx` — Drill-down (GET /admin/wallet/wallet/{id} + ledger).
+              * Actions admin : créditer, débiter, bonus, changer plancher (min-balance), changer statut (active/frozen/closed).
+              * Chaque action ouvre une modale demandant montant + motif (audit-logged côté backend).
+          - `/app/frontend/app/admin/wallet/withdrawals.tsx` — File retraits + remboursements.
+              * Onglets Retraits (par status) / Remboursements
+              * Détail complet avec destination (phone/IBAN/banque), audit trail
+              * Actions : approve, reject (motif), mark_processing, mark_paid (ref externe obligatoire)
+          - `/app/frontend/app/admin/wallet/ledger.tsx` — Journal global (GET /admin/wallet/transactions).
+              * Filtres par type et status
+          - `/app/frontend/app/admin/wallet/settings.tsx` — Paramètres plateforme + règles commission.
+              * Onglet Paramètres : édite tous les settings via SETTING_META (recharge min/max, frais retrait, prix Jokoo Pro, min balance, low balance warn…)
+              * Onglet Commissions : CRUD règles par catégorie (upsert POST, delete DELETE)
+
+          CLIENT API : `/app/frontend/src/wallet/admin.ts` (déjà existant, bug `api.delete` → `api.del` corrigé).
+          NAV : entrée "Finances & Wallets" ajoutée dans `/app/frontend/app/admin/index.tsx` (super_admin uniquement).
+
+          CE QUE LE TESTING AGENT DOIT VALIDER (frontend only, mobile viewport 390×844) :
+          1. Login admin@jokoo.sn / Admin1234! puis naviguer vers /admin → clic "Finances & Wallets" doit ouvrir /admin/wallet.
+          2. Dashboard : vérifie hero + 4 KPI + shortcuts fonctionnent.
+          3. Wallets : la liste charge, la recherche filtre, cliquer sur un wallet ouvre le drill-down.
+          4. Drill-down :
+             - Test **Créditer** un wallet (ex : client@jokoo.sn) de 500 F avec motif "Test crédit auto" → recharge la page, le solde doit augmenter de 500 F, ledger doit contenir "Ajustement admin (+500 F)".
+             - Test **Débiter** de 200 F avec motif "Test débit" → solde -200 F.
+             - Test **Geler** puis **Réactiver** le wallet (sauf platform).
+          5. Withdrawals : onglets fonctionnent, filtres par status fonctionnent. (Pas de retrait pending en env de test — c'est OK.)
+          6. Ledger : filtres type + status fonctionnent, les transactions s'affichent.
+          7. Settings :
+             - Onglet Paramètres : cliquer sur "Recharge minimum", changer à 1500, sauver → doit se refléter au refresh.
+             - Onglet Commissions : créer une règle "test_cat" 20%, min 500, max 10000, notes "test" → apparaît dans la liste. Puis la supprimer.
+
+          AUTH : admin@jokoo.sn / Admin1234! (super_admin).
+          BASE URL : http://localhost:3000 (frontend), EXPO_PUBLIC_BACKEND_URL pour API.
+
+          NB : Certains écrans (index dashboard) affichent des chiffres réels de l'env de dev — pas de mocking. Le wallet Master a un solde négatif (-204 000 F) car c'est normal en dev (recharges Stripe créées sans commissions équivalentes).
