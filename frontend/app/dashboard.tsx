@@ -57,10 +57,11 @@ function timeAgo(iso?: string | null): string {
 }
 
 const ACTIVITY_META: Record<string, { icon: any; tint: string }> = {
-  mission_completed: { icon: "checkmark-done", tint: "#059669" },
-  payment_received:  { icon: "cash",           tint: "#7C3AED" },
-  review_received:   { icon: "star",           tint: "#F59E0B" },
-  achievement:       { icon: "rocket",         tint: "#0EA5E9" },
+  mission_completed:  { icon: "checkmark-done",     tint: "#059669" },
+  payment_received:   { icon: "cash",               tint: "#7C3AED" },
+  booking_confirmed:  { icon: "shield-checkmark",   tint: "#059669" },
+  review_received:    { icon: "star",               tint: "#F59E0B" },
+  achievement:        { icon: "rocket",             tint: "#0EA5E9" },
 };
 
 export default function Dashboard() {

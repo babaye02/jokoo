@@ -64,6 +64,7 @@ const TYPE_META: Record<string, TypeMeta> = {
   // Bookings (Missions)
   booking_new:                  { icon: "calendar-outline",         ...PALETTE.blue,     cat: "missions" },
   booking_accepted:             { icon: "checkmark-circle-outline", ...PALETTE.green,    cat: "missions" },
+  booking_confirmed:            { icon: "shield-checkmark-outline", ...PALETTE.emerald,  cat: "missions" },
   booking_completed:            { icon: "trophy-outline",           ...PALETTE.emerald,  cat: "missions" },
   booking_completion_requested: { icon: "hourglass-outline",        ...PALETTE.amber,    cat: "missions" },
   booking_paid:                 { icon: "card-outline",             ...PALETTE.purple,   cat: "payments" },

@@ -3044,9 +3044,9 @@ async def record_cash_payment(bid: str, body: dict, user=Depends(current_user)):
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": b["client_id"],
-            "type": "payment_received",
-            "title": "Paiement enregistré",
-            "body": f"Le prestataire a confirmé la réception de {amount:,} F CFA en espèces.".replace(",", " "),
+            "type": "booking_confirmed",
+            "title": "Réservation confirmée",
+            "body": f"Le prestataire a confirmé la réservation ({amount:,} F CFA payés en espèces).".replace(",", " "),
             "booking_id": bid,
             "read": False,
             "created_at": now_iso(),
@@ -3055,8 +3055,8 @@ async def record_cash_payment(bid: str, body: dict, user=Depends(current_user)):
             await send_push(
                 recipients=[b["client_id"]],
                 data={
-                    "title": "Paiement enregistré ✅",
-                    "message": f"Le prestataire a confirmé la réception de {amount:,} F CFA.".replace(",", " "),
+                    "title": "Réservation confirmée ✅",
+                    "message": f"Le prestataire a confirmé votre réservation ({amount:,} F CFA payés en espèces).".replace(",", " "),
                     "action_url": f"/booking/{bid}",
                 },
             )
@@ -3144,14 +3144,14 @@ async def _legacy_record_cash_payment_deprecated(bid: str, body: dict, user):
         "read": False,
         "created_at": now_iso(),
     })
-    # Notifier le client (paiement enregistré côté prestataire)
+    # Notifier le client (réservation confirmée)
     if b.get("client_id"):
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": b["client_id"],
-            "type": "payment_received",
-            "title": "Paiement enregistré",
-            "body": f"Le prestataire a confirmé la réception de {amount:.0f} FCFA en espèces.",
+            "type": "booking_confirmed",
+            "title": "Réservation confirmée",
+            "body": f"Le prestataire a confirmé la réservation ({amount:.0f} FCFA payés en espèces).",
             "booking_id": bid,
             "read": False,
             "created_at": now_iso(),
@@ -3161,8 +3161,8 @@ async def _legacy_record_cash_payment_deprecated(bid: str, body: dict, user):
             await send_push(
                 recipients=[b["client_id"]],
                 data={
-                    "title": "Paiement enregistré ✅",
-                    "message": f"Le prestataire a confirmé la réception de {amount:.0f} FCFA.",
+                    "title": "Réservation confirmée ✅",
+                    "message": f"Le prestataire a confirmé votre réservation ({amount:.0f} FCFA payés en espèces).",
                     "action_url": f"/booking/{bid}",
                 },
             )
@@ -3660,16 +3660,20 @@ async def dashboard_activity(limit: int = 20, user=Depends(current_user)):
             "booking_id": b.get("id"),
         })
 
-    # 2. Paid bookings (payment received)
+    # 2. Paid bookings (payment received / booking confirmed for cash)
     paid = await db.bookings.find(
         {"provider_id": user["id"], "paid": True},
         {"_id": 0},
     ).sort("updated_at", -1).limit(int(limit)).to_list(int(limit))
     for b in paid:
+        # Cash bookings show "Réservation confirmée" — no money moves via
+        # the platform, so it's not a payment reception, it's a booking
+        # confirmation by the provider.
+        is_cash = (b.get("paid_method") or "").lower() in ("cash", "espèces", "especes")
         items.append({
             "id": f"payment_{b.get('id')}",
-            "type": "payment_received",
-            "title": "Paiement reçu",
+            "type": "booking_confirmed" if is_cash else "payment_received",
+            "title": "Réservation confirmée" if is_cash else "Paiement reçu",
             "subtitle": f"{b.get('client_name', 'Client')} · {b.get('service') or 'Prestation'}",
             "amount": b.get("price") or b.get("quote_amount") or 0,
             "at": b.get("paid_at") or b.get("updated_at") or b.get("created_at"),
