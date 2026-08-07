@@ -35,6 +35,8 @@ Jokoo **ne facture pas à l'heure**. Chaque prestataire choisit son mode :
 - Favoris.
 - Profil client + dashboard prestataire (stats, demandes, accept/refuser/terminer, abonnement mensuel).
 - Édition du profil prestataire (métier, tarif, zones, horaires, pièce d'identité).
+- Accueil : cartes photo premium Covoiturage/Livraison (MobilityHeroCard — expo-image WebP + Reanimated + haptique).
+- Admin Mobilité (`/admin/mobility`) : dashboard KPIs (taux matching/acceptation 7 j, axes demandés, demandes par ville, demandes sans conducteur) + trajets « Jokoo Vérifié » anti-ghost (création unitaire, publication en masse avec anti-doublon, annulation avec notification passagers). Conducteur officiel `mobility@jokoo.sn` (auto-seedé). Perm `mobility:manage` (rôle admin) + `stats:read` pour le dashboard.
 
 ## Stack
 
@@ -64,6 +66,7 @@ Favorites : `/favorites`, `/favorites/{id}` (POST/DELETE).
 Chat : `/chat/conversations`, `/chat/{peer}/messages` (GET/POST), `/chat/{peer}/voice` (POST, note vocale), `/chat/media/{media_id}` (GET, audio protégé participants).
 Notifications : `/notifications`, `/notifications/read-all`.
 Dashboard : `/dashboard`.
+Admin Mobilité : `/admin/mobility/dashboard` (GET), `/admin/mobility/ghost-rides` (GET/POST/DELETE), `/admin/mobility/ghost-rides/bulk` (POST).
 Payments : `/payments/checkout/booking`, `/payments/checkout/subscription`, `/payments/status/{sid}`.
 Utility : `/seed`.
 
