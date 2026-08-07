@@ -320,6 +320,7 @@ export default function Profile() {
           {user.is_admin || user.staff_role ? (
             <MenuRow icon="shield-outline" title="Espace administrateur" onPress={() => router.push("/admin")} testID="menu-admin" />
           ) : null}
+          <MenuRow icon="wallet-outline" title="Portefeuille" onPress={() => router.push("/wallet")} testID="menu-wallet" />
           <MenuRow icon="card-outline" title="Paiements" onPress={() => router.push("/profile/payments")} testID="menu-payments" />
           <MenuRow icon="settings-outline" title="Paramètres" onPress={() => router.push("/profile/settings")} testID="menu-settings" />
           <MenuRow icon="shield-checkmark-outline" title="Sécurité & confidentialité" onPress={() => router.push("/profile/security")} testID="menu-security" />

@@ -365,7 +365,7 @@ export default function Dashboard() {
           <View style={styles.actionsGrid}>
             <ActionBtn icon="power" tint={online ? "#059669" : "#6B7280"} bg={online ? "#D1FAE5" : "#F3F4F6"} label={online ? "En ligne" : "Hors ligne"} onPress={() => setOnline((v) => !v)} />
             <ActionBtn icon="calendar" tint="#0EA5E9" bg="#E0F2FE" label="Agenda" onPress={() => router.push("/my-services")} />
-            <ActionBtn icon="wallet-outline" tint="#7C3AED" bg="#EDE9FE" label="Portefeuille" onPress={() => router.push("/profile/payments")} />
+            <ActionBtn icon="wallet-outline" tint="#7C3AED" bg="#EDE9FE" label="Portefeuille" onPress={() => router.push("/wallet")} />
             <ActionBtn icon="cash-outline" tint="#F59E0B" bg="#FEF3C7" label="Retrait" onPress={() => Alert.alert("Bientôt", "Retraits automatiques disponibles prochainement.")} />
             <ActionBtn icon="chatbubbles-outline" tint="#00C2A8" bg="#CCFBF1" label="Messages" onPress={() => router.push("/(tabs)/notifications")} />
             <ActionBtn icon="help-circle-outline" tint="#4B5563" bg="#F3F4F6" label="Support" onPress={() => router.push("/legal")} />
