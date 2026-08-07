@@ -1,0 +1,41 @@
+{
+  "summary": "Frontend retest of Admin Wallet drill-down after backend fix in /app/backend/wallet/router.py::admin_get_ledger. PRIMARY HIGH BUG FIXED: Journal on /admin/wallet/{ownerId} now renders proper dates ('07 août, 01:54', '07 août, 02:00') and proper amounts ('+500 F', '−200 F', '+1 000 F'). No 'Invalid Date' or 'NaN' anywhere on drill-down or ledger global. ActionBtn testIDs are now ASCII (admin-action-crediter/debiter/plancher/bonus) — verified by direct selector clicks. Débiter and Bonus flows work end-to-end (balance 82 000 → 81 800 after -200 → 82 800 after +1 000, ledger top rows show correct labels/dates/amounts). Ledger global (/admin/wallet/ledger) also clean, no regression. TWO REMAINING ISSUES (both due to React Native Alert.alert not rendering on web preview): (1) Plancher with negative value silently fails on web — the validation guard `amt <= 0` triggers Alert.alert('Montant invalide') which is invisible on web, and the min_balance overload logic (line 96-98) is unreachable; backend confirms min_balance stays at -10000. (2) Geler / Réactiver status confirmation dialog never appears on web (Alert.alert with buttons is a no-op on RN web), backend confirms status stays 'active'. Console warnings persist (deprecated shadow* style, deprecated props.pointerEvents) — not blocking.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/admin/wallet/[ownerId].tsx runAction() amount validation", "issue": "For action='min_balance', the guard `if (!Number.isFinite(amt) || amt <= 0)` at line 74 blocks negative inputs (e.g. -5000), triggering Alert.alert('Montant invalide') and returning BEFORE the min_balance overload at line 96-98 runs. On web, Alert.alert is silent so the user sees no error — the API call is never made and min_balance is not updated. Fix: skip the `amt <= 0` check when action === 'min_balance', or refactor to parse min_balance separately (allow any finite integer). Reference: /app/frontend/app/admin/wallet/[ownerId].tsx:73-81 and 96-98.", "testID": "admin-action-plancher / admin-action-confirm", "priority": "HIGH"},
+      {"component": "app/admin/wallet/[ownerId].tsx changeStatus()", "issue": "Alert.alert(title, msg, [Annuler, Confirmer]) used as a confirmation modal for Geler / Réactiver / Fermer. On React Native web, Alert.alert with buttons is a no-op (nothing renders), so the admin can NEVER change wallet status from the web preview. Verified: clicked 'Geler' chip → no dialog appeared → backend status remained 'active'. Fix: replace Alert.alert with a custom RN Modal component (like the existing modal used for adjust/bonus/plancher) or use a cross-platform confirm util. Reference: /app/frontend/app/admin/wallet/[ownerId].tsx:109-132.", "testID": "n/a (Geler / Réactiver Pressable chips)", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Set Plancher (min_balance) to negative value", "issue": "UI accepts '-5000' input, but frontend validation aborts before calling PUT /admin/wallet/{ownerId}/min_balance. Backend never receives the request. Confirmed via GET /admin/wallet/wallet/{ownerId}: min_balance = -10000 (unchanged after action).", "affected_testIDs": ["admin-action-plancher", "admin-action-confirm"]},
+      {"flow": "Change wallet status (Geler / Réactiver / Fermer)", "issue": "Alert.alert confirm dialog never appears on web. Backend never receives PUT /admin/wallet/{ownerId}/status. Status stuck.", "affected_testIDs": []}
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Alert.alert(...) on web preview", "issue": "React Native's Alert.alert with multiple buttons is NOT implemented on react-native-web — it silently does nothing. This blocks BOTH the plancher negative-value error surface AND all wallet status changes on the web build. Reference: /app/frontend/app/admin/wallet/[ownerId].tsx:75, 79, 102, 104, 111."},
+      {"component": "Global (shadow* style)", "issue": "Console warns 'shadow* style props are deprecated. Use boxShadow' — coming from src/theme.ts (shadow.soft/card). Reference: /app/frontend/src/theme.ts."},
+      {"component": "Pressable (props.pointerEvents)", "issue": "Console warns 'props.pointerEvents is deprecated. Use style.pointerEvents' — emitted on /login and /admin routes."}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_44.json"],
+  "action_items": [
+    "FIX (HIGH): In /app/frontend/app/admin/wallet/[ownerId].tsx runAction() — special-case action === 'min_balance' so negative amounts are allowed (skip the `amt <= 0` guard OR parse min balance separately). Currently plancher can only be set to positive values on web.",
+    "FIX (HIGH): Replace `Alert.alert(title, msg, [Annuler, Confirmer])` in changeStatus() with a custom Modal (same style as the adjust/bonus modal already in this file). RN Alert.alert with buttons is a no-op on react-native-web, blocking Geler/Réactiver/Fermer entirely on the web preview.",
+    "OPTIONAL: Migrate `shadow.*` style objects to `boxShadow` and move `pointerEvents` into style prop to silence RN 0.76+ deprecation warnings."
+  ],
+  "critical_code_review_comments": [
+    "[ownerId].tsx:73-81 — amount validation runs before the action switch, so it can't diverge per action. Consider a per-action validator (e.g. validateAmount(action, raw) → number | Error).",
+    "[ownerId].tsx:74 — parseInt('-5000') is fine (-5000); but the check `amt <= 0` conflicts with the explicit negative-value intent for min_balance (comment on line 96 confirms the mismatch).",
+    "changeStatus uses Alert.alert which is unreliable on RN web — recommend a shared ConfirmModal component for cross-platform compat."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not tested this iteration)", "frontend": "~85% — Journal formatting fully fixed (primary regression closed); Créditer/Débiter/Bonus flows work end-to-end; Plancher (negative) and Geler/Réactiver are blocked on web due to Alert.alert limitations"},
+  "seed_data_creation": "Left the following net changes on wallet owner_id=9a455f27-5b4b-43ee-9cfc-46bdb5847500 (Aïda Client): -200 F debit (Auto retest debit) and +1000 F bonus (Bonus retest auto). Balance moved 82 000 → 81 800 → 82 800 F. min_balance unchanged (-10 000 F). Status unchanged (active). Journal now has 44 entries.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Primary regression (Journal 'Invalid Date' / '+NaN F') is CLOSED. Two follow-up fixes needed: (1) allow negative amounts for action='min_balance' in runAction (frontend only); (2) replace Alert.alert-based confirm dialogs in changeStatus with a real Modal. After those fixes, retest: set plancher to -5000 via UI → reload → InfoRow should show '-5 000 F'; click Geler → confirm → status pill should read 'Gelé'; click Réactiver → confirm → status pill 'Actif'.",
+  "rca_of_issue": "Primary bug (Journal Invalid Date / NaN F): ROOT CAUSE was field-name mismatch between admin ledger endpoint (amount/balance_after/created_at) and frontend (amount_xof/balance_after_xof/at). FIX in /app/backend/wallet/router.py::admin_get_ledger now formats items in the public /wallet/history shape. Verified via direct curl and via UI (dates render as '07 août, 01:54', amounts as '+500 F' / '−200 F' / '= 82 000 F', no NaN / Invalid Date anywhere). Secondary issues discovered during retest — Plancher negative-value and Status changes — are pre-existing RN-on-web limitations rather than regressions from the ledger fix."
+}

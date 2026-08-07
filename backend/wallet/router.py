@@ -424,7 +424,21 @@ def build_router(
         items, cursor, has_more = await wallet_service.list_ledger(
             db, owner_id, limit=limit, before=before
         )
-        return {"items": items, "cursor": cursor, "has_more": has_more}
+        # Return in public formatted shape (aligned with GET /wallet/history)
+        formatted = []
+        for e in items:
+            formatted.append({
+                "id": e["id"],
+                "at": e["created_at"],
+                "kind": e["kind"],
+                "amount_xof": e["amount"],
+                "balance_after_xof": e.get("balance_after"),
+                "reason": e.get("reason"),
+                "transaction_type": e.get("transaction_type"),
+                "label": e.get("label") or e.get("reason"),
+                "reference": e.get("reference") or {},
+            })
+        return {"items": formatted, "cursor": cursor, "has_more": has_more}
 
     @admin_router.post("/wallet/{owner_id}/adjust")
     @_handle_wallet_errors

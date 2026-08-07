@@ -395,13 +395,17 @@ function StatCard({ icon, tint, label, value }: { icon: any; tint: string; label
 
 function ActionBtn({ icon, label, tint, onPress }: { icon: any; label: string; tint: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={styles.actionBtn} testID={`admin-action-${label.toLowerCase()}`}>
+    <Pressable onPress={onPress} style={styles.actionBtn} testID={`admin-action-${slugifyAscii(label)}`}>
       <View style={[styles.actionIcon, { backgroundColor: `${tint}18` }]}>
         <Ionicons name={icon} size={20} color={tint} />
       </View>
       <Txt size="xxs" weight="700" style={{ marginTop: 4 }}>{label}</Txt>
     </Pressable>
   );
+}
+
+function slugifyAscii(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
 const styles = StyleSheet.create({
