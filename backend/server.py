@@ -3298,11 +3298,22 @@ async def pay_commission_due_legacy(body: dict, user=Depends(current_user)):
 
 # ---------- Auto-block: hook dans les créations de bookings ----------
 async def _check_provider_not_blocked(provider_id: str) -> None:
-    w = await db.wallets.find_one({"user_id": provider_id}, {"_id": 0})
-    if w and w.get("is_blocked_debt"):
+    """Refuse la réservation si le wallet v2 du prestataire est bloqué.
+
+    Depuis la migration Wallet v2, le blocage n'est plus un flag stocké
+    (`is_blocked_debt` de l'ancienne collection `wallets`) mais un état
+    CALCULÉ : le solde est passé sous le plancher négatif autorisé
+    (`can_receive_bookings` du snapshot). L'ancienne implémentation lisait
+    encore la collection v1 et ne bloquait donc plus jamais personne.
+    """
+    w = await _wallet_service.get_wallet(db, provider_id)
+    if not w:
+        return  # pas encore de wallet → rien à bloquer
+    snap = await _wallet_service.public_snapshot(db, w)
+    if not snap.get("can_receive_bookings", True):
         raise HTTPException(
             status_code=403,
-            detail=f"Ce prestataire ne peut plus accepter de réservations (commissions impayées > {COMMISSION_DEBT_THRESHOLD_FCFA} FCFA).",
+            detail="Ce prestataire ne peut plus accepter de réservations (commissions impayées).",
         )
 
 

@@ -71,6 +71,7 @@ Payments : `/payments/checkout/booking`, `/payments/checkout/subscription`, `/pa
 Utility : `/seed`.
 
 ## Prochaines évolutions
+<!-- Wallet v2 : tests test_9/test_10 réécrits au format v2 (commission auto-débitée, protection plancher 402, blocage au plancher). Bug corrigé : le garde-fou de création de réservation lisait la collection v1 `wallets` — il utilise désormais le snapshot v2 (`can_receive_bookings`). -->
 
 - Prise en charge Wave / Orange Money via APIs marchandes réelles.
 - Notifications push via Emergent-managed push notifications.

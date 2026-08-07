@@ -4,9 +4,9 @@ Couvre :
 - _sanitize_message (phone, email, url, social, hint, obfuscated-digits)
 - Provider list/detail contact masking
 - Wallet /me + history
-- Cash payment flow (booking → cash-payment → wallet)
-- Pay commission due
-- Auto-block quand dette >= 10000 FCFA + reactivate
+- Cash payment flow v2 (booking → cash-payment → commission auto-débitée du wallet)
+- Règlement de la dette via ajustement admin (wallet v2)
+- Auto-block quand le solde passe sous le plancher négatif (can_receive_bookings)
 - Admin marketplace stats + fraud alerts
 - Régression (get_messages, list_conversations, provider detail admin)
 """
@@ -248,17 +248,20 @@ def _create_booking(client_token: str, provider_id: str) -> str:
     return r.json()["id"]
 
 
-# ===== TEST 9: cash payment E2E =====
+# ===== TEST 9: cash payment E2E (Wallet v2) =====
 def test_9_cash_payment_flow(cash_flow_ctx):
+    """La commission est auto-débitée du wallet v2 du prestataire lors d'un
+    paiement cash, puis la dette est réglée par un ajustement admin."""
     ctx = cash_flow_ctx
     client_tok = ctx["client"]["token"]
     prov_tok = ctx["provider"]["token"]
     provider_id = ctx["provider_id"]
+    admin_tok = ctx["admin"]["token"]
 
     # (a) create booking
     bid = _create_booking(client_tok, provider_id)
 
-    # (b) provider accepts (status "accepted" — endpoint only supports accepted/rejected/completed/cancelled)
+    # (b) provider quotes then accepts
     r = requests.patch(
         f"{API}/bookings/{bid}",
         headers=_headers(prov_tok),
@@ -274,7 +277,7 @@ def test_9_cash_payment_flow(cash_flow_ctx):
     )
     assert r.status_code == 200, r.text
 
-    # (c) cash-payment
+    # (c) cash-payment → commission débitée automatiquement (Wallet v2)
     r = requests.post(
         f"{API}/bookings/{bid}/cash-payment",
         headers=_headers(prov_tok),
@@ -284,41 +287,55 @@ def test_9_cash_payment_flow(cash_flow_ctx):
     assert r.status_code == 200, f"cash-payment failed: {r.text}"
     data = r.json()
     assert data["ok"] is True
-    assert data["commission"] == 600, f"expected 600, got {data['commission']}"
-    assert data["commission_due_total"] == 600
-    assert data["blocked"] is False
+    commission = int(data["commission_xof"])
+    assert 0 < commission <= 5000, data
+    # Prestataire jetable : wallet à 0 avant → solde = −commission après débit
+    assert int(data["wallet_balance_after_xof"]) == -commission, data
+    assert data["wallet_can_receive_bookings"] is True, data
+    assert data.get("transaction_id"), data
 
-    # (d) wallet reflects
+    # (c-bis) idempotence : re-déclarer le même paiement → 400 "déjà payée"
+    r = requests.post(
+        f"{API}/bookings/{bid}/cash-payment",
+        headers=_headers(prov_tok),
+        json={"amount": 5000, "category": "services"},
+        timeout=15,
+    )
+    assert r.status_code == 400, f"double cash-payment should be rejected: {r.status_code} {r.text}"
+
+    # (d) wallet v2 reflects (champs canoniques + alias legacy)
     r = requests.get(f"{API}/wallet/me", headers=_headers(prov_tok), timeout=15)
     assert r.status_code == 200
     w = r.json()
-    assert w["commission_due"] == 600, w
-    assert w["gross_earnings"] == 5000, w
-    assert w["is_blocked_debt"] is False
+    assert int(w["balance_available_xof"]) == -commission, w
+    assert w["can_receive_bookings"] is True, w
+    # alias legacy : dette = solde négatif
+    assert int(w["commission_due"]) == commission, w
+    assert w["is_blocked_debt"] is False, w
 
-    # (e) pay commission due
+    # (e) règlement de la dette : ajustement admin (crédit wallet v2)
     r = requests.post(
-        f"{API}/wallet/pay-commission-due",
-        headers=_headers(prov_tok),
-        json={"amount": 600},
+        f"{API}/admin/wallet/wallet/{provider_id}/adjust",
+        headers=_headers(admin_tok),
+        json={"owner_id": provider_id, "amount_xof": commission, "reason": "TEST règlement dette cash"},
         timeout=15,
     )
     assert r.status_code == 200, r.text
-    pay = r.json()
-    assert pay["commission_due"] == 0
-    assert pay["commission_paid_total"] == 600
 
     r = requests.get(f"{API}/wallet/me", headers=_headers(prov_tok), timeout=15)
     w = r.json()
-    assert w["commission_due"] == 0
-    assert w["commission_paid"] == 600
+    assert int(w["balance_available_xof"]) == 0, w
+    assert int(w["commission_due"]) == 0, w
+    assert w["is_blocked_debt"] is False, w
 
 
-# ===== TEST 10: auto-block =====
-def test_10_auto_block_on_debt():
-    """Nouveau provider dédié, empile la dette au-delà du seuil pour éviter interférence."""
+# ===== TEST 10: auto-block (Wallet v2) =====
+def test_10_auto_block_on_debt(admin_auth):
+    """Le prestataire est bloqué quand son solde passe SOUS le plancher négatif
+    (`can_receive_bookings` = False), puis débloqué après recrédit admin."""
     client = _register("client", "BlockClient")
     provider = _register("prestataire", "BlockPro")
+    admin_tok = admin_auth["token"]
 
     r = requests.post(
         f"{API}/providers/me",
@@ -339,12 +356,20 @@ def test_10_auto_block_on_debt():
     prov_tok = provider["token"]
     provider_id = provider["user"]["id"]
 
-    # Empile la dette avec 10 x 8500 x 12% = 10200 (>= 10000 → bloqué au dernier)
-    total_debt = 0.0
-    last_blocked = False
-    for _ in range(10):
+    # Plancher négatif configuré côté admin (défaut −50 000 F)
+    r = requests.get(f"{API}/admin/wallet/settings", headers=_headers(admin_tok), timeout=15)
+    assert r.status_code == 200, r.text
+    max_neg = int(r.json()["wallet_max_negative_xof"]["value"])
+    assert max_neg < 0, f"plancher négatif attendu, obtenu {max_neg}"
+
+    # Empile la dette (gros montants cash). Sémantique v2 : un débit de commission
+    # qui FRANCHIRAIT le plancher est refusé (402 insufficient_funds) — la dette
+    # ne peut jamais dépasser le plancher via les commissions.
+    hit_protection = False
+    blocked = False
+    balance = 0
+    for _ in range(40):  # borne de sécurité
         bid = _create_booking(client_tok, provider_id)
-        # accepter
         requests.patch(
             f"{API}/bookings/{bid}",
             headers=_headers(prov_tok),
@@ -354,21 +379,51 @@ def test_10_auto_block_on_debt():
         r = requests.post(
             f"{API}/bookings/{bid}/cash-payment",
             headers=_headers(prov_tok),
-            json={"amount": 8500, "category": "services"},
+            json={"amount": 200000, "category": "services"},
+            timeout=15,
+        )
+        if r.status_code == 402:
+            # Protection plancher : le débit qui passerait sous le plancher est refusé.
+            assert "insufficient_funds" in r.text, r.text
+            hit_protection = True
+            break
+        assert r.status_code == 200, r.text
+        d = r.json()
+        balance = int(d["wallet_balance_after_xof"])
+        if d["wallet_can_receive_bookings"] is False:
+            blocked = True
+            break
+
+    assert blocked or hit_protection, (
+        f"ni blocage ni protection plancher atteints, balance={balance}, floor={max_neg}"
+    )
+
+    # Le plancher effectif tient compte du min_balance du wallet.
+    r = requests.get(f"{API}/wallet/me", headers=_headers(prov_tok), timeout=15)
+    w = r.json()
+    floor = min(int(w["min_balance_xof"]), max_neg)
+    balance = int(w["balance_available_xof"])
+
+    if not blocked:
+        # Amène le solde EXACTEMENT au plancher (autorisé) via un débit admin :
+        # c'est l'état "bloqué" (can_receive = balance > plancher → False).
+        to_debit = balance - floor
+        assert to_debit > 0, f"balance {balance} déjà sous le plancher {floor} ?"
+        r = requests.post(
+            f"{API}/admin/wallet/wallet/{provider_id}/adjust",
+            headers=_headers(admin_tok),
+            json={"owner_id": provider_id, "amount_xof": -to_debit, "reason": "TEST descente au plancher"},
             timeout=15,
         )
         assert r.status_code == 200, r.text
-        d = r.json()
-        total_debt = d["commission_due_total"]
-        last_blocked = d["blocked"]
-        if last_blocked:
-            break
+        balance = floor
 
-    assert last_blocked is True, f"provider should be blocked, debt={total_debt}"
-
-    # Wallet is_blocked_debt=true
+    # Wallet v2 : is_blocked_debt (alias) = True
     r = requests.get(f"{API}/wallet/me", headers=_headers(prov_tok), timeout=15)
-    assert r.json()["is_blocked_debt"] is True
+    w = r.json()
+    assert int(w["balance_available_xof"]) == balance, w
+    assert w["is_blocked_debt"] is True, w
+    assert w["can_receive_bookings"] is False, w
 
     # Nouveau booking → 403 avec message 'commissions impayées'
     r = requests.post(
@@ -386,19 +441,20 @@ def test_10_auto_block_on_debt():
     assert r.status_code == 403, f"expected 403, got {r.status_code}: {r.text}"
     assert "commissions impayées" in r.text.lower() or "commissions impayees" in r.text.lower(), r.text
 
-    # Payer la totalité de la dette
-    r = requests.get(f"{API}/wallet/me", headers=_headers(prov_tok), timeout=15)
-    debt_now = r.json()["commission_due"]
+    # Règlement : l'admin recrédite la totalité de la dette (wallet v2)
+    debt = -balance
     r = requests.post(
-        f"{API}/wallet/pay-commission-due",
-        headers=_headers(prov_tok),
-        json={"amount": debt_now},
+        f"{API}/admin/wallet/wallet/{provider_id}/adjust",
+        headers=_headers(admin_tok),
+        json={"owner_id": provider_id, "amount_xof": debt, "reason": "TEST règlement dette auto-block"},
         timeout=15,
     )
     assert r.status_code == 200, r.text
 
     r = requests.get(f"{API}/wallet/me", headers=_headers(prov_tok), timeout=15)
-    assert r.json()["is_blocked_debt"] is False
+    w = r.json()
+    assert int(w["balance_available_xof"]) == 0, w
+    assert w["is_blocked_debt"] is False, w
 
     # Un nouveau booking doit passer
     r = requests.post(
