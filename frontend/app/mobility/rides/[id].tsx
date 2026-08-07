@@ -201,7 +201,12 @@ export default function RideDetail() {
               <View style={{ flex: 1, marginLeft: spacing.md }}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
                   <Txt size="md" weight="700" style={{ flex: 1 }}>{ride.driver_name}</Txt>
-                  {ride.driver_verified ? <Ionicons name="checkmark-circle" size={16} color={colors.turquoise} /> : null}
+                  {ride.jokoo_verified ? (
+                    <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: colors.turquoise }} testID="jokoo-verified-badge">
+                      <Ionicons name="shield-checkmark" size={11} color={colors.white} />
+                      <Txt size="xxs" weight="700" color={colors.white} style={{ marginLeft: 4 }}>Jokoo Vérifié</Txt>
+                    </View>
+                  ) : ride.driver_verified ? <Ionicons name="checkmark-circle" size={16} color={colors.turquoise} /> : null}
                 </View>
                 <Txt size="xs" color={colors.textMuted}>
                   {ride.driver_city || "Sénégal"}

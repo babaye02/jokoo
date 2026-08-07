@@ -519,6 +519,7 @@ ROLE_PERMS: dict = {
         "providers:read", "providers:write", "providers:validate",
         "kyc:read", "kyc:write",
         "ads:read", "stats:read",
+        "mobility:manage",
     ],
     "marketing": [
         "ads:read", "ads:write",
@@ -8242,6 +8243,18 @@ async def _chat_voice_startup():
         log.info("[chat_voice] indexes ok")
     except Exception as _e:
         log.warning("[chat_voice] ensure_indexes failed: %s", _e)
+
+
+# 🚗 Admin Mobilité — dashboard + trajets « Jokoo Vérifié » (anti-ghost)
+from admin_mobility import build_admin_mobility_router as _build_admin_mobility_router  # noqa: E402
+
+_admin_mobility_router = _build_admin_mobility_router(
+    db,
+    require_perm=require_perm,
+    hash_password=hash_password,
+    now_iso=now_iso,
+)
+app.include_router(_admin_mobility_router, prefix="/api")
 
 
 async def _ambassador_commissions_cron():

@@ -250,7 +250,15 @@ function RideCard({ ride, onPress }: { ride: Ride; onPress: () => void }) {
       <View style={{ flexDirection: "row", alignItems: "center" }}>
         <Avatar uri={ride.driver_avatar || undefined} name={ride.driver_name} size={36} />
         <View style={{ flex: 1, marginLeft: 10 }}>
-          <Txt size="sm" weight="700" numberOfLines={1}>{ride.driver_name}</Txt>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Txt size="sm" weight="700" numberOfLines={1} style={{ flexShrink: 1 }}>{ride.driver_name}</Txt>
+            {ride.jokoo_verified ? (
+              <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 6, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, backgroundColor: colors.turquoise }} testID={`jokoo-badge-${ride.id}`}>
+                <Ionicons name="shield-checkmark" size={9} color={colors.white} />
+                <Txt size="xxs" weight="700" color={colors.white} style={{ marginLeft: 3 }}>Jokoo Vérifié</Txt>
+              </View>
+            ) : null}
+          </View>
           <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
             {ride.driver_verified ? <Ionicons name="checkmark-circle" size={12} color={colors.turquoise} /> : null}
             <Ionicons name="people" size={11} color={colors.textMuted} style={{ marginLeft: ride.driver_verified ? 6 : 0 }} />

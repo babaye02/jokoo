@@ -452,6 +452,9 @@ export type Ride = {
   driver_rating?: number;
   driver_reviews_count?: number;
   driver_verified?: boolean;
+  /** Trajet officiel publié par l'équipe Jokoo (anti-ghost, badge « Jokoo Vérifié »). */
+  jokoo_verified?: boolean;
+  is_ghost?: boolean;
   from_city: string;
   from_address?: string;
   to_city: string;

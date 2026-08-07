@@ -55,7 +55,7 @@ export function MobilityHeroCard({
   }));
 
   const imgOverlayStyle = useAnimatedStyle(() => ({
-    opacity: 1 - brightness.value * 0 + (1 - brightness.value),
+    opacity: 1 - brightness.value,
   }));
 
   const handlePressIn = () => {

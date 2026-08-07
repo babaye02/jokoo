@@ -12,6 +12,7 @@ import { openAdDestination } from "@/src/navigation/adDestination";
 import { priceLabel } from "@/src/pricing";
 import { Txt, Avatar, Stars, SectionHeader, Badge } from "@/src/components/ui";
 import { CategoryCard } from "@/src/components/premium";
+import { MobilityHeroCard } from "@/src/components/MobilityHeroCard";
 import { getCategoryPhoto, getCategoryIcon } from "@/src/utils/categoryAssets";
 import { colors, fs, radius, shadow, spacing, typo } from "@/src/theme";
 
@@ -173,28 +174,24 @@ export default function Home() {
         {/* Mobilité */}
         <SectionHeader title="Mobilité" overline="Se déplacer" action="Explorer" onAction={() => router.push("/mobility")} testID="section-mobility" />
         <View style={{ paddingHorizontal: spacing.xl, flexDirection: "row", gap: spacing.md }}>
-          <Pressable
+          <MobilityHeroCard
+            title="Covoiturage"
+            subtitle="Partagez la route, économisez"
+            emoji="🚗"
+            source={require("../../assets/mobility/covoiturage.webp")}
             onPress={() => router.push("/mobility/rides")}
-            style={[styles.mobCard, { backgroundColor: colors.midnight }]}
+            accent="rgba(24,198,163,0.5)"
             testID="mob-covoiturage"
-          >
-            <View style={styles.mobEmoji}>
-              <Txt size="xxl">🚗</Txt>
-            </View>
-            <Txt size="md" weight="700" color={colors.white} style={{ marginTop: 8 }}>Covoiturage</Txt>
-            <Txt size="xxs" color="rgba(255,255,255,0.7)" numberOfLines={2}>Partagez la route, économisez</Txt>
-          </Pressable>
-          <Pressable
+          />
+          <MobilityHeroCard
+            title="Livraison"
+            subtitle="Colis · courses · interurbain"
+            emoji="📦"
+            source={require("../../assets/mobility/livraison.webp")}
             onPress={() => router.push("/mobility/delivery")}
-            style={[styles.mobCard, { backgroundColor: colors.turquoise }]}
+            accent="rgba(245,158,11,0.42)"
             testID="mob-livraison"
-          >
-            <View style={styles.mobEmoji}>
-              <Txt size="xxl">📦</Txt>
-            </View>
-            <Txt size="md" weight="700" color={colors.white} style={{ marginTop: 8 }}>Livraison</Txt>
-            <Txt size="xxs" color="rgba(255,255,255,0.85)" numberOfLines={2}>Colis · courses · interurbain</Txt>
-          </Pressable>
+          />
         </View>
 
         {/* Jokoo Family */}
@@ -443,25 +440,6 @@ const styles = StyleSheet.create({
   },
   svcCard: { width: 84, alignItems: "center" },
   svcIcon: { width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  mobCard: {
-    flex: 1,
-    height: 120,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    justifyContent: "flex-end",
-    ...shadow.card,
-  },
-  mobEmoji: {
-    position: "absolute",
-    top: 10,
-    right: 12,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   familyCard: {
     flexDirection: "row",
     alignItems: "center",
