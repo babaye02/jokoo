@@ -1,0 +1,81 @@
+{
+  "summary": "Marketplace Covoiturage v2 (Phase 1+2) tested end-to-end: backend + frontend. Backend: 26/26 pytest cases green (cities resolution, requests CRUD, offers flow, duplicate protection, withdraw, stats, matching normalization on POST /api/rides). Frontend: /mobility hub renders (stats + dual CTA + hot routes + activity grid), publish request → detail redirection works, driver 'Proposer ce trajet' modal + inline offer creation works (offer visible on refresh). 1 CRITICAL BACKEND BUG found: matching for newly created requests never runs due to a placeholder-await typo in router.py line 109 — 'match_after_create_request failed: object function can't be used in await expression' logged on every POST /mobility/requests. Backend startup logs confirm '[rides_v2] indexes ok' + 'expiration sweeper started (interval=300s)'. Push provider returns 502 (expected — no iOS device / relay in placeholder mode). Minor UI: pluralization 'places' shown for 1 place; deprecated 'shadow*' style props warning; label 'North Saint-louis' displayed instead of 'Saint-Louis' — the frontend renders req.from_city/to_city as raw user input, but 'Saint-Louis' resolves through fuzzy-prefix logic in cities.resolve_city and then a display formatter picks 'north saint-louis' from CITY_ALIASES (see cities.py line 68). Recommend using city_display(from_city_norm) for display consistency.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/mobility/requests",
+        "issue": "matching.match_rides_for_request never runs after create_request due to bug at rides_v2/router.py:109 → `matches = await matching.match_requests_for_ride` (missing parentheses awaits the function object itself, raising 'object function can't be used in await expression'). The exception is caught but occurs BEFORE `rides = await matching.match_rides_for_request(db, doc)` executes, so no driver push notifications are ever triggered on new passenger requests. Fix: delete the placeholder line entirely (line 109 comment says 'placeholder to avoid IDE hint'), it serves no purpose.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/mobility/cities/resolve?q=Saint-Louis",
+        "issue": "Resolves 'Saint-Louis' → canonical 'saint-louis' correctly, BUT when the passenger form persists raw 'Saint-Louis' input as to_city, the request detail screen shows 'North Saint-louis' (aliased fuzzy prefix hit in resolve_city — 'north saint-louis' is registered as an alias). Suggests using city_display(to_city_norm) for display, not raw to_city."
+      },
+      {
+        "endpoint": "Push notify",
+        "issue": "[rides_v2.notify] push failed: 502: Push provider unavailable — expected in preview env (EMERGENT_PUSH_KEY=placeholder). Confirm production key at deploy time."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "OfferCard / Chip 'places'",
+        "issue": "Pluralization shown as '1 places' — should be '1 place'. See /app/frontend/app/mobility/requests/[id].tsx line 231.",
+        "testID": "n/a",
+        "priority": "LOW"
+      },
+      {
+        "component": "Request detail city labels",
+        "issue": "Displays raw user input for from_city/to_city, so quartier-only input ('Plateau') stays as 'Plateau' but 'Saint-Louis' round-trips to 'North Saint-louis'. Use city_display(from_city_norm) or keep raw + subtitle.",
+        "testID": "n/a",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Passenger accept offer (UI)",
+        "issue": "RN Alert.alert on Expo web preview does not fire a browser dialog event (Playwright dialog handler never triggers). Backend accept works (verified via API). Real device (iOS/Android/Expo Go) is unaffected. Not blocking for mobile — flag only.",
+        "affected_testIDs": ["offer-accept-*"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "/mobility",
+        "issues": ["Console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' — coming from theme shadow.card/shadow.soft mixins (RN web). Non-blocking but should be migrated."]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter46_mobility_v2.py",
+    "/app/test_reports/pytest/iter46_mobility_v2.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Delete/fix rides_v2/router.py line 109 `matches = await matching.match_requests_for_ride` — this placeholder raises immediately and silently disables driver-side push notifications on every new passenger request. Simply remove that line; `rides = await matching.match_rides_for_request(db, doc)` on next line is the real call.",
+    "MEDIUM: In /app/frontend/app/mobility/requests/[id].tsx, replace raw {req.from_city}/{req.to_city} display with the canonical label (either backend should return `from_label`/`to_label` derived from city_display(norm), or the frontend imports a shared display map). Same for feed cards.",
+    "LOW: Fix '{seats_available} places' pluralization (line 231 of [id].tsx).",
+    "LOW: Migrate `shadow.card` / `shadow.soft` StyleSheet mixins to use `boxShadow` for RN web compatibility (deprecation warning).",
+    "INFO: Push notifications remain 502 (placeholder key) — verify EMERGENT_PUSH_KEY is set in production before shipping."
+  ],
+  "critical_code_review_comments": [
+    "rides_v2/router.py:109 — placeholder await bug (see critical action).",
+    "rides_v2/service.py:64-67 — when from_city == to_city (intra-city), code has an empty pass block; consider explicitly documenting this behavior or blocking with 400 when addresses are missing.",
+    "rides_v2/router.py:116 — `rides` referenced via `locals()` which is fragile; because of bug on line 109 the variable is never set. After fixing 109, use `matches_count: len(rides or [])` cleanly.",
+    "cities.py:227 — fuzzy prefix match returns first hit iterating CITY_ALIASES dict (non-deterministic ordering in Python <3.7, deterministic since); for 'saint-louis' this picks 'north saint-louis' before 'saint-louis' itself. Suggest ordering canonical cities first in the lookup."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter46_mobility_v2.py"
+  ],
+  "success_rate": {
+    "backend": "100% (26/26 pytest)",
+    "frontend": "5/5 major flows (home hub, publish request, request detail, driver propose modal + submit, offer visible after refresh); accept UI dialog not verifiable via Playwright but backend accept path validated"
+  },
+  "seed_data_creation": "Created 3 ride requests during testing (all cleaned up except the e2e test one at id=c2389b3a-367d-4d2a-a6d5-68ae0589e991 which still has an active pending offer from pro@jokoo.sn — safe to leave or remove manually).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend rides_v2 router has a broken match-on-create pathway (router.py:109). Once fixed, notification pipeline should trigger `ride_new_request_match` notifications in the `notifications` collection when a new passenger request matches an existing driver ride. Verify by creating a driver ride first (POST /api/rides) then a matching passenger request (POST /api/mobility/requests) with the same from_city_norm/to_city_norm/date; the driver's notifications collection should contain a new entry. Push provider will 502 but the notification insert should succeed.",
+  "rca_of_issue": "Root cause of the 'match_after_create_request failed' warning: rides_v2/router.py line 109 has `matches = await matching.match_requests_for_ride` — this awaits a function REFERENCE (no parentheses). Python raises TypeError('object function can't be used in await expression'). The surrounding try/except catches it and logs a warning, but execution jumps out before the actual `matching.match_rides_for_request(db, doc)` call. As a result, no driver is ever matched to a newly created passenger request. Reproduction: POST /api/mobility/requests with any body → grep backend logs for 'match_after_create_request failed' (100% reproducible). Mitigation: delete the placeholder line (it's a stale IDE hint), or replace with correct `matches = await matching.match_rides_for_request(db, doc)` — but the next line already does that, so simply delete."
+}

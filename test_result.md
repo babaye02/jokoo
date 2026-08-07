@@ -873,3 +873,89 @@ agent_communication:
           BASE URL : http://localhost:3000 (frontend), EXPO_PUBLIC_BACKEND_URL pour API.
 
           NB : Certains écrans (index dashboard) affichent des chiffres réels de l'env de dev — pas de mocking. Le wallet Master a un solde négatif (-204 000 F) car c'est normal en dev (recharges Stripe créées sans commissions équivalentes).
+
+
+  - task: "Marketplace Covoiturage v2 — Phase 1+2 (Requests + Offers + Matching + Notifs)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/rides_v2/* + /app/frontend/app/mobility/*"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        message: |
+          Nouveau module massif : **marketplace covoiturage bidirectionnelle**.
+          À tester : **backend + frontend**.
+
+          BACKEND — Package `/app/backend/rides_v2/` (8 modules) :
+          - `cities.py`     : dictionnaire villes+quartiers Sénégal (Dakar↔Plateau/Mermoz/Almadies/etc, Thiès, Saint-Louis, Mbour, Touba, Kaolack, Ziguinchor, +40 autres). `resolve_city("plateau")` → `"dakar"`. `city_matches()` normalise.
+          - `models.py`     : Pydantic RideRequestIn, RideRequestUpdate, RideOfferIn, RideOfferDecisionIn (validation HH:MM, YYYY-MM-DD, seats 1-8, budget 0-1M).
+          - `service.py`    : CRUD requests + offers, `hot_routes`, `mobility_stats`, `ensure_indexes`.
+          - `matching.py`   : `match_rides_for_request`, `match_requests_for_ride`, `score_match` (0..1). Filtres MongoDB avec `from_city_norm`/`to_city_norm`.
+          - `notify.py`     : notify_drivers_of_new_request, notify_passenger_of_new_ride, notify_passenger_new_offer, notify_driver_offer_decision, notify_request_expiring/expired (push + in-app).
+          - `expiration.py` : sweeper 5min → passe demandes expirées + envoie rappels J-6h.
+          - `router.py`     : 18 endpoints sous `/api/mobility/*`.
+          - `constants.py`  : statuts, TTL, seuils.
+
+          MONTAGE server.py :
+          - Import + `bind_push(send_push)`.
+          - `POST /api/rides` (existant) patché : maintient `from_city_norm`/`to_city_norm` + déclenche matching → notifie passagers en attente.
+          - `startup` : ensure_indexes + boucle expiration.
+
+          ENDPOINTS EXPOSÉS (à tester) :
+          - `GET  /api/mobility/cities` → liste 54 villes canoniques + aliases.
+          - `GET  /api/mobility/cities/resolve?q=plateau` → { canonical: "dakar", label: "Dakar" }
+          - `GET  /api/mobility/stats` → KPIs + hot_routes.
+          - `POST /api/mobility/requests` (client) → crée + déclenche matching.
+          - `GET  /api/mobility/requests` (public, avec filtres from_city/to_city/date/status/exclude_self/limit).
+          - `GET  /api/mobility/requests/mine`
+          - `GET  /api/mobility/requests/{id}` → attache la liste des offres.
+          - `PATCH /api/mobility/requests/{id}` (owner) → update ou status=cancelled.
+          - `POST /api/mobility/requests/{id}/republish` (owner) → réouvre.
+          - `DELETE /api/mobility/requests/{id}` (owner).
+          - `POST /api/mobility/requests/{id}/offers` (driver) → crée une offre (avec ride_id existant OU inline from/to/date/time/seats/vehicle).
+          - `GET  /api/mobility/requests/{id}/offers`
+          - `POST /api/mobility/offers/{id}/decision` (owner de la demande) → action="accept"|"refuse". Si accept: refuse les autres pending et passe la demande en "booked".
+          - `POST /api/mobility/offers/{id}/withdraw` (driver).
+          - `GET  /api/mobility/offers/sent` (driver).
+          - `GET  /api/mobility/offers/received` (passenger).
+          - `GET  /api/mobility/offers/{id}` (owner ou driver).
+          - `GET  /api/mobility/rides/{ride_id}/matches` (driver) → demandes matchables pour son trajet.
+          - `GET  /api/mobility/requests/{id}/rides` → trajets matchables pour cette demande.
+
+          CE QUI A ÉTÉ VALIDÉ MANUELLEMENT (curl) :
+          - `resolve_city("Plateau")` → dakar ✅
+          - `resolve_city("Mermoz")` → dakar ✅
+          - POST request "Plateau" → "Thiès" → from_city_norm=dakar, to_city_norm=thies ✅
+          - POST offer inline avec négociation prix (7500 F pour budget 8000) → OK ✅
+          - decide_offer(refuse) → status=refused ✅
+          - stats → hot_routes trié par count ✅
+          - indexes créés OK ✅
+          - Expiration sweeper démarré ✅
+
+          FRONTEND — écrans mobility (390×844) :
+          - `/app/frontend/app/mobility/index.tsx` refait : dual CTA (bleu marine "Publier un trajet" / orange "Publier une demande"), stats bar (Trajets actifs / Demandes ouvertes / Dernières 24h), Hot Routes avec CTA "Publier ce trajet" (nudge conducteur), livraison card, grille "Mon activité" (6 quick actions dont Offres envoyées/reçues avec badges de compteurs).
+          - `/mobility/requests/publish.tsx` : formulaire timeline départ→arrivée avec autocomplete villes+quartiers, date/heure, stepper places, budget optionnel, notes.
+          - `/mobility/requests/index.tsx` : feed public des demandes (recherche + status pill).
+          - `/mobility/requests/mine.tsx` : mes demandes + actions Republier / Annuler.
+          - `/mobility/requests/[id].tsx` : détail complet, timeline route, meta, comment, liste des offres reçues (avec accept/refuse pour owner). CTA sticky "Proposer ce trajet" pour non-owner → modal avec 2 onglets : "Proposer directement" (inline) OU "Trajet publié" (sélection dans /rides/mine) + prix négocié + message.
+          - `/mobility/offers/sent.tsx` : offres envoyées (driver), action Retirer si pending.
+          - `/mobility/offers/received.tsx` : offres reçues (passenger).
+          - Client API : `/app/frontend/src/mobility/rideRequests.ts` (all endpoints + helpers).
+
+          FLOW À TESTER (E2E) :
+          1. Passager (client@jokoo.sn / Passw0rd!) : /mobility → cliquer "Publier une demande" → formulaire → publier "Plateau → Saint-Louis" 2026-08-25 09:00, seats 2, budget 5000 → doit rediriger vers le détail.
+          2. Passager : /mobility/requests/mine → sa demande est visible avec badge "Ouverte" et actions.
+          3. Conducteur (pro@jokoo.sn / Passw0rd!) : /mobility → CTA "Publier une demande" en Mermoz→SL déjà notifié en push, OU aller sur /mobility/requests → voir la demande du passager → cliquer → bouton "Proposer ce trajet" (sticky) → modal onglet "Proposer directement" → prix 4500 + message + envoyer.
+          4. Conducteur : /mobility/offers/sent → voir son offre "En attente" pour cette demande.
+          5. Passager : /mobility/offers/received OU rouvrir sa demande → doit voir 1 offre reçue → tester "Accepter" → alert de confirmation → toutes les autres offres pending passent en "withdrawn", demande devient "booked".
+          6. Passager : /mobility/requests/mine → statut "Confirmée".
+
+          Notifications push : validées via backend (Emergent), pas testables en preview web (bloqué iOS pending .plist ; Android OK sur device réel).
+
+          AUTH : client@jokoo.sn / Passw0rd! (passager), pro@jokoo.sn / Passw0rd! (conducteur), admin@jokoo.sn / Admin1234!.
+          Base URL locale : http://localhost:3000 / http://localhost:8001.
+
+          Rapport dans /app/test_reports/iteration_46.json.

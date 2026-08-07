@@ -5931,6 +5931,20 @@ async def create_ride(body: RideIn, user=Depends(current_user)):
         "updated_at": now_iso(),
     }
     await db.rides.insert_one(doc)
+    # Marketplace v2 : maintenir champs normalisés + déclencher matching demandes
+    try:
+        from rides_v2.cities import resolve_city as _rv2_resolve
+        from rides_v2 import matching as _rv2_matching, notify as _rv2_notify
+        norm_from = _rv2_resolve(doc.get("from_city"))
+        norm_to = _rv2_resolve(doc.get("to_city"))
+        await db.rides.update_one({"id": rid}, {"$set": {"from_city_norm": norm_from, "to_city_norm": norm_to}})
+        doc["from_city_norm"] = norm_from
+        doc["to_city_norm"] = norm_to
+        matched_requests = await _rv2_matching.match_requests_for_ride(db, doc)
+        for req in matched_requests:
+            await _rv2_notify.notify_passenger_of_new_ride(db, req, doc)
+    except Exception as _e:
+        log.warning("[rides_v2] post-create ride match failed: %s", _e)
     return _clean(doc)
 
 
@@ -8076,6 +8090,59 @@ async def _push_scheduler_startup():
     """Démarre la boucle de traitement des campagnes programmées."""
     import asyncio as _asyncio
     _asyncio.create_task(push_scheduler_loop(db=db, send_push=send_push, log=log, poll_seconds=60))
+
+
+# 🚗 Mobility v2 — Marketplace covoiturage bidirectionnelle
+from rides_v2.router import build_mobility_router as _build_mobility_router  # noqa: E402
+from rides_v2 import notify as _rv2_notify  # noqa: E402
+from rides_v2 import service as _rv2_service  # noqa: E402
+from rides_v2.expiration import start_expiration_loop as _rv2_expiration_loop  # noqa: E402
+
+_rv2_notify.bind_push(send_push)
+
+
+async def _rv2_driver_info(user_id: str) -> dict:
+    """Lookup async des infos conducteur pour attacher aux offres."""
+    u = await db.users.find_one({"id": user_id}, {"_id": 0}) or {}
+    completed = await db.rides.count_documents({"driver_id": user_id, "status": "completed"})
+    return {
+        "name": u.get("name") or u.get("email") or "",
+        "avatar": u.get("avatar") or u.get("photo_url") or "",
+        "rating": u.get("rating"),
+        "completed_rides": completed,
+        "verified": bool(u.get("verified") or u.get("id_verified") or u.get("kyc_status") == "approved"),
+    }
+
+
+async def _rv2_user_info(user_id: str) -> dict:
+    u = await db.users.find_one({"id": user_id}, {"_id": 0}) or {}
+    return {
+        "name": u.get("name") or u.get("email") or "",
+        "avatar": u.get("avatar") or u.get("photo_url") or "",
+        "role": u.get("role") or "client",
+    }
+
+
+_mobility_router = _build_mobility_router(
+    db,
+    current_user=current_user,
+    optional_user=optional_user,
+    driver_info_lookup=_rv2_driver_info,
+    user_info_lookup=_rv2_user_info,
+)
+app.include_router(_mobility_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def _rides_v2_startup():
+    """Indexes + boucle d'expiration marketplace covoiturage."""
+    import asyncio as _asyncio
+    try:
+        await _rv2_service.ensure_indexes(db)
+        log.info("[rides_v2] indexes ok")
+    except Exception as _e:
+        log.warning("[rides_v2] ensure_indexes failed: %s", _e)
+    _asyncio.create_task(_rv2_expiration_loop(db, interval_seconds=300))
 
 
 async def _ambassador_commissions_cron():
