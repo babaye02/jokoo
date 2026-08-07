@@ -30,7 +30,7 @@ Jokoo **ne facture pas à l'heure**. Chaque prestataire choisit son mode :
 - Fiche prestataire : cover, avatar, note, avis, galerie, zones, horaires, boutons Réserver / Discuter / Appeler / Favori.
 - Flow de réservation (date, heure, adresse, durée, prix estimé).
 - Écran paiement multi-méthodes (Carte via Stripe Checkout, Wave, Orange Money, à la prestation).
-- Chat en temps réel (polling 3s).
+- Chat en temps réel (polling 3s) + réponses rapides (chips), notes vocales (max 2 min, expo-audio, stockage `chat_media` BinData) et partage de position temporaire (15/30/60 min, coordonnées masquées après expiration).
 - Notifications (demandes, statuts, messages).
 - Favoris.
 - Profil client + dashboard prestataire (stats, demandes, accept/refuser/terminer, abonnement mensuel).
@@ -50,7 +50,8 @@ Jokoo **ne facture pas à l'heure**. Chaque prestataire choisit son mode :
 - `bookings` : id, client_id, provider_id, date, time, address, description, estimated_price, status (pending/accepted/rejected/completed/cancelled), paid.
 - `reviews` : id, provider_id, author_id, rating, comment.
 - `favorites` : user_id + provider_id.
-- `messages` : conv_id, from_id, to_id, text, kind, read.
+- `messages` : conv_id, from_id, to_id, text, kind (text/image/location/voice), read, media_id, duration_ms, lat/lng/landmark/expires_at (location).
+- `chat_media` : id, conv_id, participants, owner_id, mime, size_bytes, duration_ms, data (BinData audio).
 - `notifications` : user_id, type, title, body, read.
 
 ## Endpoints API (préfixe `/api`)
@@ -60,7 +61,7 @@ Catalog : `/services`, `/providers[?service,city,q,sort,limit]`, `/providers/{id
 Booking : `/bookings` (GET/POST), `/bookings/{id}` (PATCH).
 Reviews : `/reviews` (POST).
 Favorites : `/favorites`, `/favorites/{id}` (POST/DELETE).
-Chat : `/chat/conversations`, `/chat/{peer}/messages` (GET/POST).
+Chat : `/chat/conversations`, `/chat/{peer}/messages` (GET/POST), `/chat/{peer}/voice` (POST, note vocale), `/chat/media/{media_id}` (GET, audio protégé participants).
 Notifications : `/notifications`, `/notifications/read-all`.
 Dashboard : `/dashboard`.
 Payments : `/payments/checkout/booking`, `/payments/checkout/subscription`, `/payments/status/{sid}`.
