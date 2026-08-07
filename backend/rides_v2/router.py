@@ -286,4 +286,160 @@ def build_mobility_router(
         results = await matching.match_rides_for_request(db, req)
         return results
 
+    # ─── Ride Bookings — display + payment (marketplace v2) ──────────
+
+    @router.get("/bookings/{bid}")
+    async def get_ride_booking(bid: str, user=Depends(current_user)):
+        """Charge un ride booking + snapshot demande/offre pour affichage paiement."""
+        booking = await db.ride_bookings.find_one({"id": bid}, {"_id": 0})
+        if not booking:
+            raise HTTPException(404, "Booking not found")
+        if booking.get("passenger_id") != user["id"] and booking.get("driver_id") != user["id"]:
+            raise HTTPException(403, "Not allowed")
+        request = None
+        offer = None
+        driver = None
+        ride = None
+        if booking.get("request_id"):
+            request = await db.ride_requests.find_one({"id": booking["request_id"]}, {"_id": 0})
+        if booking.get("offer_id"):
+            offer = await db.ride_offers.find_one({"id": booking["offer_id"]}, {"_id": 0})
+        if booking.get("driver_id"):
+            driver = await db.users.find_one({"id": booking["driver_id"]}, {"_id": 0, "id": 1, "name": 1, "avatar": 1, "phone": 1, "rating": 1})
+        if booking.get("ride_id"):
+            ride = await db.rides.find_one({"id": booking["ride_id"]}, {"_id": 0})
+        return {
+            "booking": _strip(booking),
+            "request": _strip(request),
+            "offer": _strip(offer),
+            "ride": _strip(ride),
+            "driver": _strip(driver),
+        }
+
+    @router.post("/bookings/{bid}/pay")
+    async def pay_ride_booking(bid: str, body: dict, user=Depends(current_user)):
+        """
+        Traite le paiement d'un ride booking issu de la marketplace v2.
+        Modes supportés en v1 : wallet, cash.
+        Wave / OrangeMoney / Stripe : retournent 503 tant que les clés sont manquantes
+        (mais le squelette est en place — voir plus bas).
+        """
+        method = (body or {}).get("method", "").strip().lower()
+        if method not in ("wallet", "cash", "wave", "orange_money", "stripe"):
+            raise HTTPException(400, "Méthode de paiement invalide")
+
+        booking = await db.ride_bookings.find_one({"id": bid}, {"_id": 0})
+        if not booking:
+            raise HTTPException(404, "Booking not found")
+        if booking.get("passenger_id") != user["id"]:
+            raise HTTPException(403, "Seul le passager peut régler cette réservation")
+        if booking.get("paid"):
+            return {"status": "already_paid", "booking": _strip(booking)}
+
+        amount = int(booking.get("price_xof") or 0)
+        if amount <= 0:
+            raise HTTPException(400, "Montant invalide")
+
+        # ─── Wallet Jokoo ─────────────────────────────────────
+        if method == "wallet":
+            try:
+                # On tente d'utiliser le wallet_service v2 si disponible
+                import importlib
+                wallet_service = importlib.import_module("wallet.service")
+                # Débit passager (validation solde) + crédit conducteur
+                await wallet_service.transfer_between_users(
+                    db,
+                    from_owner_id=user["id"],
+                    to_owner_id=booking["driver_id"],
+                    amount_xof=amount,
+                    label=f"Paiement covoiturage {booking.get('id')[:8]}",
+                    category="ride_booking",
+                    reference={"kind": "ride_booking", "id": booking["id"]},
+                )
+            except AttributeError:
+                # Fallback minimal via wallets_v2 direct
+                w_from = await db.wallets_v2.find_one({"owner_id": user["id"]}, {"_id": 0})
+                if not w_from or w_from.get("balance_available", 0) < amount:
+                    raise HTTPException(400, "Solde wallet insuffisant. Rechargez ou choisissez une autre méthode.")
+                await db.wallets_v2.update_one({"owner_id": user["id"]}, {"$inc": {"balance_available": -amount}})
+                await db.wallets_v2.update_one({"owner_id": booking["driver_id"]}, {"$inc": {"balance_available": amount}}, upsert=False)
+            except Exception as e:
+                log.warning("wallet ride payment fallback failed: %s", e)
+                raise HTTPException(400, f"Paiement wallet impossible: {e}")
+
+            await db.ride_bookings.update_one(
+                {"id": bid},
+                {"$set": {
+                    "paid": True,
+                    "payment_method": "wallet",
+                    "paid_at": _iso_now(),
+                    "status": "confirmed",
+                }},
+            )
+
+        # ─── Espèces ─────────────────────────────────────────
+        elif method == "cash":
+            await db.ride_bookings.update_one(
+                {"id": bid},
+                {"$set": {
+                    "payment_method": "cash",
+                    "status": "confirmed",
+                    "cash_confirmed_at": _iso_now(),
+                }},
+            )
+
+        # ─── Wave / Orange Money / Stripe : squelettes ───────
+        else:
+            # Ces méthodes existent côté service_bookings (`/api/payments/checkout/booking`)
+            # pour les réservations classiques. Pour la marketplace v2, elles seront
+            # activées quand les clés PSP seront disponibles.
+            raise HTTPException(
+                503,
+                "Cette méthode de paiement sera activée bientôt. En attendant, utilisez Wallet ou Espèces."
+            )
+
+        # Re-fetch + notif
+        booking = await db.ride_bookings.find_one({"id": bid}, {"_id": 0})
+        try:
+            # On envoie une confirmation de paiement au passager + conducteur
+            request = await db.ride_requests.find_one({"id": booking.get("request_id")}, {"_id": 0})
+            if method != "cash":
+                # Wording : pour les paiements électroniques, "Paiement reçu"
+                await notify._inapp(
+                    db, booking["passenger_id"], "ride_payment_received",
+                    "Paiement effectué",
+                    f"Votre trajet est réglé ({amount:,} F CFA)".replace(",", " "),
+                    {"booking_id": bid},
+                )
+                await notify._inapp(
+                    db, booking["driver_id"], "ride_payment_received",
+                    "Paiement reçu",
+                    f"{amount:,} F CFA — {(request or {}).get('from_city','')} → {(request or {}).get('to_city','')}".replace(",", " "),
+                    {"booking_id": bid},
+                )
+            else:
+                # Cash : NE PAS utiliser "Paiement reçu" — juste rappeler la réservation
+                await notify._inapp(
+                    db, booking["driver_id"], "ride_booking_confirmed",
+                    "Réservation confirmée",
+                    f"{amount:,} F CFA à percevoir en espèces au départ".replace(",", " "),
+                    {"booking_id": bid},
+                )
+        except Exception as e:
+            log.warning("payment post-notify failed: %s", e)
+
+        return {"status": "ok", "booking": _strip(booking)}
+
     return router
+
+
+def _strip(doc):
+    if doc is None:
+        return None
+    doc.pop("_id", None)
+    return doc
+
+
+def _iso_now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()

@@ -295,7 +295,7 @@ async def notify_booking_created(db: Any, request: dict, booking: dict) -> None:
         {
             "title": title,
             "message": message,
-            "action_url": f"/booking/detail/{booking['id']}",
+            "action_url": f"/mobility/booking/{booking['id']}",
             "channel_id": NOTIF_CHANNEL_MOBILITY,
         },
         idempotency_key=f"booking_created:{booking['id']}",

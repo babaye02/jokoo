@@ -394,7 +394,7 @@ export default function RequestDetail() {
                   const bid = bookingModal?.bookingId;
                   setBookingModal(null);
                   if (bid) {
-                    router.push({ pathname: "/booking/detail/[id]", params: { id: bid } });
+                    router.push({ pathname: "/mobility/booking/[id]", params: { id: bid } });
                   }
                 }}
                 style={[styles.confirmBtn, { flex: 1.4, backgroundColor: colors.turquoise }]}
