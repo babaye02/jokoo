@@ -8267,6 +8267,11 @@ _admin_mobility_router = _build_admin_mobility_router(
 )
 app.include_router(_admin_mobility_router, prefix="/api")
 
+# 📊 Cockpit CEO — santé de l'entreprise en 30 secondes
+from admin_ceo import build_admin_ceo_router as _build_admin_ceo_router  # noqa: E402
+
+app.include_router(_build_admin_ceo_router(db, require_perm=require_perm), prefix="/api")
+
 
 async def _ambassador_commissions_cron():
     """Cron ambassadeur : auto-approbation des commissions arrivées à J+14.

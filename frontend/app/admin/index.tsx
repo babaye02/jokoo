@@ -15,6 +15,7 @@ type AdStats = { total_ads: number; active_ads: number; total_impressions: numbe
 const NAV_ITEMS: {
   key: string; title: string; sub: string; icon: any; route: string; perm?: string; superOnly?: boolean;
 }[] = [
+  { key: "ceo",      title: "Cockpit CEO",             sub: "Santé de l'entreprise en 30 secondes",       icon: "speedometer-outline",    route: "/admin/ceo",                perm: "stats:read" },
   { key: "staff",    title: "Équipe & rôles",          sub: "Gérer les employés et permissions",          icon: "people-outline",         route: "/admin/staff",              superOnly: true },
   { key: "wallet",   title: "Finances & Wallets",      sub: "Retraits, commissions, ledger, paramètres",  icon: "wallet-outline",         route: "/admin/wallet",             superOnly: true },
   { key: "ads",      title: "Publicités",              sub: "Créer, programmer, suivre",                  icon: "megaphone-outline",      route: "/admin/ads",                perm: "ads:read" },
