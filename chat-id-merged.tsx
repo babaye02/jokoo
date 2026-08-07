@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, Pressable, Alert, ScrollView } from "react-native";
+import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, Pressable, Alert, ScrollView, Linking } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,6 +7,15 @@ import { useAuth } from "@/src/auth";
 import { api, Message } from "@/src/api";
 import { Avatar, Txt } from "@/src/components/ui";
 import { ActionSheet, ConfirmDialog } from "@/src/components/ActionSheet";
+import { useLocationPermission } from "@/src/hooks/useLocationPermission";
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  AudioModule,
+  setAudioModeAsync,
+} from "expo-audio";
+import { VoiceNote } from "@/src/components/VoiceNote";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
 
 const QUICK_REPLIES: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
@@ -18,6 +27,15 @@ const QUICK_REPLIES: { icon: keyof typeof Ionicons.glyphMap; label: string }[] =
   { icon: "heart-outline", label: "Merci" },
   { icon: "close-circle-outline", label: "Annuler" },
 ];
+
+const SHARE_DURATIONS = [
+  { minutes: 15, label: "15 min" },
+  { minutes: 30, label: "30 min" },
+  { minutes: 60, label: "1 heure" },
+];
+
+// Aligné sur la limite backend (chat_voice.MAX_VOICE_SECONDS = 120).
+const MAX_VOICE_MS = 120_000;
 
 export default function Chat() {
   const { id, name: nameParam } = useLocalSearchParams<{ id: string; name?: string }>();
@@ -34,6 +52,15 @@ export default function Chat() {
   const [blockedToast, setBlockedToast] = useState<string | null>(null);
   const [reportPrompt, setReportPrompt] = useState(false);
   const [reportReason, setReportReason] = useState("");
+  const [locSheet, setLocSheet] = useState(false);
+  const [landmark, setLandmark] = useState("");
+  const [sendingLoc, setSendingLoc] = useState(false);
+  const { requestLocation, status: locStatus, openSettings } = useLocationPermission();
+  const audioRecorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder);
+  const [recording, setRecording] = useState(false);
+  const [uploadingVoice, setUploadingVoice] = useState(false);
+  const recordStartRef = useRef<number>(0);
   const listRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
@@ -75,7 +102,10 @@ export default function Chat() {
   }, [blockedToast]);
 
   const send = async (overrideText?: string) => {
-    const t = (overrideText ?? text).trim();
+    // Garde-fou : si appelé directement depuis onPress/onSubmitEditing, le
+    // premier argument est un événement natif, pas une chaîne. On l'ignore.
+    const override = typeof overrideText === "string" ? overrideText : undefined;
+    const t = (override ?? text).trim();
     if (!t || !id || sending) return;
     setSending(true);
     setErr(null);
@@ -93,7 +123,7 @@ export default function Chat() {
       created_at: new Date().toISOString(),
     } as any;
     setItems((x) => [...x, optimistic]);
-    if (overrideText === undefined) setText("");
+    if (override === undefined) setText("");
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 30);
     try {
       const m = await api.post<Message>(`/chat/${id}/messages`, { text: t, kind: "text" });
@@ -102,7 +132,7 @@ export default function Chat() {
     } catch (e: any) {
       // Retire l'optimiste et affiche l'erreur — remet le texte pour permettre de réessayer
       setItems((x) => x.filter((msg) => msg.id !== tempId));
-      if (overrideText === undefined) setText(t);
+      if (override === undefined) setText(t);
       const status = e?.status;
       let msg = "Impossible d'envoyer le message. Réessayez.";
       if (status === 401) msg = "Session expirée. Reconnectez-vous.";
@@ -118,6 +148,138 @@ export default function Chat() {
   const sendQuickReply = (label: string) => {
     if (sending) return;
     send(label);
+  };
+
+  const shareLocation = async (minutes: number) => {
+    if (!id || sendingLoc) return;
+    setSendingLoc(true);
+    setErr(null);
+    try {
+      const coords = await requestLocation();
+      if (!coords) {
+        setErr(
+          locStatus === "blocked"
+            ? "Localisation bloquée. Activez-la dans les Réglages."
+            : "Impossible d'obtenir votre position.",
+        );
+        return;
+      }
+      const m = await api.post<Message>(`/chat/${id}/messages`, {
+        kind: "location",
+        text: "",
+        lat: coords.latitude,
+        lng: coords.longitude,
+        accuracy_m: coords.accuracy ?? undefined,
+        landmark: landmark.trim() || undefined,
+        expires_in_minutes: minutes,
+      });
+      setItems((x: Message[]) => [...x, m]);
+      setLocSheet(false);
+      setLandmark("");
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 30);
+    } catch (e: any) {
+      setErr(e?.message || "Impossible de partager votre position.");
+    } finally {
+      setSendingLoc(false);
+    }
+  };
+
+  // ---------- Notes vocales ----------
+  const startRecording = async () => {
+    if (recording || uploadingVoice) return;
+    try {
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        setErr("Autorisez le micro pour envoyer une note vocale.");
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      recordStartRef.current = Date.now();
+      setRecording(true);
+    } catch {
+      setErr("Impossible de démarrer l'enregistrement.");
+      setRecording(false);
+    }
+  };
+
+  const cancelRecording = async () => {
+    if (!recording) return;
+    setRecording(false);
+    try {
+      await audioRecorder.stop();
+    } catch {
+      /* enregistrement abandonné — rien à faire */
+    }
+  };
+
+  const stopAndSendRecording = async () => {
+    if (!recording || !id) return;
+    setRecording(false);
+    const elapsed = Date.now() - recordStartRef.current;
+    try {
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
+      if (!uri) {
+        setErr("Enregistrement vide.");
+        return;
+      }
+      if (elapsed < 500) {
+        setErr("Maintenez le bouton pour enregistrer.");
+        return;
+      }
+
+      setUploadingVoice(true);
+      // Lecture du fichier local → base64, sans dépendance supplémentaire.
+      const res = await fetch(uri);
+      const blob = await res.blob();
+      const b64: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("read_failed"));
+        reader.onloadend = () => {
+          const r = String(reader.result || "");
+          resolve(r.includes(",") ? r.split(",")[1] : r);
+        };
+        reader.readAsDataURL(blob);
+      });
+
+      const m = await api.post<Message>(`/chat/${id}/voice`, {
+        audio_b64: b64,
+        duration_ms: Math.min(elapsed, MAX_VOICE_MS),
+        mime: Platform.OS === "ios" ? "audio/m4a" : "audio/mp4",
+      });
+      setItems((x: Message[]) => [...x, m]);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 30);
+    } catch (e: any) {
+      if (e?.status === 413) setErr("Note vocale trop longue (2 min maximum).");
+      else setErr(e?.message || "Impossible d'envoyer la note vocale.");
+    } finally {
+      setUploadingVoice(false);
+    }
+  };
+
+  // Coupe l'enregistrement à la limite backend plutôt que de laisser
+  // l'utilisateur parler pour rien et se faire rejeter à l'envoi.
+  useEffect(() => {
+    if (!recording) return;
+    const t = setTimeout(() => { stopAndSendRecording(); }, MAX_VOICE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording]);
+
+  const openInMaps = (lat: number, lng: number, label?: string | null) => {
+    const q = encodeURIComponent(label || "Point de rendez-vous");
+    const url = Platform.select({
+      ios: `maps://?ll=${lat},${lng}&q=${q}`,
+      android: `geo:${lat},${lng}?q=${lat},${lng}(${q})`,
+      default: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
+    })!;
+    Linking.openURL(url).catch(() =>
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`).catch(() =>
+        setErr("Impossible d'ouvrir la carte."),
+      ),
+    );
   };
 
   const displayName = peerName || "Conversation";
@@ -184,13 +346,47 @@ export default function Chat() {
           data={items}
           keyExtractor={(m) => m.id}
           contentContainerStyle={{ padding: spacing.xl, gap: 8, paddingBottom: 8 }}
-          renderItem={({ item }) => {
+          renderItem={({ item }: { item: Message }) => {
             const mine = item.from_id === user?.id;
             const isOptimistic = item.id.startsWith("temp-");
+            const isLoc = item.kind === "location";
+            const isVoice = item.kind === "voice" && !!item.media_id;
+            const expired = isLoc && (item.location_expired || item.lat == null);
             return (
               <View style={[styles.bubbleRow, { justifyContent: mine ? "flex-end" : "flex-start" }]}>
                 <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs, isOptimistic && { opacity: 0.6 }]}>
-                  <Txt color={mine ? colors.white : colors.text}>{item.text}</Txt>
+                  {isVoice ? (
+                    <VoiceNote mediaId={item.media_id!} durationMs={item.duration_ms} mine={mine} />
+                  ) : isLoc ? (
+                    <Pressable
+                      onPress={() => (!expired ? openInMaps(item.lat!, item.lng!, item.landmark) : undefined)}
+                      disabled={expired}
+                      testID={`chat-location-${item.id}`}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <Ionicons
+                          name={expired ? "location-outline" : "location"}
+                          size={18}
+                          color={mine ? colors.white : colors.turquoise}
+                        />
+                        <Txt weight="700" color={mine ? colors.white : colors.text} style={{ marginLeft: 6 }}>
+                          {expired ? "Position expirée" : "Position partagée"}
+                        </Txt>
+                      </View>
+                      {item.landmark ? (
+                        <Txt size="sm" color={mine ? "rgba(255,255,255,0.9)" : colors.textMuted} style={{ marginTop: 4 }}>
+                          {item.landmark}
+                        </Txt>
+                      ) : null}
+                      <Txt size="xxs" color={mine ? "rgba(255,255,255,0.7)" : colors.textSubtle} style={{ marginTop: 4 }}>
+                        {expired
+                          ? "Le partage a pris fin"
+                          : `Visible ${item.expires_in_minutes ?? 15} min · Appuyez pour ouvrir la carte`}
+                      </Txt>
+                    </Pressable>
+                  ) : (
+                    <Txt color={mine ? colors.white : colors.text}>{item.text}</Txt>
+                  )}
                   <View style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-end", marginTop: 4, gap: 4 }}>
                     <Txt size="xxs" color={mine ? "rgba(255,255,255,0.7)" : colors.textSubtle}>
                       {new Date(item.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
@@ -229,6 +425,18 @@ export default function Chat() {
           </View>
         ) : null}
 
+        {recording ? (
+          <View style={styles.recBar} testID="chat-recording-bar">
+            <View style={styles.recDot} />
+            <Txt color={colors.white} weight="700" size="sm" style={{ flex: 1, marginLeft: 8 }}>
+              Enregistrement… {Math.floor((recorderState?.durationMillis ?? 0) / 1000)}s
+            </Txt>
+            <Pressable onPress={cancelRecording} hitSlop={8} testID="chat-recording-cancel">
+              <Txt color={colors.white} weight="700" size="sm">Annuler</Txt>
+            </Pressable>
+          </View>
+        ) : null}
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -253,6 +461,14 @@ export default function Chat() {
         </ScrollView>
 
         <View style={[styles.inputBar, { paddingBottom: 8 + insets.bottom }]}>
+          <Pressable
+            onPress={() => setLocSheet(true)}
+            style={styles.locBtn}
+            testID="chat-share-location"
+            hitSlop={6}
+          >
+            <Ionicons name="location-outline" size={20} color={colors.turquoise} />
+          </Pressable>
           <View style={styles.inputWrap}>
             <TextInput
               testID="chat-input"
@@ -263,19 +479,42 @@ export default function Chat() {
               style={styles.input}
               multiline
               editable={!sending}
-              onSubmitEditing={send}
+              onSubmitEditing={() => send()}
               returnKeyType="send"
               blurOnSubmit={false}
             />
           </View>
-          <Pressable
-            onPress={send}
-            style={[styles.sendBtn, (!text.trim() || sending) && { opacity: 0.5 }]}
-            testID="chat-send"
-            disabled={!text.trim() || sending}
-          >
-            <Ionicons name={sending ? "hourglass" : "paper-plane"} size={18} color={colors.white} />
-          </Pressable>
+          {text.trim().length > 0 ? (
+            <Pressable
+              onPress={() => send()}
+              style={[styles.sendBtn, sending && { opacity: 0.5 }]}
+              testID="chat-send"
+              disabled={sending}
+            >
+              <Ionicons name={sending ? "hourglass" : "paper-plane"} size={18} color={colors.white} />
+            </Pressable>
+          ) : (
+            <Pressable
+              onPressIn={startRecording}
+              onPressOut={stopAndSendRecording}
+              delayLongPress={200}
+              style={[
+                styles.sendBtn,
+                recording && styles.micRecording,
+                uploadingVoice && { opacity: 0.5 },
+              ]}
+              testID="chat-mic"
+              disabled={uploadingVoice}
+              accessibilityRole="button"
+              accessibilityLabel="Maintenir pour enregistrer une note vocale"
+            >
+              <Ionicons
+                name={uploadingVoice ? "hourglass" : recording ? "stop" : "mic"}
+                size={20}
+                color={colors.white}
+              />
+            </Pressable>
+          )}
         </View>
       </KeyboardAvoidingView>
 
@@ -312,6 +551,55 @@ export default function Chat() {
         onConfirm={doBlock}
         onClose={() => setConfirmBlock(false)}
       />
+
+      {/* Feuille de partage de position temporaire */}
+      {locSheet ? (
+        <View style={styles.promptOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setLocSheet(false)} />
+          <View style={styles.promptCard}>
+            <Txt size="lg" weight="700">Partager ma position</Txt>
+            <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4 }}>
+              Votre position sera visible pendant la durée choisie, puis masquée automatiquement.
+            </Txt>
+
+            <Txt size="sm" weight="600" style={{ marginTop: spacing.md }}>Point de repère (optionnel)</Txt>
+            <TextInput
+              value={landmark}
+              onChangeText={setLandmark}
+              placeholder="Ex : maison jaune, devant la pharmacie…"
+              placeholderTextColor={colors.textSubtle}
+              style={styles.promptInput}
+              maxLength={200}
+              testID="location-landmark-input"
+            />
+
+            {locStatus === "blocked" ? (
+              <Pressable onPress={openSettings} style={[styles.promptBtn, styles.promptGhost, { marginTop: spacing.md }]}>
+                <Txt weight="700" color={colors.turquoise}>Activer la localisation dans les Réglages</Txt>
+              </Pressable>
+            ) : (
+              <View style={{ gap: 8, marginTop: spacing.md }}>
+                {SHARE_DURATIONS.map((d) => (
+                  <Pressable
+                    key={d.minutes}
+                    onPress={() => shareLocation(d.minutes)}
+                    disabled={sendingLoc}
+                    style={[styles.durationBtn, sendingLoc && { opacity: 0.5 }]}
+                    testID={`location-duration-${d.minutes}`}
+                  >
+                    <Ionicons name="time-outline" size={16} color={colors.turquoise} />
+                    <Txt weight="700" style={{ marginLeft: 8 }}>Partager pendant {d.label}</Txt>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            <Pressable onPress={() => setLocSheet(false)} style={[styles.promptBtn, styles.promptGhost, { marginTop: spacing.md }]}>
+              <Txt weight="700" color={colors.textMuted}>Annuler</Txt>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       {/* Prompt in-app pour le motif du signalement (Alert.prompt n'existe pas sur Android/web) */}
       {reportPrompt ? (
@@ -353,6 +641,29 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: "78%", padding: 12, borderRadius: 18 },
   bubbleMine: { backgroundColor: colors.turquoise, borderBottomRightRadius: 4 },
   bubbleTheirs: { backgroundColor: colors.surface, borderBottomLeftRadius: 4, ...shadow.soft },
+  locBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center", marginRight: 8 },
+  micRecording: { backgroundColor: colors.danger },
+  recBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.danger,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    marginHorizontal: spacing.xl,
+    borderRadius: radius.md,
+    marginBottom: 6,
+  },
+  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.white },
+  durationBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.divider,
+  },
   quickRepliesRow: { paddingHorizontal: spacing.lg, paddingVertical: 8, gap: 8, backgroundColor: colors.surface },
   quickReplyChip: {
     flexDirection: "row",
