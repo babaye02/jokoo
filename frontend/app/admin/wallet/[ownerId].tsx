@@ -24,6 +24,7 @@ import { adminWalletApi, AdminWallet } from "@/src/wallet/admin";
 import { LedgerEntry, TRANSACTION_ICON, formatXofSigned, statusColor, statusLabel } from "@/src/wallet/api";
 
 type ActionKind = "adjust_credit" | "adjust_debit" | "bonus" | "min_balance" | null;
+type StatusTarget = "active" | "frozen" | "closed";
 
 export default function AdminWalletDetail() {
   const router = useRouter();
@@ -39,6 +40,9 @@ export default function AdminWalletDetail() {
   const [reason, setReason] = useState("");
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
+  const [statusTarget, setStatusTarget] = useState<StatusTarget | null>(null);
+  const [statusReason, setStatusReason] = useState("");
+  const [statusBusy, setStatusBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!ownerId) return;
@@ -70,8 +74,14 @@ export default function AdminWalletDetail() {
 
   const runAction = async () => {
     if (!wallet || !action) return;
-    const amt = parseInt(amount.replace(/\s/g, ""), 10);
-    if (!Number.isFinite(amt) || amt <= 0) {
+    // Parse amount. min_balance allows negatives (overdraft floor); others must be > 0.
+    const raw = amount.trim();
+    const parsed = parseInt(raw.replace(/\s/g, ""), 10);
+    if (!Number.isFinite(parsed)) {
+      Alert.alert("Montant invalide", "Merci de saisir un montant en F CFA.");
+      return;
+    }
+    if (action !== "min_balance" && parsed <= 0) {
       Alert.alert("Montant invalide", "Merci de saisir un montant en F CFA (> 0).");
       return;
     }
@@ -79,6 +89,7 @@ export default function AdminWalletDetail() {
       Alert.alert("Motif requis", "Merci de saisir un motif d'au moins 5 caractères.");
       return;
     }
+    const amt = Math.abs(parsed);
     setBusy(true);
     try {
       if (action === "adjust_credit") {
@@ -93,9 +104,8 @@ export default function AdminWalletDetail() {
           category: "admin_manual",
         });
       } else if (action === "min_balance") {
-        // amount here is min balance (can be negative). Overload: allow negative via prefix minus in input.
-        const minBal = amount.trim().startsWith("-") ? -amt : amt;
-        await adminWalletApi.setMinBalance(wallet.owner_id, minBal, reason.trim());
+        // parseInt handles the sign (e.g. "-5000" → -5000). Send as-is.
+        await adminWalletApi.setMinBalance(wallet.owner_id, parsed, reason.trim());
       }
       closeAction();
       await load();
@@ -106,29 +116,29 @@ export default function AdminWalletDetail() {
     }
   };
 
-  const changeStatus = async (newStatus: "active" | "frozen" | "closed") => {
-    if (!wallet) return;
-    Alert.alert(
-      newStatus === "active" ? "Réactiver le wallet ?" : newStatus === "frozen" ? "Geler le wallet ?" : "Fermer le wallet ?",
-      newStatus === "closed"
-        ? "Cette action est irréversible côté opérationnel. Le solde doit être à zéro."
-        : "Confirmez le changement de statut.",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Confirmer",
-          style: newStatus === "closed" ? "destructive" : "default",
-          onPress: async () => {
-            try {
-              await adminWalletApi.setStatus(wallet.owner_id, newStatus, `Statut changé via admin mobile`);
-              await load();
-            } catch (e: any) {
-              Alert.alert("Erreur", e?.message || "Changement de statut refusé.");
-            }
-          },
-        },
-      ]
-    );
+  const openStatusChange = (target: StatusTarget) => {
+    setStatusTarget(target);
+    setStatusReason("");
+  };
+
+  const closeStatusChange = () => {
+    setStatusTarget(null);
+    setStatusReason("");
+    setStatusBusy(false);
+  };
+
+  const confirmStatusChange = async () => {
+    if (!wallet || !statusTarget) return;
+    setStatusBusy(true);
+    try {
+      await adminWalletApi.setStatus(wallet.owner_id, statusTarget, statusReason.trim() || "Changement de statut via admin mobile");
+      closeStatusChange();
+      await load();
+      Alert.alert("Succès", "Statut du wallet mis à jour.");
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Changement de statut refusé.");
+      setStatusBusy(false);
+    }
   };
 
   if (!ownerId) {
@@ -235,19 +245,19 @@ export default function AdminWalletDetail() {
 
             <View style={styles.statusRow}>
               {wallet.status !== "active" && (
-                <Pressable onPress={() => changeStatus("active")} style={[styles.stBtn, { backgroundColor: "#E9F9EF" }]}>
+                <Pressable onPress={() => openStatusChange("active")} style={[styles.stBtn, { backgroundColor: "#E9F9EF" }]} testID="admin-status-active">
                   <Ionicons name="checkmark-circle" size={16} color="#1F7A3F" />
                   <Txt size="xs" weight="700" color="#1F7A3F" style={{ marginLeft: 6 }}>Réactiver</Txt>
                 </Pressable>
               )}
               {wallet.status !== "frozen" && (
-                <Pressable onPress={() => changeStatus("frozen")} style={[styles.stBtn, { backgroundColor: "#FFF7E6" }]}>
+                <Pressable onPress={() => openStatusChange("frozen")} style={[styles.stBtn, { backgroundColor: "#FFF7E6" }]} testID="admin-status-frozen">
                   <Ionicons name="snow" size={16} color="#B47F00" />
                   <Txt size="xs" weight="700" color="#B47F00" style={{ marginLeft: 6 }}>Geler</Txt>
                 </Pressable>
               )}
               {wallet.status !== "closed" && wallet.kind !== "platform" && (
-                <Pressable onPress={() => changeStatus("closed")} style={[styles.stBtn, { backgroundColor: "#FDECEC" }]}>
+                <Pressable onPress={() => openStatusChange("closed")} style={[styles.stBtn, { backgroundColor: "#FDECEC" }]} testID="admin-status-closed">
                   <Ionicons name="close-circle" size={16} color="#B33131" />
                   <Txt size="xs" weight="700" color="#B33131" style={{ marginLeft: 6 }}>Fermer</Txt>
                 </Pressable>
@@ -358,6 +368,58 @@ export default function AdminWalletDetail() {
                 loading={busy}
                 variant="primary"
                 testID="admin-action-confirm"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Status change modal */}
+      <Modal visible={!!statusTarget} transparent animationType="fade" onRequestClose={closeStatusChange}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Txt size="lg" weight="800">
+              {statusTarget === "active" ? "Réactiver le wallet ?"
+                : statusTarget === "frozen" ? "Geler le wallet ?"
+                : "Fermer le wallet ?"}
+            </Txt>
+            <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4 }}>
+              {statusTarget === "active"
+                ? "Les opérations reprendront normalement pour cet utilisateur."
+                : statusTarget === "frozen"
+                ? "Aucun débit ne pourra être effectué. Les crédits (remboursements, ajustements admin) restent possibles."
+                : "Cette action est irréversible côté opérationnel. Le solde doit être à zéro."}
+            </Txt>
+
+            <Txt size="xs" weight="700" style={{ marginTop: spacing.md, color: colors.textMuted }}>
+              MOTIF (audit, optionnel)
+            </Txt>
+            <TextInput
+              value={statusReason}
+              onChangeText={setStatusReason}
+              placeholder={
+                statusTarget === "frozen"
+                  ? "Ex : suspicion de fraude"
+                  : statusTarget === "closed"
+                  ? "Ex : compte fermé à la demande utilisateur"
+                  : "Ex : vérification terminée"
+              }
+              placeholderTextColor={colors.textSubtle}
+              multiline
+              style={[styles.input, { minHeight: 60, textAlignVertical: "top" as any }]}
+              testID="admin-status-reason"
+            />
+
+            <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.lg }}>
+              <Pressable onPress={closeStatusChange} style={[styles.modalBtn, { backgroundColor: colors.surface2, flex: 1 }]}>
+                <Txt weight="700">Annuler</Txt>
+              </Pressable>
+              <Btn
+                title={statusTarget === "closed" ? "Fermer définitivement" : "Confirmer"}
+                onPress={confirmStatusChange}
+                loading={statusBusy}
+                variant="primary"
+                testID="admin-status-confirm"
               />
             </View>
           </View>

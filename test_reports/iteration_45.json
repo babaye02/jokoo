@@ -1,0 +1,32 @@
+{
+  "summary": "Second retest of Admin Wallet Mobile v2 drill-down (owner_id 9a455f27… — Aïda Client) after both HIGH fixes in /app/frontend/app/admin/wallet/[ownerId].tsx. ALL 5 SCENARIOS PASS: (1) Plancher -5 000 → after reload InfoRow reads 'Plancher (min balance) -5 000 F' (wallet v81); the amt<=0 guard now correctly skips for action==='min_balance'. (2) Plancher 0 cleanup → InfoRow reads '0 F' (0 accepted since guard skipped). (3) Geler → new <Modal> renders 'Geler le wallet ?' with MOTIF field, Confirmer applies status change → status pill 'Gelé' after reload. (4) Réactiver → modal 'Réactiver le wallet ?' renders, Confirmer → status pill 'Actif'. (5) Fermer → modal 'Fermer le wallet ?' renders with red 'Fermer définitivement' button; clicking Annuler keeps status 'Actif' as expected. All new testIDs (admin-status-active/frozen/closed, admin-status-reason, admin-status-confirm) present and functional. No console errors during the flows (only pre-existing shadow*/pointerEvents deprecation warnings). Both regressions from iteration_44 are CLOSED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Global (shadow* style)", "issue": "Console warns 'shadow* style props are deprecated. Use boxShadow' — emitted from src/theme.ts (shadow.soft/card). Cosmetic only, non-blocking. Reference: /app/frontend/src/theme.ts."},
+      {"component": "Pressable (props.pointerEvents)", "issue": "Console warns 'props.pointerEvents is deprecated. Use style.pointerEvents' on /login and /admin routes. Cosmetic only, non-blocking."}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_45.json"],
+  "action_items": [
+    "OPTIONAL: silence RN 0.76+ deprecation warnings by migrating shadow.* → boxShadow in src/theme.ts and moving pointerEvents into the style prop on Pressable usages. Not blocking any flow."
+  ],
+  "critical_code_review_comments": [
+    "[ownerId].tsx:75-91 — validation now correctly special-cases min_balance (line 84: `if (action !== 'min_balance' && parsed <= 0)`), so parseInt('-5000') passes through to setMinBalance unchanged (line 108). Verified end-to-end via UI + reload.",
+    "[ownerId].tsx:378-427 — status change is now a proper <Modal> with testIDs admin-status-reason and admin-status-confirm. This is cross-platform (renders on RN web) whereas the removed Alert.alert([Annuler,Confirmer]) was a no-op on web. Consider extracting to a shared ConfirmModal component if reused elsewhere.",
+    "[ownerId].tsx:41-45 — 3 separate busy/reason/target states could be consolidated into a small reducer for readability, but current shape is fine."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only retest)", "frontend": "100% — all 5 requested scenarios pass"},
+  "seed_data_creation": "Wallet 9a455f27-5b4b-43ee-9cfc-46bdb5847500 (Aïda Client) was toggled through several states during testing and left in a clean final state: status=active, min_balance=0 F, balance_available=95 800 F, version=v81. Ledger accumulated status-change and min-balance audit entries during the run (retest labels: 'Retest plancher negatif auto', 'Cleanup remise a zero', 'Retest plancher final verify', 'Cleanup back to zero', 'Retest auto geler').",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration_44 HIGH bugs are both closed by the two fixes in /app/frontend/app/admin/wallet/[ownerId].tsx. Plancher supports negative values (min_balance guard exempts min_balance action); status changes now use a proper cross-platform <Modal> with testIDs admin-status-{active,frozen,closed}, admin-status-reason, admin-status-confirm. Wallet is left active with min_balance=0. Only remaining chatter is the pre-existing RN 0.76 shadow*/pointerEvents deprecation warnings — cosmetic only.",
+  "rca_of_issue": "N/A — both regressions were fixed by the main agent and verified by this iteration. Fix 1 (plancher negative): the `parsed <= 0` guard now skips when action==='min_balance' (line 84); parseInt handles the sign natively and setMinBalance receives -5000 as-is. Fix 2 (status modal): Alert.alert([...buttons]) — which is a no-op on react-native-web — was replaced by a proper <Modal> component mirroring the existing adjust/bonus modal pattern, so Geler/Réactiver/Fermer confirmation UIs now render correctly on the web preview."
+}
