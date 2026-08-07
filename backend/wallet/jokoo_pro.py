@@ -24,6 +24,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from . import service as wallet_service
 from . import settings as wallet_settings
 from . import audit as wallet_audit
+from . import notify as wallet_notify
 from .constants import (
     ID_PREFIX_SUBSCRIPTION,
     SettingKey,
@@ -120,7 +121,37 @@ async def subscribe_or_renew(
             {"owner_id": owner_id, "kind": "jokoo_pro", "status": "active"},
             {"$set": {"status": "expired", "expired_at": _now_iso(), "expired_reason": "insufficient_funds"}},
         )
+        # 🔔 Notify user
+        try:
+            await wallet_notify.notify(
+                db,
+                user_id=owner_id,
+                kind="jokoo_pro_expired",
+                title="Jokoo Pro expiré",
+                body=(
+                    f"Votre abonnement Jokoo Pro a expiré (solde insuffisant pour {price:,} F CFA). "
+                    "Rechargez pour retrouver la priorité dans les résultats."
+                ).replace(",", " "),
+                action_url="/wallet/jokoo-pro",
+            )
+        except Exception:
+            pass
         raise
+    # 🔔 Notify user (subscribe or auto-renew success)
+    try:
+        await wallet_notify.notify(
+            db,
+            user_id=owner_id,
+            kind="jokoo_pro_renewed" if actor_id == "cron:auto_renew" else "jokoo_pro_subscribed",
+            title="Jokoo Pro actif ⭐",
+            body=(
+                f"Votre abonnement Pro est actif pour 30 jours. {price:,} F CFA débités de votre portefeuille."
+            ).replace(",", " "),
+            action_url="/wallet/jokoo-pro",
+            extra={"transaction_id": result["transaction_id"]},
+        )
+    except Exception:
+        pass
     return await _write_sub(db, owner_id, days=30, debited=True, tx_id=result["transaction_id"])
 
 

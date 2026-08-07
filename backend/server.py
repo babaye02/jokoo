@@ -8027,6 +8027,10 @@ from wallet.setup import create_indexes as _wallet_create_indexes  # noqa: E402
 from wallet import service as _wallet_service  # noqa: E402
 from wallet import commission as _wallet_commission  # noqa: E402
 from wallet import jokoo_pro as _wallet_jokoo_pro  # noqa: E402
+from wallet import notify as _wallet_notify  # noqa: E402
+
+# Bind our real push implementation so wallet events trigger mobile notifs
+_wallet_notify.bind_push(send_push)
 
 
 def _require_admin_dep(user=Depends(current_user)) -> dict:

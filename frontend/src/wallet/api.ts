@@ -145,6 +145,9 @@ export const walletApi = {
   getRecharge: (intentId: string) =>
     api.get<any>(`/wallet/recharge/${intentId}`),
 
+  checkRechargeStatus: (intentId: string) =>
+    api.post<{ status: string; intent: any }>(`/wallet/recharge/${intentId}/check-status`, {}),
+
   myRecharges: (limit = 20) =>
     api.get<any[]>(`/wallet/recharges/mine?limit=${limit}`),
 

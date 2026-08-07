@@ -27,6 +27,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from . import service as wallet_service
 from . import settings as wallet_settings
 from . import audit as wallet_audit
+from . import notify as wallet_notify
 from .constants import (
     DEFAULT_CURRENCY,
     ID_PREFIX_INTENT,
@@ -312,6 +313,30 @@ async def confirm_success(
         reason="succeeded",
         ip=ip,
     )
+    # 🔔 Notify the owner (recharge succeeded)
+    try:
+        amt = int(intent["amount"])
+        purpose = intent.get("purpose", "wallet_recharge")
+        if purpose == PaymentIntentPurpose.WALLET_RECHARGE.value:
+            title = "Recharge réussie 💰"
+            body = f"{amt:,} F CFA ont été crédités sur votre portefeuille.".replace(",", " ")
+        elif purpose == PaymentIntentPurpose.BOOKING_PAYMENT.value:
+            title = "Paiement reçu 💵"
+            body = f"Vous avez reçu {amt:,} F CFA pour votre prestation.".replace(",", " ")
+        else:
+            title = "Paiement confirmé"
+            body = f"{amt:,} F CFA — {purpose}".replace(",", " ")
+        await wallet_notify.notify(
+            db,
+            user_id=intent["owner_id"],
+            kind="recharge_success" if purpose == PaymentIntentPurpose.WALLET_RECHARGE.value else "payment_received",
+            title=title,
+            body=body,
+            action_url="/wallet",
+            extra={"payment_intent_id": intent_id, "provider": intent["provider"]},
+        )
+    except Exception:
+        pass
     return await get(db, intent_id)
 
 
@@ -356,6 +381,23 @@ async def confirm_failure(
         reason=reason,
         ip=ip,
     )
+    # 🔔 Notify the owner (recharge failed)
+    try:
+        amt = int(intent["amount"])
+        await wallet_notify.notify(
+            db,
+            user_id=intent["owner_id"],
+            kind="recharge_failed",
+            title="Recharge échouée",
+            body=(
+                f"Votre recharge de {amt:,} F CFA via {intent['provider']} n'a pas abouti. "
+                "Merci de réessayer ou contacter le support."
+            ).replace(",", " "),
+            action_url="/wallet",
+            extra={"payment_intent_id": intent_id, "reason": reason[:100]},
+        )
+    except Exception:
+        pass
     return await get(db, intent_id)
 
 

@@ -26,6 +26,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from . import service as wallet_service
 from . import audit as wallet_audit
+from . import notify as wallet_notify
 from .constants import (
     ID_PREFIX_REFUND,
     JOKOO_MASTER_OWNER_ID,
@@ -226,6 +227,38 @@ async def refund_booking(
         ip=ip,
         extra={"booking_id": booking_id, "reverse_commission": bool(reverse_commission)},
     )
+    # 🔔 Notify client + provider
+    try:
+        short = booking_id[:8]
+        if client_id:
+            await wallet_notify.notify(
+                db,
+                user_id=client_id,
+                kind="refund_completed",
+                title="Remboursement effectué 💵",
+                body=(
+                    f"{amt:,} F CFA ont été crédités sur votre portefeuille "
+                    f"(réservation #{short})."
+                ).replace(",", " "),
+                action_url="/wallet",
+                extra={"refund_id": ref_id, "booking_id": booking_id},
+            )
+        if provider_user_id and reverse_commission and booking.get("commission_computed_xof"):
+            comm = int(booking.get("commission_computed_xof") or 0)
+            await wallet_notify.notify(
+                db,
+                user_id=provider_user_id,
+                kind="commission_reversed",
+                title="Commission remboursée",
+                body=(
+                    f"La commission Jokoo de {comm:,} F CFA sur la réservation #{short} "
+                    "vous a été recréditée (réservation annulée)."
+                ).replace(",", " "),
+                action_url="/wallet",
+                extra={"refund_id": ref_id, "booking_id": booking_id},
+            )
+    except Exception:
+        pass
     return await db.refund_requests.find_one({"id": ref_id}, {"_id": 0})
 
 

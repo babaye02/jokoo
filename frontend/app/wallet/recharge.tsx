@@ -89,9 +89,44 @@ export default function RechargeScreen() {
       }
 
       if (intent.checkout_url) {
-        await WebBrowser.openBrowserAsync(intent.checkout_url);
-        // After browser closes, refetch wallet
-        router.back();
+        // Use openAuthSessionAsync so we get a proper callback when the user
+        // returns to the app (either via the deep-link scheme or by manually
+        // dismissing the browser).
+        const result = await WebBrowser.openAuthSessionAsync(
+          intent.checkout_url,
+          "jokoo://wallet/recharged",
+        );
+        // Poll status once the session closes. Try up to 5 times over ~10s
+        // to give Stripe's webhook time to process.
+        let confirmed = false;
+        for (let i = 0; i < 5; i++) {
+          try {
+            const st = await walletApi.checkRechargeStatus(intent.payment_intent_id);
+            if (st.status === "succeeded") {
+              confirmed = true;
+              break;
+            }
+          } catch {
+            /* transient, retry */
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        if (confirmed) {
+          Alert.alert(
+            "Recharge confirmée ✅",
+            `${formatXof(amountNum)} ont été crédités sur votre portefeuille.`,
+            [{ text: "OK", onPress: () => router.replace("/wallet") }],
+          );
+        } else if (result.type === "cancel" || result.type === "dismiss") {
+          // User closed the browser without paying — no toast, just go back.
+          router.replace("/wallet");
+        } else {
+          Alert.alert(
+            "Traitement en cours",
+            "Votre recharge est en cours de validation. Votre portefeuille sera crédité dès confirmation du paiement.",
+            [{ text: "OK", onPress: () => router.replace("/wallet") }],
+          );
+        }
       } else if (intent.checkout_deep_link) {
         const ok = await Linking.canOpenURL(intent.checkout_deep_link);
         if (ok) {

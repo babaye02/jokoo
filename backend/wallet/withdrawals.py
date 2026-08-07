@@ -23,6 +23,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from . import service as wallet_service
 from . import settings as wallet_settings
 from . import audit as wallet_audit
+from . import notify as wallet_notify
 from .constants import (
     ID_PREFIX_WITHDRAWAL,
     PaymentProvider,
@@ -297,6 +298,51 @@ async def admin_decision(
         reason=admin_notes,
         ip=ip,
     )
+    # 🔔 Notify the user of the status change
+    try:
+        amt = int(doc["amount_gross_xof"])
+        method = doc.get("method", "").replace("_", " ").title()
+        notif_map = {
+            "approved": (
+                "withdrawal_approved",
+                "Retrait approuvé ✅",
+                f"Votre retrait de {amt:,} F CFA vers {method} a été approuvé. Le paiement est en cours de traitement.".replace(",", " "),
+            ),
+            "paid": (
+                "withdrawal_paid",
+                "Retrait payé 💸",
+                f"{amt:,} F CFA ont été envoyés vers votre compte {method}. Vérifiez votre solde bancaire.".replace(",", " "),
+            ),
+            "refused": (
+                "withdrawal_refused",
+                "Retrait refusé",
+                f"Votre retrait de {amt:,} F CFA a été refusé. Les fonds ont été recrédités sur votre portefeuille. Motif : {admin_notes or 'non précisé'}.".replace(",", " "),
+            ),
+            "failed": (
+                "withdrawal_failed",
+                "Retrait échoué",
+                f"Le paiement de {amt:,} F CFA a échoué côté opérateur. Les fonds ont été recrédités sur votre portefeuille.".replace(",", " "),
+            ),
+            "cancelled": (
+                "withdrawal_cancelled",
+                "Retrait annulé",
+                f"Retrait de {amt:,} F CFA annulé. Les fonds sont à nouveau disponibles sur votre portefeuille.".replace(",", " "),
+            ),
+        }
+        entry = notif_map.get(new_status)
+        if entry:
+            kind, title, body = entry
+            await wallet_notify.notify(
+                db,
+                user_id=doc["user_id"],
+                kind=kind,
+                title=title,
+                body=body,
+                action_url="/wallet",
+                extra={"withdrawal_id": wdr_id, "method": method},
+            )
+    except Exception:
+        pass
     return await db.withdrawal_requests.find_one({"id": wdr_id}, {"_id": 0})
 
 

@@ -171,6 +171,53 @@ def build_router(
             raise HTTPException(403, "Accès refusé")
         return pi
 
+    @router.post("/recharge/{intent_id}/check-status")
+    @_handle_wallet_errors
+    async def check_recharge_status(intent_id: str, request: Request, user=Depends(current_user)):
+        """Poll the payment provider for the intent's current status.
+
+        Called by the mobile app when returning from the Stripe checkout browser
+        session. If the provider confirms success, we credit the wallet
+        immediately (idempotent via the intent id).
+        """
+        pi = await wallet_payments.get(db, intent_id)
+        if not pi:
+            raise HTTPException(404, "Intent introuvable")
+        if pi["owner_id"] != user["id"]:
+            raise HTTPException(403, "Accès refusé")
+        # Fast path: already succeeded
+        if pi["status"] == "succeeded":
+            return {"status": "succeeded", "intent": pi}
+        # Query provider (Stripe only for now)
+        if pi["provider"] in ("stripe", "apple_pay", "google_pay") and pi.get("provider_intent_id"):
+            try:
+                import os
+                from emergentintegrations.payments.stripe.checkout import StripeCheckout
+                stripe = StripeCheckout(api_key=os.getenv("STRIPE_API_KEY"))
+                status_resp = await stripe.get_checkout_status(pi["provider_intent_id"])
+                # payment_status: 'paid' means done
+                if getattr(status_resp, "payment_status", "") == "paid":
+                    await wallet_payments.confirm_success(
+                        db,
+                        intent_id=intent_id,
+                        actor_id=user["id"],
+                        actor_role="user",
+                        provider_ref=pi["provider_intent_id"],
+                    )
+                    return {"status": "succeeded", "intent": await wallet_payments.get(db, intent_id)}
+                elif getattr(status_resp, "status", "") == "expired":
+                    await wallet_payments.confirm_failure(
+                        db,
+                        intent_id=intent_id,
+                        actor_id=user["id"],
+                        reason="stripe_session_expired",
+                    )
+                    return {"status": "expired", "intent": await wallet_payments.get(db, intent_id)}
+            except Exception as e:
+                # If Stripe check fails, still return the current DB state.
+                return {"status": pi["status"], "error": str(e)[:200], "intent": pi}
+        return {"status": pi["status"], "intent": pi}
+
     @router.get("/recharges/mine")
     @_handle_wallet_errors
     async def list_my_recharges(limit: int = 20, user=Depends(current_user)):
