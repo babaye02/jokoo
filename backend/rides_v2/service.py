@@ -454,3 +454,24 @@ async def ensure_indexes(db: Any) -> None:
         await db.rides.create_index([("from_city_norm", 1), ("to_city_norm", 1), ("status", 1)])
     except Exception:
         pass
+
+
+async def backfill_ride_norms(db: Any) -> int:
+    """
+    Migration idempotente : ajoute from_city_norm/to_city_norm aux rides existants
+    qui n'en ont pas (legacy). Retourne le nombre de rides mis à jour.
+    """
+    from .cities import resolve_city as _resolve
+    to_migrate = await db.rides.count_documents({"from_city_norm": {"$exists": False}})
+    if to_migrate == 0:
+        return 0
+    migrated = 0
+    async for r in db.rides.find({"from_city_norm": {"$exists": False}}, {"id": 1, "from_city": 1, "to_city": 1}):
+        try:
+            f_norm = _resolve(r.get("from_city", ""))
+            t_norm = _resolve(r.get("to_city", ""))
+            await db.rides.update_one({"id": r["id"]}, {"$set": {"from_city_norm": f_norm, "to_city_norm": t_norm}})
+            migrated += 1
+        except Exception:
+            continue
+    return migrated

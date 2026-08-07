@@ -270,20 +270,73 @@ def all_cities_for_autocomplete() -> list[dict]:
     Retourne la liste des villes canoniques + leurs variantes principales,
     pour alimenter un autocomplete côté client.
 
+    Les synonymes directionnels ou basiques (ex: "saint louis", "st-louis",
+    "north saint-louis", "dakar centre") sont filtrés pour ne garder que
+    les vrais quartiers/points d'intérêt qui ont du sens comme label.
+
     Format :
         [{ "canonical": "dakar",
            "label": "Dakar",
            "aliases": ["Plateau", "Mermoz", ...] }, ...]
     """
     out = []
+
+    # Préfixes/motifs à exclure de l'autocomplete (mais gardés pour la résolution)
+    directional_prefixes = ("north ", "nord ", "sud ", "south ", "est ", "east ", "ouest ", "west ")
+
+    def _is_display_worthy(alias: str, canonical: str) -> bool:
+        a = alias.strip().lower()
+        c = canonical.strip().lower()
+        # 1) mot exact ou variation orthographique de la ville canonique
+        if a == c or a.replace("-", " ") == c.replace("-", " "):
+            return False
+        # 2) directionnel
+        if a.startswith(directional_prefixes):
+            return False
+        # 3) "<ville> centre"
+        c_base = c.split("-")[0]
+        if a in {f"{c} centre", f"{c_base} centre", f"{c}-centre", f"{c_base}-centre"}:
+            return False
+        # 4) abréviations "st louis", "st-louis" pour saint-louis
+        if a.startswith("st ") or a.startswith("st-") or a.startswith("st."):
+            return False
+        # 5) synonyme évident (ex: "guédiawaye" quand canonical=guediawaye)
+        return True
+
     for c in sorted(KNOWN_CITIES):
         aliases = [
-            a for a, canon in CITY_ALIASES.items()
-            if canon == c and a != c
-        ][:20]  # top 20 pour ne pas alourdir la réponse
+            _pretty_alias(a) for a, canon in CITY_ALIASES.items()
+            if canon == c and a != c and _is_display_worthy(a, c)
+        ]
+        # Dédupliquer en gardant l'ordre
+        seen: set[str] = set()
+        aliases_unique: list[str] = []
+        for a in aliases:
+            key = a.lower()
+            if key not in seen:
+                seen.add(key)
+                aliases_unique.append(a)
         out.append({
             "canonical": c,
             "label": city_display(c),
-            "aliases": aliases,
+            "aliases": aliases_unique[:20],
         })
     return out
+
+
+def _pretty_alias(a: str) -> str:
+    """Rend un alias en Title Case tout en respectant les tirets et accents connus."""
+    # Cas spéciaux
+    special = {
+        "hlm": "HLM",
+        "sicap": "SICAP",
+    }
+    parts = a.split(" ")
+    out_parts = []
+    for p in parts:
+        if p in special:
+            out_parts.append(special[p])
+        else:
+            sub = p.split("-")
+            out_parts.append("-".join(x.capitalize() for x in sub))
+    return " ".join(out_parts)

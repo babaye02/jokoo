@@ -228,7 +228,7 @@ function OfferCard({ offer, canDecide, onDecide }: { offer: RideOffer; canDecide
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {offer.ride_summary.vehicle_model ? <Chip icon="car" label={offer.ride_summary.vehicle_model} /> : null}
             {offer.ride_summary.time ? <Chip icon="time" label={offer.ride_summary.time} /> : null}
-            {offer.ride_summary.seats_available ? <Chip icon="people" label={`${offer.ride_summary.seats_available} places`} /> : null}
+            {offer.ride_summary.seats_available ? <Chip icon="people" label={`${offer.ride_summary.seats_available} place${offer.ride_summary.seats_available > 1 ? "s" : ""}`} /> : null}
             {offer.ride_summary.verified ? <Chip icon="shield-checkmark" label="Vérifié Jokoo" tint="#7C3AED" /> : null}
           </View>
         </View>

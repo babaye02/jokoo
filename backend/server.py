@@ -8135,11 +8135,14 @@ app.include_router(_mobility_router, prefix="/api")
 
 @app.on_event("startup")
 async def _rides_v2_startup():
-    """Indexes + boucle d'expiration marketplace covoiturage."""
+    """Indexes + migration + boucle d'expiration marketplace covoiturage."""
     import asyncio as _asyncio
     try:
         await _rv2_service.ensure_indexes(db)
         log.info("[rides_v2] indexes ok")
+        migrated = await _rv2_service.backfill_ride_norms(db)
+        if migrated:
+            log.info("[rides_v2] backfilled from/to_city_norm on %d legacy rides", migrated)
     except Exception as _e:
         log.warning("[rides_v2] ensure_indexes failed: %s", _e)
     _asyncio.create_task(_rv2_expiration_loop(db, interval_seconds=300))

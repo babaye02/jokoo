@@ -106,7 +106,6 @@ def build_mobility_router(
         doc = await service.create_request(db, user["id"], body.model_dump(), passenger_info)
         # Match & notify drivers asynchronously (in-loop; low cardinality)
         try:
-            matches = await matching.match_requests_for_ride  # placeholder to avoid IDE hint
             rides = await matching.match_rides_for_request(db, doc)
             if rides:
                 await notify.notify_drivers_of_new_request(db, doc, rides)
