@@ -51,6 +51,9 @@ export default function RequestDetail() {
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [sort, setSort] = useState<SortMode>("recent");
   const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
+  // Modales de confirmation (compat Expo Web où Alert.alert multi-boutons ne marche pas)
+  const [decideModal, setDecideModal] = useState<{ offerId: string; action: "accept" | "refuse" } | null>(null);
+  const [bookingModal, setBookingModal] = useState<{ bookingId: string } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -108,51 +111,27 @@ export default function RequestDetail() {
 
   // ─── Decision handler ───────────────────────────────────
   const decide = (offerId: string, action: "accept" | "refuse") => {
-    Alert.alert(
-      action === "accept" ? "Accepter cette offre ?" : "Refuser cette offre ?",
-      action === "accept"
-        ? "Une réservation sera créée automatiquement. Les autres conducteurs seront informés que la demande a trouvé preneur."
-        : "Le conducteur sera informé.",
-      [
-        { text: "Retour", style: "cancel" },
-        {
-          text: action === "accept" ? "Accepter" : "Refuser",
-          style: action === "accept" ? "default" : "destructive",
-          onPress: async () => {
-            setBusyOfferId(offerId);
-            try {
-              const res = await rideRequestsApi.decideOffer(offerId, action);
-              if (action === "accept" && res.booking?.id) {
-                // Recharge la vue pour afficher l'état "booked" puis propose le paiement
-                await load();
-                Alert.alert(
-                  "Réservation confirmée 🎉",
-                  "Votre trajet est réservé. Souhaitez-vous procéder au paiement maintenant ?",
-                  [
-                    { text: "Plus tard", style: "cancel" },
-                    {
-                      text: "Payer maintenant",
-                      onPress: () => {
-                        router.push({
-                          pathname: "/booking/detail/[id]",
-                          params: { id: res.booking.id },
-                        });
-                      },
-                    },
-                  ]
-                );
-              } else {
-                load();
-              }
-            } catch (e: any) {
-              Alert.alert("Erreur", e?.message || "Action refusée.");
-            } finally {
-              setBusyOfferId(null);
-            }
-          },
-        },
-      ]
-    );
+    // On ouvre une modale custom au lieu d'Alert.alert (invisible sur Expo Web).
+    setDecideModal({ offerId, action });
+  };
+
+  const confirmDecide = async () => {
+    if (!decideModal) return;
+    const { offerId, action } = decideModal;
+    setBusyOfferId(offerId);
+    setDecideModal(null); // ferme la modale immédiatement
+    try {
+      const res = await rideRequestsApi.decideOffer(offerId, action);
+      await load();
+      if (action === "accept" && res.booking?.id) {
+        // Ouvre la modale "Réservation confirmée" avec CTA paiement
+        setBookingModal({ bookingId: res.booking.id });
+      }
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Action refusée.");
+    } finally {
+      setBusyOfferId(null);
+    }
   };
 
   const askQuestion = (driverId: string) => {
@@ -347,6 +326,87 @@ export default function RequestDetail() {
         onClose={() => setShowOfferModal(false)}
         onSuccess={() => { setShowOfferModal(false); load(); }}
       />
+
+      {/* Modale de confirmation Accepter/Refuser (compat Web + iOS/Android) */}
+      <Modal visible={!!decideModal} transparent animationType="fade" onRequestClose={() => setDecideModal(null)}>
+        <View style={styles.modalBackdropCenter}>
+          <View style={styles.confirmCard}>
+            <View style={[styles.confirmIcon, { backgroundColor: decideModal?.action === "accept" ? "#E9F9EF" : "#FEE2E2" }]}>
+              <Ionicons
+                name={decideModal?.action === "accept" ? "checkmark-circle" : "close-circle"}
+                size={28}
+                color={decideModal?.action === "accept" ? "#1F7A3F" : "#DC2626"}
+              />
+            </View>
+            <Txt size="xl" weight="800" style={{ marginTop: 12, textAlign: "center" }}>
+              {decideModal?.action === "accept" ? "Accepter cette offre ?" : "Refuser cette offre ?"}
+            </Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ marginTop: 6, textAlign: "center", lineHeight: 20 }}>
+              {decideModal?.action === "accept"
+                ? "Une réservation sera créée automatiquement. Les autres conducteurs seront informés que la demande a trouvé preneur."
+                : "Le conducteur sera informé de votre refus."}
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.lg, width: "100%" }}>
+              <Pressable onPress={() => setDecideModal(null)} style={[styles.confirmBtn, { backgroundColor: colors.surface2, flex: 1 }]} testID="decide-cancel">
+                <Txt weight="700">Retour</Txt>
+              </Pressable>
+              <Pressable
+                onPress={confirmDecide}
+                style={[
+                  styles.confirmBtn,
+                  { flex: 1.4, backgroundColor: decideModal?.action === "accept" ? colors.turquoise : "#DC2626" },
+                ]}
+                testID="decide-confirm"
+              >
+                <Ionicons
+                  name={decideModal?.action === "accept" ? "checkmark-circle" : "close-circle"}
+                  size={16}
+                  color={colors.white}
+                />
+                <Txt weight="800" color={colors.white} style={{ marginLeft: 6 }}>
+                  {decideModal?.action === "accept" ? "Accepter" : "Refuser"}
+                </Txt>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modale post-accept : proposition de paiement immédiat */}
+      <Modal visible={!!bookingModal} transparent animationType="fade" onRequestClose={() => setBookingModal(null)}>
+        <View style={styles.modalBackdropCenter}>
+          <View style={styles.confirmCard}>
+            <View style={[styles.confirmIcon, { backgroundColor: "#E9F9EF" }]}>
+              <Txt size="xxl">🎉</Txt>
+            </View>
+            <Txt size="xl" weight="800" style={{ marginTop: 12, textAlign: "center" }}>
+              Réservation confirmée
+            </Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ marginTop: 6, textAlign: "center", lineHeight: 20 }}>
+              Votre trajet est réservé. Vous pouvez régler dès maintenant via Wallet, Wave, Orange Money, carte ou espèces.
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.lg, width: "100%" }}>
+              <Pressable onPress={() => setBookingModal(null)} style={[styles.confirmBtn, { backgroundColor: colors.surface2, flex: 1 }]} testID="booking-later">
+                <Txt weight="700">Plus tard</Txt>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const bid = bookingModal?.bookingId;
+                  setBookingModal(null);
+                  if (bid) {
+                    router.push({ pathname: "/booking/detail/[id]", params: { id: bid } });
+                  }
+                }}
+                style={[styles.confirmBtn, { flex: 1.4, backgroundColor: colors.turquoise }]}
+                testID="booking-pay-now"
+              >
+                <Ionicons name="card" size={16} color={colors.white} />
+                <Txt weight="800" color={colors.white} style={{ marginLeft: 6 }}>Payer maintenant</Txt>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -714,6 +774,10 @@ const styles = StyleSheet.create({
   republishBtn: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, height: 40, borderRadius: 999, backgroundColor: colors.turquoise },
   stickyBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.xl, paddingTop: 12, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  modalBackdropCenter: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
+  confirmCard: { width: "100%", maxWidth: 420, backgroundColor: colors.surface, borderRadius: 20, padding: 24, alignItems: "center", ...shadow.card },
+  confirmIcon: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center" },
+  confirmBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, height: 48, borderRadius: 999 },
   modalSheet: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: "88%" },
   modalHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, marginBottom: 12 },
   modalTabs: { flexDirection: "row", gap: 6, marginTop: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },

@@ -1,6 +1,6 @@
 // Offres envoyées (conducteur)
 import React, { useCallback, useState } from "react";
-import { View, ScrollView, StyleSheet, Pressable, RefreshControl, ActivityIndicator, Alert } from "react-native";
+import { View, ScrollView, StyleSheet, Pressable, RefreshControl, ActivityIndicator, Alert, Modal } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,6 +15,9 @@ export default function OffersSent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [confirmWithdraw, setConfirmWithdraw] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
   const load = useCallback(async () => {
     try {
       const list = await rideRequestsApi.offersSent();
@@ -26,14 +29,20 @@ export default function OffersSent() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const withdraw = (id: string) => {
-    Alert.alert("Retirer cette offre ?", "Le passager ne pourra plus l'accepter.", [
-      { text: "Retour", style: "cancel" },
-      { text: "Retirer", style: "destructive", onPress: async () => {
-        try { await rideRequestsApi.withdrawOffer(id); load(); }
-        catch (e: any) { Alert.alert("Erreur", e?.message || "Impossible."); }
-      }},
-    ]);
+  const withdraw = (id: string) => setConfirmWithdraw(id);
+
+  const confirmWithdrawNow = async () => {
+    if (!confirmWithdraw) return;
+    setBusy(true);
+    try {
+      await rideRequestsApi.withdrawOffer(confirmWithdraw);
+      setConfirmWithdraw(null);
+      load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Impossible.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -98,6 +107,33 @@ export default function OffersSent() {
           })
         )}
       </ScrollView>
+
+      <Modal visible={!!confirmWithdraw} transparent animationType="fade" onRequestClose={() => setConfirmWithdraw(null)}>
+        <View style={styles.modalCenter}>
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmIcon}>
+              <Ionicons name="close-circle" size={28} color="#DC2626" />
+            </View>
+            <Txt size="xl" weight="800" style={{ marginTop: 12, textAlign: "center" }}>Retirer cette offre ?</Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ marginTop: 6, textAlign: "center" }}>
+              Le passager ne pourra plus l&apos;accepter.
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 20, width: "100%" }}>
+              <Pressable onPress={() => setConfirmWithdraw(null)} style={[styles.confirmBtn, { backgroundColor: colors.surface2, flex: 1 }]}>
+                <Txt weight="700">Retour</Txt>
+              </Pressable>
+              <Pressable onPress={confirmWithdrawNow} disabled={busy} style={[styles.confirmBtn, { flex: 1.4, backgroundColor: "#DC2626" }]}>
+                {busy ? <ActivityIndicator size="small" color={colors.white} /> : (
+                  <>
+                    <Ionicons name="close-circle" size={16} color={colors.white} />
+                    <Txt weight="800" color={colors.white} style={{ marginLeft: 6 }}>Retirer l&apos;offre</Txt>
+                  </>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -109,5 +145,9 @@ const styles = StyleSheet.create({
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   empty: { alignItems: "center", padding: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg, ...shadow.soft },
   cta: { flexDirection: "row", alignItems: "center", marginTop: 16, paddingHorizontal: 16, height: 42, borderRadius: 999, backgroundColor: colors.turquoise },
+  modalCenter: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
+  confirmCard: { width: "100%", maxWidth: 420, backgroundColor: colors.surface, borderRadius: 20, padding: 24, alignItems: "center", ...shadow.card },
+  confirmIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: "#FEE2E2", alignItems: "center", justifyContent: "center" },
+  confirmBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, height: 46, borderRadius: 999 },
   actBtn: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999 },
 });

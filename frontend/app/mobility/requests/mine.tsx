@@ -2,7 +2,7 @@
 // Liste avec actions : republier, annuler, voir détail
 
 import React, { useCallback, useState } from "react";
-import { View, ScrollView, StyleSheet, Pressable, RefreshControl, ActivityIndicator, Alert } from "react-native";
+import { View, ScrollView, StyleSheet, Pressable, RefreshControl, ActivityIndicator, Alert, Modal } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +17,9 @@ export default function MyRequestsScreen() {
   const [rows, setRows] = useState<RideRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -33,21 +36,21 @@ export default function MyRequestsScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const cancel = (id: string) => {
-    Alert.alert("Annuler cette demande ?", "Vous pourrez la republier plus tard.", [
-      { text: "Retour", style: "cancel" },
-      {
-        text: "Annuler la demande",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await rideRequestsApi.cancel(id);
-            load();
-          } catch (e: any) {
-            Alert.alert("Erreur", e?.message || "Impossible d'annuler.");
-          }
-        },
-      },
-    ]);
+    setConfirmCancel(id);
+  };
+
+  const confirmCancelNow = async () => {
+    if (!confirmCancel) return;
+    setBusy(true);
+    try {
+      await rideRequestsApi.cancel(confirmCancel);
+      setConfirmCancel(null);
+      load();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message || "Impossible d'annuler.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const republish = async (id: string) => {
@@ -135,6 +138,34 @@ export default function MyRequestsScreen() {
           })
         )}
       </ScrollView>
+
+      {/* Modale confirmation annulation */}
+      <Modal visible={!!confirmCancel} transparent animationType="fade" onRequestClose={() => setConfirmCancel(null)}>
+        <View style={styles.modalCenter}>
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmIcon}>
+              <Ionicons name="alert-circle" size={28} color="#B47F00" />
+            </View>
+            <Txt size="xl" weight="800" style={{ marginTop: 12, textAlign: "center" }}>Annuler cette demande ?</Txt>
+            <Txt size="sm" color={colors.textMuted} style={{ marginTop: 6, textAlign: "center" }}>
+              Vous pourrez la republier plus tard en un clic.
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 20, width: "100%" }}>
+              <Pressable onPress={() => setConfirmCancel(null)} style={[styles.confirmBtn, { backgroundColor: colors.surface2, flex: 1 }]} testID="cancel-abort">
+                <Txt weight="700">Retour</Txt>
+              </Pressable>
+              <Pressable onPress={confirmCancelNow} disabled={busy} style={[styles.confirmBtn, { flex: 1.4, backgroundColor: "#DC2626" }]} testID="cancel-confirm">
+                {busy ? <ActivityIndicator size="small" color={colors.white} /> : (
+                  <>
+                    <Ionicons name="close-circle" size={16} color={colors.white} />
+                    <Txt weight="800" color={colors.white} style={{ marginLeft: 6 }}>Annuler la demande</Txt>
+                  </>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -150,4 +181,8 @@ const styles = StyleSheet.create({
   actBtn: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999 },
   empty: { alignItems: "center", padding: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg, ...shadow.soft },
   emptyBtn: { marginTop: spacing.lg, flexDirection: "row", alignItems: "center", paddingHorizontal: 20, height: 44, borderRadius: 999, backgroundColor: colors.turquoise },
+  modalCenter: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
+  confirmCard: { width: "100%", maxWidth: 420, backgroundColor: colors.surface, borderRadius: 20, padding: 24, alignItems: "center", ...shadow.card },
+  confirmIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: "#FEF3C7", alignItems: "center", justifyContent: "center" },
+  confirmBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, height: 46, borderRadius: 999 },
 });
