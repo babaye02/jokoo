@@ -49,18 +49,27 @@ async def _push(recipients: list[str], data: dict, idempotency_key: Optional[str
 
 
 async def _inapp(db: Any, user_id: str, kind: str, title: str, message: str, meta: dict) -> None:
-    """Insère une notification in-app."""
+    """Insère une notification in-app. Compatible avec le schéma legacy (`type`, `body`)."""
     try:
+        # Flatten quelques identifiants au top-level pour le deep-linking legacy
+        flat: dict = {}
+        for key in ("booking_id", "ride_id", "request_id", "offer_id"):
+            if meta.get(key):
+                flat[key] = meta[key]
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": user_id,
+            # Compat legacy : le frontend utilise `type` + `body`
+            "type": kind,
             "kind": kind,
-            "channel": NOTIF_CHANNEL_MOBILITY,
             "title": title,
+            "body": message,
             "message": message,
+            "channel": NOTIF_CHANNEL_MOBILITY,
             "meta": meta,
             "read": False,
             "created_at": _now(),
+            **flat,
         })
     except Exception as e:
         log.warning("in-app notif insert failed: %s", e)

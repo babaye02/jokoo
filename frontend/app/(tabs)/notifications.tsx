@@ -86,6 +86,20 @@ const TYPE_META: Record<string, TypeMeta> = {
   ride_accepted:                { icon: "checkmark-circle-outline", ...PALETTE.green,    cat: "missions" },
   parcel_new:                   { icon: "cube-outline",             ...PALETTE.orange,   cat: "missions" },
 
+  // Mobility Marketplace v2 (rides_v2)
+  ride_new_request_match:       { icon: "hand-right-outline",       ...PALETTE.blue,     cat: "missions" },
+  ride_new_ride_match:          { icon: "car-sport-outline",        ...PALETTE.blue,     cat: "missions" },
+  ride_new_offer:               { icon: "mail-unread-outline",      ...PALETTE.turquoise,cat: "missions" },
+  ride_offer_accepted:          { icon: "checkmark-circle-outline", ...PALETTE.green,    cat: "missions" },
+  ride_offer_refused:           { icon: "close-circle-outline",     ...PALETTE.gray,     cat: "missions" },
+  ride_offer_closed:            { icon: "hand-left-outline",        ...PALETTE.gray,     cat: "missions" },
+  ride_booking_created:         { icon: "shield-checkmark-outline", ...PALETTE.emerald,  cat: "missions" },
+  ride_booking_confirmed:       { icon: "shield-checkmark-outline", ...PALETTE.emerald,  cat: "missions" },
+  ride_payment_received:        { icon: "cash-outline",             ...PALETTE.purple,   cat: "payments" },
+  ride_departure_reminder:      { icon: "alarm-outline",            ...PALETTE.amber,    cat: "missions" },
+  ride_request_expiring:        { icon: "hourglass-outline",        ...PALETTE.amber,    cat: "system" },
+  ride_request_expired:         { icon: "time-outline",             ...PALETTE.gray,     cat: "system" },
+
   // Payments & wallet
   payment_received:             { icon: "cash-outline",             ...PALETTE.purple,   cat: "payments" },
   commission_due:               { icon: "wallet-outline",           ...PALETTE.amber,    cat: "payments" },
@@ -118,7 +132,7 @@ function metaFor(t: string): TypeMeta {
 // ROUTE FOR NOTIF (unchanged behavior)
 // ─────────────────────────────────────────────────────────────
 function routeForNotif(
-  n: Notif & { booking_id?: string; ride_id?: string; parcel_id?: string; peer_id?: string; family_booking_id?: string; report_id?: string; provider_id?: string; babysitter_id?: string },
+  n: Notif & { booking_id?: string; ride_id?: string; parcel_id?: string; peer_id?: string; family_booking_id?: string; report_id?: string; provider_id?: string; babysitter_id?: string; request_id?: string; offer_id?: string },
   currentUserId?: string
 ): { pathname: string; params?: any } | null {
   const t = n.type || "";
@@ -134,6 +148,38 @@ function routeForNotif(
     return { pathname: "/(tabs)/profile" };
   }
   if (t.startsWith("booking") && n.booking_id) return { pathname: `/booking/detail/${n.booking_id}` };
+
+  // Marketplace covoiturage v2 — routing dédié
+  if (t === "ride_new_request_match") {
+    if (n.request_id) return { pathname: `/mobility/requests/${n.request_id}` };
+    return { pathname: "/mobility/requests" };
+  }
+  if (t === "ride_new_ride_match") {
+    if (n.ride_id) return { pathname: `/mobility/rides/${n.ride_id}` };
+    if (n.request_id) return { pathname: `/mobility/requests/${n.request_id}` };
+    return { pathname: "/mobility" };
+  }
+  if (t === "ride_new_offer") {
+    if (n.request_id) return { pathname: `/mobility/requests/${n.request_id}` };
+    return { pathname: "/mobility/offers/received" };
+  }
+  if (t === "ride_offer_accepted" || t === "ride_offer_refused" || t === "ride_offer_closed") {
+    return { pathname: "/mobility/offers/sent" };
+  }
+  if (t === "ride_booking_created" || t === "ride_booking_confirmed" || t === "ride_payment_received") {
+    if (n.booking_id) return { pathname: `/mobility/booking/${n.booking_id}` };
+    return { pathname: "/mobility" };
+  }
+  if (t === "ride_departure_reminder") {
+    if (n.request_id) return { pathname: `/mobility/requests/${n.request_id}` };
+    return { pathname: "/mobility" };
+  }
+  if (t === "ride_request_expiring" || t === "ride_request_expired") {
+    if (n.request_id) return { pathname: `/mobility/requests/${n.request_id}` };
+    return { pathname: "/mobility/requests/mine" };
+  }
+
+  // Legacy rides (existing)
   if (t.startsWith("ride")) {
     if (n.ride_id) return { pathname: `/mobility/rides/${n.ride_id}` };
     return { pathname: "/mobility/rides/mine" };
