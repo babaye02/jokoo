@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, RefreshControl, Share, Modal, TextInput } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Share, Modal, TextInput } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { Card, Txt, Avatar, Badge, Btn, ErrorBox, ScreenHeader } from "@/src/components/ui";
+import { ConfirmDialog } from "@/src/components/ActionSheet";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 interface AmbDetail {
@@ -86,6 +87,14 @@ export default function AdminAmbassadorDetail() {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [showEdit, setShowEdit] = useState(false);
+  // Alert.alert est un no-op sur navigateur web : les confirmations passent
+  // par le ConfirmDialog in-app et les erreurs par une bannière inline.
+  const [confirm, setConfirm] = useState<
+    | null
+    | { kind: "toggle" }
+    | { kind: "commission"; cid: string; status: string; label: string }
+  >(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!uid) return;
@@ -112,57 +121,40 @@ export default function AdminAmbassadorDetail() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const toggleActive = async () => {
+  const doToggleActive = async () => {
     if (!amb) return;
     const willBeActive = !amb.active;
-    Alert.alert(
-      willBeActive ? "Réactiver ?" : "Désactiver ?",
-      willBeActive
-        ? "L'ambassadeur pourra à nouveau générer des filleuls et commissions."
-        : "Ses filleuls et commissions restent intacts, mais les nouveaux liens ne fonctionneront plus.",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: willBeActive ? "Réactiver" : "Désactiver",
-          style: willBeActive ? "default" : "destructive",
-          onPress: async () => {
-            setBusy("toggle");
-            try {
-              await api.post(`/admin/users/${amb.user_id}/ambassador`, { active: willBeActive });
-              await load();
-            } catch (e: any) {
-              Alert.alert("Erreur", e?.message || "Échec.");
-            } finally {
-              setBusy(null);
-            }
-          },
-        },
-      ]
-    );
+    setBusy("toggle");
+    setActionError(null);
+    try {
+      await api.post(`/admin/users/${amb.user_id}/ambassador`, { active: willBeActive });
+      await load();
+    } catch (e: any) {
+      setActionError(e?.message || "Échec.");
+    } finally {
+      setBusy(null);
+    }
   };
 
-  const updateCommissionStatus = async (cid: string, status: string, label: string) => {
-    Alert.alert(
-      "Confirmer",
-      `Marquer cette commission comme "${label}" ?`,
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Confirmer",
-          onPress: async () => {
-            setBusy(cid);
-            try {
-              await api.patch(`/admin/ambassadors/commissions/${cid}?status=${status}`, {});
-              await load();
-            } catch (e: any) {
-              Alert.alert("Erreur", e?.message || "Échec.");
-            } finally {
-              setBusy(null);
-            }
-          },
-        },
-      ]
-    );
+  const doUpdateCommission = async (cid: string, status: string) => {
+    setBusy(cid);
+    setActionError(null);
+    try {
+      await api.patch(`/admin/ambassadors/commissions/${cid}?status=${status}`, {});
+      await load();
+    } catch (e: any) {
+      setActionError(e?.message || "Échec.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const executeConfirm = async () => {
+    const c = confirm;
+    setConfirm(null);
+    if (!c || !amb) return;
+    if (c.kind === "toggle") await doToggleActive();
+    else await doUpdateCommission(c.cid, c.status);
   };
 
   const shareInvite = async () => {
@@ -266,11 +258,12 @@ export default function AdminAmbassadorDetail() {
             title={amb.active ? "Désactiver" : "Réactiver"}
             variant={amb.active ? "secondary" : "primary"}
             icon={amb.active ? "close-circle-outline" : "checkmark-circle-outline"}
-            onPress={toggleActive}
+            onPress={() => setConfirm({ kind: "toggle" })}
             disabled={busy === "toggle"}
             style={{ flex: 1 }}
           />
         </View>
+        <ErrorBox text={actionError} />
 
         {/* Commissions filter */}
         <View style={{ marginTop: spacing.lg }}>
@@ -340,14 +333,14 @@ export default function AdminAmbassadorDetail() {
                   {nextAction ? (
                     <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
                       <Pressable
-                        onPress={() => updateCommissionStatus(c.id, nextAction.status, nextAction.label)}
+                        onPress={() => setConfirm({ kind: "commission", cid: c.id, status: nextAction.status, label: nextAction.label })}
                         disabled={busy === c.id}
                         style={[styles.miniBtn, { backgroundColor: nextAction.color }]}
                       >
                         <Txt size="xs" weight="700" color={colors.white}>{nextAction.label}</Txt>
                       </Pressable>
                       <Pressable
-                        onPress={() => updateCommissionStatus(c.id, "cancelled", "Annulée")}
+                        onPress={() => setConfirm({ kind: "commission", cid: c.id, status: "cancelled", label: "Annulée" })}
                         disabled={busy === c.id}
                         style={[styles.miniBtn, { backgroundColor: colors.surfaceWarm }]}
                       >
@@ -361,6 +354,36 @@ export default function AdminAmbassadorDetail() {
           )}
         </View>
       </ScrollView>
+
+      <ConfirmDialog
+        visible={confirm !== null}
+        title={
+          confirm?.kind === "toggle"
+            ? amb.active ? "Désactiver ?" : "Réactiver ?"
+            : "Confirmer"
+        }
+        message={
+          confirm?.kind === "toggle"
+            ? amb.active
+              ? "Ses filleuls et commissions restent intacts, mais les nouveaux liens ne fonctionneront plus."
+              : "L'ambassadeur pourra à nouveau générer des filleuls et commissions."
+            : confirm?.kind === "commission"
+              ? `Marquer cette commission comme "${confirm.label}" ?`
+              : ""
+        }
+        confirmLabel={
+          confirm?.kind === "toggle"
+            ? amb.active ? "Désactiver" : "Réactiver"
+            : "Confirmer"
+        }
+        destructive={
+          (confirm?.kind === "toggle" && amb.active) ||
+          (confirm?.kind === "commission" && confirm.status === "cancelled")
+        }
+        onConfirm={executeConfirm}
+        onClose={() => setConfirm(null)}
+        testID="amb-confirm"
+      />
 
       <EditAmbassadorModal
         visible={showEdit}
@@ -419,17 +442,20 @@ function EditAmbassadorModal({
   const [slug, setSlug] = useState(ambassador.slug || "");
   const [bio, setBio] = useState(ambassador.custom_bio || "");
   const [saving, setSaving] = useState(false);
+  const [errText, setErrText] = useState<string | null>(null);
 
   useEffect(() => {
     if (visible) {
       setGoal(String(ambassador.monthly_goal || 500));
       setSlug(ambassador.slug || "");
       setBio(ambassador.custom_bio || "");
+      setErrText(null);
     }
   }, [visible, ambassador]);
 
   const save = async () => {
     setSaving(true);
+    setErrText(null);
     try {
       await api.put(`/admin/ambassadors/${ambassador.user_id}`, {
         active: ambassador.active,
@@ -439,7 +465,7 @@ function EditAmbassadorModal({
       });
       onSaved();
     } catch (e: any) {
-      Alert.alert("Erreur", e?.message || "Impossible d'enregistrer.");
+      setErrText(e?.message || "Impossible d'enregistrer.");
     } finally {
       setSaving(false);
     }
@@ -457,6 +483,7 @@ function EditAmbassadorModal({
           </View>
 
           <ScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
+            <ErrorBox text={errText} />
             <Txt weight="600" size="sm" style={styles.label}>Objectif mensuel (filleuls vérifiés)</Txt>
             <TextInput
               value={goal}

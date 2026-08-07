@@ -1,6 +1,6 @@
 // Admin — CRUD publicités avec support image / bannière / vidéo / carrousel.
 import { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, KeyboardAvoidingView, Platform, TextInput, Modal } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Switch, KeyboardAvoidingView, Platform, TextInput, Modal } from "react-native";
 import { Image } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import * as ImagePicker from "expo-image-picker";
@@ -10,7 +10,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, Ad, AdMedia, AdLinkType, Partner, Promo, Provider, ServiceItem } from "@/src/api";
 import { describeDestination } from "@/src/navigation/adDestination";
-import { Btn, Card, Input, Txt } from "@/src/components/ui";
+import { Btn, Card, ErrorBox, Input, Txt } from "@/src/components/ui";
 import { colors, radius, shadow, spacing } from "@/src/theme";
 
 type EditingAd = Partial<Ad> & { _new?: boolean };
@@ -65,9 +65,18 @@ export default function AdminAds() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [editing, setEditing] = useState<EditingAd | null>(null);
   const [saving, setSaving] = useState(false);
+  // Alert.alert est un no-op sur navigateur web : toutes les erreurs passent
+  // par des bannières in-app (formError dans l'éditeur, listError sur la liste).
+  const [formError, setFormError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    try { setItems(await api.get<Ad[]>("/admin/ads")); } catch (e: any) { Alert.alert("Erreur", e.message); }
+    try {
+      setItems(await api.get<Ad[]>("/admin/ads"));
+      setListError(null);
+    } catch (e: any) {
+      setListError(e?.message || "Chargement impossible.");
+    }
   }, []);
   useFocusEffect(useCallback(() => {
     load();
@@ -108,7 +117,8 @@ export default function AdminAds() {
       setConfirming(null);
       load();
     } catch (e: any) {
-      Alert.alert("Erreur", e?.message || "Opération impossible");
+      setConfirming(null);
+      setListError(e?.message || "Opération impossible");
     }
   };
 
@@ -117,7 +127,7 @@ export default function AdminAds() {
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert("Permission requise", "Autorisez l'accès à la galerie pour importer un média.");
+        setFormError("Permission requise : autorisez l'accès à la galerie pour importer un média.");
         return;
       }
       const res = await ImagePicker.launchImageLibraryAsync({
@@ -137,8 +147,9 @@ export default function AdminAds() {
       const uploaded = await uploadMediaToCloudinary(picked as any, "admin", kind === "image" ? "image" : "video");
       const item: AdMedia = { kind, url: uploaded.secure_url };
       setEditing({ ...editing, media: [...(editing.media || []), item] });
+      setFormError(null);
     } catch (e: any) {
-      Alert.alert("Upload impossible", e?.message || "Réessayez plus tard.");
+      setFormError(`Upload impossible : ${e?.message || "réessayez plus tard."}`);
     }
   };
 
@@ -161,12 +172,13 @@ export default function AdminAds() {
 
   const save = async () => {
     if (!editing) return;
-    if (!editing.title?.trim()) return Alert.alert("Titre requis");
+    setFormError(null);
+    if (!editing.title?.trim()) return setFormError("Titre requis.");
     if (!editing.media || editing.media.length === 0 || !editing.media[0].url) {
-      return Alert.alert("Média requis", "Ajoutez au moins un média.");
+      return setFormError("Média requis : ajoutez au moins une image, une vidéo ou une URL.");
     }
     if (editing.start_at && editing.end_at && editing.end_at < editing.start_at) {
-      return Alert.alert("Dates invalides", "La date de fin doit être après la date de début.");
+      return setFormError("Dates invalides : la date de fin doit être après la date de début.");
     }
     setSaving(true);
     try {
@@ -195,7 +207,7 @@ export default function AdminAds() {
       if (editing._new) await api.post("/admin/ads", payload);
       else await api.patch(`/admin/ads/${editing.id}`, payload);
       setEditing(null); load();
-    } catch (e: any) { Alert.alert("Erreur", e.message); }
+    } catch (e: any) { setFormError(e?.message || "Enregistrement impossible."); }
     finally { setSaving(false); }
   };
 
@@ -218,6 +230,7 @@ export default function AdminAds() {
       </SafeAreaView>
 
       <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 40 + insets.bottom, gap: spacing.md }}>
+        <ErrorBox text={listError} />
         {items.length === 0 ? (
           <Card>
             <View style={{ alignItems: "center", paddingVertical: spacing.md }}>
@@ -302,6 +315,7 @@ export default function AdminAds() {
         removeMedia={removeMedia}
         togglePlacement={togglePlacement}
         insets={insets}
+        formError={formError}
       /> : null}
 
       {/* Confirmation modale (in-app, plus fiable que Alert.alert sur navigateur web) */}
@@ -349,7 +363,7 @@ function Metric({ icon, value, label }: any) {
   );
 }
 
-function AdEditor({ editing, setEditing, save, saving, cats, providers, promos, partners, pickMedia, addMediaByUrl, updateMedia, removeMedia, togglePlacement, insets }: any) {
+function AdEditor({ editing, setEditing, save, saving, cats, providers, promos, partners, pickMedia, addMediaByUrl, updateMedia, removeMedia, togglePlacement, insets, formError }: any) {
   return (
     <View style={styles.overlay}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -527,6 +541,7 @@ function AdEditor({ editing, setEditing, save, saving, cats, providers, promos, 
           ) : null}
         </ScrollView>
         <View style={[styles.bottom, { paddingBottom: 12 + insets.bottom }]}>
+          <ErrorBox text={formError} />
           <Btn title="Enregistrer" onPress={save} loading={saving} fullWidth size="lg" testID="ad-save" />
         </View>
       </KeyboardAvoidingView>
