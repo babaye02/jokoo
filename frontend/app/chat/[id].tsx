@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, Pressable, Alert } from "react-native";
+import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TextInput, Pressable, Alert, ScrollView, Linking } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,7 +7,24 @@ import { useAuth } from "@/src/auth";
 import { api, Message } from "@/src/api";
 import { Avatar, Txt } from "@/src/components/ui";
 import { ActionSheet, ConfirmDialog } from "@/src/components/ActionSheet";
+import { useLocationPermission } from "@/src/hooks/useLocationPermission";
 import { colors, fs, radius, shadow, spacing } from "@/src/theme";
+
+const QUICK_REPLIES: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
+  { icon: "checkmark-circle-outline", label: "Je suis arrivé" },
+  { icon: "navigate-outline", label: "J'arrive" },
+  { icon: "alert-circle-outline", label: "Je suis bloqué" },
+  { icon: "help-circle-outline", label: "Je ne trouve pas le lieu" },
+  { icon: "hourglass-outline", label: "Attends-moi" },
+  { icon: "heart-outline", label: "Merci" },
+  { icon: "close-circle-outline", label: "Annuler" },
+];
+
+const SHARE_DURATIONS = [
+  { minutes: 15, label: "15 min" },
+  { minutes: 30, label: "30 min" },
+  { minutes: 60, label: "1 heure" },
+];
 
 export default function Chat() {
   const { id, name: nameParam } = useLocalSearchParams<{ id: string; name?: string }>();
@@ -24,6 +41,10 @@ export default function Chat() {
   const [blockedToast, setBlockedToast] = useState<string | null>(null);
   const [reportPrompt, setReportPrompt] = useState(false);
   const [reportReason, setReportReason] = useState("");
+  const [locSheet, setLocSheet] = useState(false);
+  const [landmark, setLandmark] = useState("");
+  const [sendingLoc, setSendingLoc] = useState(false);
+  const { requestLocation, status: locStatus, openSettings } = useLocationPermission();
   const listRef = useRef<FlatList>(null);
 
   const load = useCallback(async () => {
@@ -64,8 +85,8 @@ export default function Chat() {
     return () => clearTimeout(t);
   }, [blockedToast]);
 
-  const send = async () => {
-    const t = text.trim();
+  const send = async (overrideText?: string) => {
+    const t = (overrideText ?? text).trim();
     if (!t || !id || sending) return;
     setSending(true);
     setErr(null);
@@ -83,7 +104,7 @@ export default function Chat() {
       created_at: new Date().toISOString(),
     } as any;
     setItems((x) => [...x, optimistic]);
-    setText("");
+    if (overrideText === undefined) setText("");
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 30);
     try {
       const m = await api.post<Message>(`/chat/${id}/messages`, { text: t, kind: "text" });
@@ -92,7 +113,7 @@ export default function Chat() {
     } catch (e: any) {
       // Retire l'optimiste et affiche l'erreur — remet le texte pour permettre de réessayer
       setItems((x) => x.filter((msg) => msg.id !== tempId));
-      setText(t);
+      if (overrideText === undefined) setText(t);
       const status = e?.status;
       let msg = "Impossible d'envoyer le message. Réessayez.";
       if (status === 401) msg = "Session expirée. Reconnectez-vous.";
@@ -103,6 +124,59 @@ export default function Chat() {
     } finally {
       setSending(false);
     }
+  };
+
+  const sendQuickReply = (label: string) => {
+    if (sending) return;
+    send(label);
+  };
+
+  const shareLocation = async (minutes: number) => {
+    if (!id || sendingLoc) return;
+    setSendingLoc(true);
+    setErr(null);
+    try {
+      const coords = await requestLocation();
+      if (!coords) {
+        setErr(
+          locStatus === "blocked"
+            ? "Localisation bloquée. Activez-la dans les Réglages."
+            : "Impossible d'obtenir votre position.",
+        );
+        return;
+      }
+      const m = await api.post<Message>(`/chat/${id}/messages`, {
+        kind: "location",
+        text: "",
+        lat: coords.latitude,
+        lng: coords.longitude,
+        accuracy_m: coords.accuracy ?? undefined,
+        landmark: landmark.trim() || undefined,
+        expires_in_minutes: minutes,
+      });
+      setItems((x: Message[]) => [...x, m]);
+      setLocSheet(false);
+      setLandmark("");
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 30);
+    } catch (e: any) {
+      setErr(e?.message || "Impossible de partager votre position.");
+    } finally {
+      setSendingLoc(false);
+    }
+  };
+
+  const openInMaps = (lat: number, lng: number, label?: string | null) => {
+    const q = encodeURIComponent(label || "Point de rendez-vous");
+    const url = Platform.select({
+      ios: `maps://?ll=${lat},${lng}&q=${q}`,
+      android: `geo:${lat},${lng}?q=${lat},${lng}(${q})`,
+      default: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
+    })!;
+    Linking.openURL(url).catch(() =>
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`).catch(() =>
+        setErr("Impossible d'ouvrir la carte."),
+      ),
+    );
   };
 
   const displayName = peerName || "Conversation";
@@ -169,13 +243,44 @@ export default function Chat() {
           data={items}
           keyExtractor={(m) => m.id}
           contentContainerStyle={{ padding: spacing.xl, gap: 8, paddingBottom: 8 }}
-          renderItem={({ item }) => {
+          renderItem={({ item }: { item: Message }) => {
             const mine = item.from_id === user?.id;
             const isOptimistic = item.id.startsWith("temp-");
+            const isLoc = item.kind === "location";
+            const expired = isLoc && (item.location_expired || item.lat == null);
             return (
               <View style={[styles.bubbleRow, { justifyContent: mine ? "flex-end" : "flex-start" }]}>
                 <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs, isOptimistic && { opacity: 0.6 }]}>
-                  <Txt color={mine ? colors.white : colors.text}>{item.text}</Txt>
+                  {isLoc ? (
+                    <Pressable
+                      onPress={() => (!expired ? openInMaps(item.lat!, item.lng!, item.landmark) : undefined)}
+                      disabled={expired}
+                      testID={`chat-location-${item.id}`}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <Ionicons
+                          name={expired ? "location-outline" : "location"}
+                          size={18}
+                          color={mine ? colors.white : colors.turquoise}
+                        />
+                        <Txt weight="700" color={mine ? colors.white : colors.text} style={{ marginLeft: 6 }}>
+                          {expired ? "Position expirée" : "Position partagée"}
+                        </Txt>
+                      </View>
+                      {item.landmark ? (
+                        <Txt size="sm" color={mine ? "rgba(255,255,255,0.9)" : colors.textMuted} style={{ marginTop: 4 }}>
+                          {item.landmark}
+                        </Txt>
+                      ) : null}
+                      <Txt size="xxs" color={mine ? "rgba(255,255,255,0.7)" : colors.textSubtle} style={{ marginTop: 4 }}>
+                        {expired
+                          ? "Le partage a pris fin"
+                          : `Visible ${item.expires_in_minutes ?? 15} min · Appuyez pour ouvrir la carte`}
+                      </Txt>
+                    </Pressable>
+                  ) : (
+                    <Txt color={mine ? colors.white : colors.text}>{item.text}</Txt>
+                  )}
                   <View style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-end", marginTop: 4, gap: 4 }}>
                     <Txt size="xxs" color={mine ? "rgba(255,255,255,0.7)" : colors.textSubtle}>
                       {new Date(item.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
@@ -214,7 +319,38 @@ export default function Chat() {
           </View>
         ) : null}
 
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickRepliesRow}
+          keyboardShouldPersistTaps="handled"
+          testID="chat-quick-replies"
+        >
+          {QUICK_REPLIES.map((qr) => (
+            <Pressable
+              key={qr.label}
+              onPress={() => sendQuickReply(qr.label)}
+              disabled={sending}
+              style={[styles.quickReplyChip, sending && { opacity: 0.5 }]}
+              testID={`chat-quick-reply-${qr.label}`}
+            >
+              <Ionicons name={qr.icon} size={14} color={colors.turquoise} />
+              <Txt size="xs" weight="600" color={colors.midnight} style={{ marginLeft: 6 }}>
+                {qr.label}
+              </Txt>
+            </Pressable>
+          ))}
+        </ScrollView>
+
         <View style={[styles.inputBar, { paddingBottom: 8 + insets.bottom }]}>
+          <Pressable
+            onPress={() => setLocSheet(true)}
+            style={styles.locBtn}
+            testID="chat-share-location"
+            hitSlop={6}
+          >
+            <Ionicons name="location-outline" size={20} color={colors.turquoise} />
+          </Pressable>
           <View style={styles.inputWrap}>
             <TextInput
               testID="chat-input"
@@ -275,6 +411,55 @@ export default function Chat() {
         onClose={() => setConfirmBlock(false)}
       />
 
+      {/* Feuille de partage de position temporaire */}
+      {locSheet ? (
+        <View style={styles.promptOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setLocSheet(false)} />
+          <View style={styles.promptCard}>
+            <Txt size="lg" weight="700">Partager ma position</Txt>
+            <Txt size="xs" color={colors.textMuted} style={{ marginTop: 4 }}>
+              Votre position sera visible pendant la durée choisie, puis masquée automatiquement.
+            </Txt>
+
+            <Txt size="sm" weight="600" style={{ marginTop: spacing.md }}>Point de repère (optionnel)</Txt>
+            <TextInput
+              value={landmark}
+              onChangeText={setLandmark}
+              placeholder="Ex : maison jaune, devant la pharmacie…"
+              placeholderTextColor={colors.textSubtle}
+              style={styles.promptInput}
+              maxLength={200}
+              testID="location-landmark-input"
+            />
+
+            {locStatus === "blocked" ? (
+              <Pressable onPress={openSettings} style={[styles.promptBtn, styles.promptGhost, { marginTop: spacing.md }]}>
+                <Txt weight="700" color={colors.turquoise}>Activer la localisation dans les Réglages</Txt>
+              </Pressable>
+            ) : (
+              <View style={{ gap: 8, marginTop: spacing.md }}>
+                {SHARE_DURATIONS.map((d) => (
+                  <Pressable
+                    key={d.minutes}
+                    onPress={() => shareLocation(d.minutes)}
+                    disabled={sendingLoc}
+                    style={[styles.durationBtn, sendingLoc && { opacity: 0.5 }]}
+                    testID={`location-duration-${d.minutes}`}
+                  >
+                    <Ionicons name="time-outline" size={16} color={colors.turquoise} />
+                    <Txt weight="700" style={{ marginLeft: 8 }}>Partager pendant {d.label}</Txt>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            <Pressable onPress={() => setLocSheet(false)} style={[styles.promptBtn, styles.promptGhost, { marginTop: spacing.md }]}>
+              <Txt weight="700" color={colors.textMuted}>Annuler</Txt>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
       {/* Prompt in-app pour le motif du signalement (Alert.prompt n'existe pas sur Android/web) */}
       {reportPrompt ? (
         <View style={styles.promptOverlay}>
@@ -315,6 +500,28 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: "78%", padding: 12, borderRadius: 18 },
   bubbleMine: { backgroundColor: colors.turquoise, borderBottomRightRadius: 4 },
   bubbleTheirs: { backgroundColor: colors.surface, borderBottomLeftRadius: 4, ...shadow.soft },
+  locBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface2, alignItems: "center", justifyContent: "center", marginRight: 8 },
+  durationBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.divider,
+  },
+  quickRepliesRow: { paddingHorizontal: spacing.lg, paddingVertical: 8, gap: 8, backgroundColor: colors.surface },
+  quickReplyChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.divider,
+  },
   inputBar: { flexDirection: "row", alignItems: "flex-end", padding: 10, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.divider },
   inputWrap: { flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, backgroundColor: colors.surface2, paddingHorizontal: 16, justifyContent: "center" },
   input: { fontSize: fs.md, color: colors.text, paddingVertical: 10 },

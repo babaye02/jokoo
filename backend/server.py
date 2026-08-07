@@ -831,8 +831,13 @@ class ReviewIn(BaseModel):
 
 
 class MessageIn(BaseModel):
-    text: str
+    text: str = ""
     kind: Literal["text", "image", "location"] = "text"
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    accuracy_m: Optional[float] = None
+    landmark: Optional[str] = None
+    expires_in_minutes: Optional[int] = None
 
 
 class CheckoutBookingIn(BaseModel):
@@ -2853,6 +2858,15 @@ async def get_messages(peer_id: str, user=Depends(current_user)):
         {"conv_id": cid, "to_id": user["id"], "read": {"$ne": True}},
         {"$set": {"read": True}},
     )
+    now = datetime.now(timezone.utc)
+    for m in msgs:
+        if m.get("kind") == "location":
+            expires_at = m.get("expires_at")
+            expired = bool(expires_at) and datetime.fromisoformat(expires_at) <= now
+            m["location_expired"] = expired
+            if expired:
+                m["lat"] = None
+                m["lng"] = None
     return msgs
 
 
@@ -2871,21 +2885,26 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
         if not prov:
             raise HTTPException(404, "Destinataire introuvable")
         peer_name = prov.get("name")
-    if not (body.text or "").strip():
-        raise HTTPException(400, "Message vide")
-    # === ANTI-CIRCUMVENTION FILTER === (protect marketplace revenue)
-    original_text = body.text.strip()
-    filtered_text, flags = _sanitize_message(original_text)
-    # Log potential contournement dans une collection dédiée pour le fraud scoring
-    if flags:
-        await db.contact_flags.insert_one({
-            "id": str(uuid.uuid4()),
-            "user_id": user["id"],
-            "peer_id": peer_id,
-            "flags": flags,
-            "text_hash": hashlib.sha256(original_text.encode()).hexdigest()[:16],
-            "created_at": now_iso(),
-        })
+    if body.kind == "location":
+        if body.lat is None or body.lng is None:
+            raise HTTPException(400, "Position manquante")
+        filtered_text, flags = "", []
+    else:
+        if not (body.text or "").strip():
+            raise HTTPException(400, "Message vide")
+        # === ANTI-CIRCUMVENTION FILTER === (protect marketplace revenue)
+        original_text = body.text.strip()
+        filtered_text, flags = _sanitize_message(original_text)
+        # Log potential contournement dans une collection dédiée pour le fraud scoring
+        if flags:
+            await db.contact_flags.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": user["id"],
+                "peer_id": peer_id,
+                "flags": flags,
+                "text_hash": hashlib.sha256(original_text.encode()).hexdigest()[:16],
+                "created_at": now_iso(),
+            })
     cid = _conv_id(user["id"], peer_id)
     doc = {
         "id": str(uuid.uuid4()),
@@ -2901,15 +2920,24 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
         "read": False,
         "created_at": now_iso(),
     }
+    if body.kind == "location":
+        expires_in_minutes = body.expires_in_minutes or 15
+        doc["lat"] = body.lat
+        doc["lng"] = body.lng
+        doc["accuracy_m"] = body.accuracy_m
+        doc["landmark"] = (body.landmark or "").strip() or None
+        doc["expires_in_minutes"] = expires_in_minutes
+        doc["expires_at"] = (datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)).isoformat()
     await db.messages.insert_one(doc)
     # Notifier le destinataire uniquement s'il a un compte utilisateur réel
     if peer:
+        notif_body = "a partagé sa position" if body.kind == "location" else filtered_text[:80]
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": peer_id,
             "type": "message",
             "title": user["name"],
-            "body": filtered_text[:80],
+            "body": notif_body,
             "peer_id": user["id"],
             "read": False,
             "created_at": now_iso(),
@@ -2920,7 +2948,7 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
                 recipients=[peer_id],
                 data={
                     "title": user["name"],
-                    "message": filtered_text[:120],
+                    "message": notif_body[:120],
                     "action_url": f"/chat/{user['id']}",
                 },
             )

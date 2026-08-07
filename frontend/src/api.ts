@@ -394,6 +394,12 @@ export type Message = {
   kind: "text" | "image" | "location";
   read: boolean;
   created_at: string;
+  lat?: number | null;
+  lng?: number | null;
+  accuracy_m?: number | null;
+  landmark?: string | null;
+  expires_in_minutes?: number | null;
+  location_expired?: boolean;
 };
 
 export type Conversation = {
