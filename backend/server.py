@@ -832,7 +832,15 @@ class ReviewIn(BaseModel):
 
 class MessageIn(BaseModel):
     text: str
-    kind: Literal["text", "image", "location"] = "text"
+    kind: Literal["text", "image", "location", "voice"] = "text"
+    # --- Partage de position temporaire (kind == "location") ---
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180)
+    accuracy_m: Optional[float] = Field(default=None, ge=0)
+    # Point de repère libre saisi par l'utilisateur ("Devant la pharmacie", "Maison jaune")
+    landmark: Optional[str] = Field(default=None, max_length=200)
+    # Durée de validité du partage. Expire automatiquement — 15 min par défaut, 2 h max.
+    expires_in_minutes: int = Field(default=15, ge=1, le=120)
 
 
 class CheckoutBookingIn(BaseModel):
@@ -2839,6 +2847,34 @@ async def conversations(user=Depends(current_user)):
     return out
 
 
+def redact_expired_location(msg: dict) -> dict:
+    """Masque les coordonnées d'un partage de position dont la durée est écoulée.
+
+    Le message reste dans la conversation (pour l'historique et les litiges) mais
+    lat/lng sont retirés côté lecture : plus personne ne peut re-suivre le point
+    une fois la réservation terminée. Le point de repère textuel, lui, est
+    conservé car c'est une information volontairement descriptive et non une
+    géolocalisation.
+    """
+    if msg.get("kind") != "location":
+        return msg
+    exp = msg.get("expires_at")
+    if not exp:
+        return msg
+    try:
+        exp_dt = datetime.fromisoformat(exp)
+        if exp_dt.tzinfo is None:
+            # Date sans fuseau (donnée héritée) — interprétée en UTC
+            exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+        expired = exp_dt <= datetime.now(timezone.utc)
+    except Exception:
+        # En cas de date illisible on masque : la confidentialité prime sur l'affichage.
+        expired = True
+    if expired:
+        return {**msg, "lat": None, "lng": None, "accuracy_m": None, "location_expired": True}
+    return {**msg, "location_expired": False}
+
+
 @api.get("/chat/{peer_id}/messages")
 async def get_messages(peer_id: str, user=Depends(current_user)):
     # Si l'un des deux a bloqué l'autre, on renvoie une conversation vide
@@ -2853,7 +2889,7 @@ async def get_messages(peer_id: str, user=Depends(current_user)):
         {"conv_id": cid, "to_id": user["id"], "read": {"$ne": True}},
         {"$set": {"read": True}},
     )
-    return msgs
+    return [redact_expired_location(m) for m in msgs]
 
 
 @api.post("/chat/{peer_id}/messages")
@@ -2871,7 +2907,10 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
         if not prov:
             raise HTTPException(404, "Destinataire introuvable")
         peer_name = prov.get("name")
-    if not (body.text or "").strip():
+    is_location = body.kind == "location"
+    if is_location and (body.lat is None or body.lng is None):
+        raise HTTPException(400, "Position invalide : coordonnées manquantes.")
+    if not is_location and not (body.text or "").strip():
         raise HTTPException(400, "Message vide")
     # === ANTI-CIRCUMVENTION FILTER === (protect marketplace revenue)
     original_text = body.text.strip()
@@ -2901,6 +2940,25 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
         "read": False,
         "created_at": now_iso(),
     }
+    if is_location:
+        landmark_clean = None
+        if (body.landmark or "").strip():
+            landmark_clean, lm_flags = _sanitize_message(body.landmark.strip())
+            if lm_flags:
+                flags = sorted({*flags, *lm_flags})
+                doc["flagged"] = True
+                doc["flags"] = flags
+        if not doc["text"]:
+            doc["text"] = "📍 Position partagée"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=body.expires_in_minutes)
+        doc.update({
+            "lat": body.lat,
+            "lng": body.lng,
+            "accuracy_m": body.accuracy_m,
+            "landmark": landmark_clean or None,
+            "expires_at": expires_at.isoformat(),
+            "expires_in_minutes": body.expires_in_minutes,
+        })
     await db.messages.insert_one(doc)
     # Notifier le destinataire uniquement s'il a un compte utilisateur réel
     if peer:
@@ -2909,7 +2967,7 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
             "user_id": peer_id,
             "type": "message",
             "title": user["name"],
-            "body": filtered_text[:80],
+            "body": (doc.get("text") or filtered_text)[:80],
             "peer_id": user["id"],
             "read": False,
             "created_at": now_iso(),
@@ -2920,7 +2978,7 @@ async def send_message(peer_id: str, body: MessageIn, user=Depends(current_user)
                 recipients=[peer_id],
                 data={
                     "title": user["name"],
-                    "message": filtered_text[:120],
+                    "message": (doc.get("text") or filtered_text)[:120],
                     "action_url": f"/chat/{user['id']}",
                 },
             )
@@ -8146,6 +8204,31 @@ async def _rides_v2_startup():
     except Exception as _e:
         log.warning("[rides_v2] ensure_indexes failed: %s", _e)
     _asyncio.create_task(_rv2_expiration_loop(db, interval_seconds=300))
+
+
+# 🎙 Chat — Notes vocales (module séparé, voir chat_voice.py)
+from chat_voice import (  # noqa: E402
+    build_chat_voice_router as _build_chat_voice_router,
+    ensure_indexes as _chat_voice_ensure_indexes,
+)
+
+_chat_voice_router = _build_chat_voice_router(
+    db,
+    current_user=current_user,
+    is_pair_blocked=_is_pair_blocked,
+    conv_id_fn=_conv_id,
+    send_push=send_push,
+)
+app.include_router(_chat_voice_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def _chat_voice_startup():
+    try:
+        await _chat_voice_ensure_indexes(db)
+        log.info("[chat_voice] indexes ok")
+    except Exception as _e:
+        log.warning("[chat_voice] ensure_indexes failed: %s", _e)
 
 
 async def _ambassador_commissions_cron():

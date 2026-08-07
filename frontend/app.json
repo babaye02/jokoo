@@ -8,7 +8,9 @@
     "scheme": "jokoo",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.jokoo.app",
@@ -20,12 +22,22 @@
         "NSPhotoLibraryUsageDescription": "Choisissez des photos pour votre profil et missions.",
         "NSPhotoLibraryAddUsageDescription": "Enregistrez vos justificatifs et reçus dans vos photos.",
         "NSLocationWhenInUseUsageDescription": "Trouvez les trajets et prestataires près de vous.",
+        "NSMicrophoneUsageDescription": "Enregistrez des notes vocales dans vos conversations.",
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleDisplayName": "Jokoo",
-        "LSApplicationQueriesSchemes": ["wave", "orangemoney", "comgooglemaps"],
+        "LSApplicationQueriesSchemes": [
+          "wave",
+          "orangemoney",
+          "comgooglemaps"
+        ],
         "UIRequiresFullScreen": false,
-        "UIBackgroundModes": ["remote-notification"],
-        "CFBundleLocalizations": ["fr", "en"],
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
+        "CFBundleLocalizations": [
+          "fr",
+          "en"
+        ],
         "CFBundleDevelopmentRegion": "fr"
       }
     },
@@ -68,12 +80,31 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            { "scheme": "https", "host": "jokooservices.com", "pathPrefix": "/i" },
-            { "scheme": "https", "host": "jokooservices.com", "pathPrefix": "/invite" },
-            { "scheme": "https", "host": "www.jokooservices.com", "pathPrefix": "/i" },
-            { "scheme": "https", "host": "www.jokooservices.com", "pathPrefix": "/invite" }
+            {
+              "scheme": "https",
+              "host": "jokooservices.com",
+              "pathPrefix": "/i"
+            },
+            {
+              "scheme": "https",
+              "host": "jokooservices.com",
+              "pathPrefix": "/invite"
+            },
+            {
+              "scheme": "https",
+              "host": "www.jokooservices.com",
+              "pathPrefix": "/i"
+            },
+            {
+              "scheme": "https",
+              "host": "www.jokooservices.com",
+              "pathPrefix": "/invite"
+            }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -117,7 +148,8 @@
         }
       ],
       "./plugins/with-privacy-manifest.js",
-      "./plugins/with-strip-associated-domains.js"
+      "./plugins/with-strip-associated-domains.js",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

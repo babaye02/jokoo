@@ -391,9 +391,23 @@ export type Message = {
   to_id: string;
   to_name?: string;
   text: string;
-  kind: "text" | "image" | "location";
+  kind: "text" | "image" | "location" | "voice";
   read: boolean;
   created_at: string;
+  // --- Note vocale (kind === "voice") ---
+  /** Référence média : l'audio se télécharge via GET /chat/media/{media_id}. */
+  media_id?: string | null;
+  duration_ms?: number;
+  mime?: string;
+  // --- Partage de position temporaire (kind === "location") ---
+  lat?: number | null;
+  lng?: number | null;
+  accuracy_m?: number | null;
+  landmark?: string | null;
+  expires_at?: string | null;
+  expires_in_minutes?: number;
+  /** true quand la durée de partage est écoulée : les coordonnées ne sont plus renvoyées. */
+  location_expired?: boolean;
 };
 
 export type Conversation = {
